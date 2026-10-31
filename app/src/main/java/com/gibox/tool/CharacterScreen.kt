@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -24,6 +25,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.ui.Alignment
@@ -36,12 +41,15 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 
-/** The mods of one character: switch each on or off here, tap one for its details. */
+/** The mods of one character: a search field, then each mod to switch on or off here, or tap for its details. */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun CharacterScreen(state: AppState, id: Int) {
     val group = state.group(id)
-    val mods = group?.mods.orEmpty()
+    val all = group?.mods.orEmpty()
+    var query by rememberSaveable(id) { mutableStateOf("") }
+    val q = query.trim()
+    val mods = if (q.isEmpty()) all else all.filter { state.label(it.name).contains(q, ignoreCase = true) || it.name.contains(q, ignoreCase = true) }
     val title = group?.title ?: if (id == 0) "未选择角色" else Characters.nameOf(id)
     val pending = state.refreshingBones(id)
     val pkg = state.game
@@ -74,7 +82,7 @@ fun CharacterScreen(state: AppState, id: Int) {
                         }
                     }
                 },
-                subtitle = { Text("${mods.size} 个 MOD" + if (id != 0) " · $id" else "") },
+                subtitle = { Text("${all.size} 个 MOD" + if (id != 0) " · $id" else "") },
                 navigationIcon = { BackButton { state.back() } },
                 scrollBehavior = scroll,
             )
@@ -88,7 +96,9 @@ fun CharacterScreen(state: AppState, id: Int) {
             state.boneRefreshMessage(id)?.let { message ->
                 item(key = -id.toLong()) { Text(message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
-            if (mods.isEmpty()) item { EmptyNote("这个角色下没有 MOD 了") }
+            if (all.isNotEmpty()) item(key = Long.MIN_VALUE) { SearchField(query, { query = it }, "搜索这个角色的 MOD", Modifier.padding(bottom = 8.dp)) }
+            if (all.isEmpty()) item { EmptyNote("这个角色下没有 MOD 了") }
+            else if (mods.isEmpty()) item { EmptyNote("没有找到“$q”") }
             itemsIndexed(mods, key = { _, m -> m.name }) { index, m ->
                 val on = m.converted && state.selected(m.name)
                 val label = state.label(m.name)
@@ -98,7 +108,6 @@ fun CharacterScreen(state: AppState, id: Int) {
                     supportingContent = {
                         val parts = mutableListOf(if (!m.converted) "未转换" else if (on) "已开启" else "未开启")
                         if (m.outdated) parts.add("需重新转换")
-                        if (label != m.name) parts.add(m.name)
                         Text(
                             parts.joinToString(" · "),
                             maxLines = 1,

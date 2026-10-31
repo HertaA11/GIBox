@@ -18,7 +18,8 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Warning
@@ -28,7 +29,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -41,6 +41,10 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -49,7 +53,7 @@ import androidx.compose.ui.unit.dp
 
 /**
  * Home: top bar (日志 / 设置), the module card (state and version), a card with the replacement switch, import and
- * refresh, and a card of the mods by character. 启动 is the floating button.
+ * refresh, and a card of the mods by character (searchable by name or ID).
  */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -72,14 +76,10 @@ fun HomeScreen(state: AppState, pickZip: () -> Unit) {
                 scrollBehavior = scroll,
             )
         },
-        // 启动: the floating action button, bottom right.
-        floatingActionButton = {
-            FloatingActionButton(onClick = { state.launch() }) { Icon(Icons.Filled.PlayArrow, contentDescription = "启动") }
-        },
     ) { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = padding.calculateTopPadding() + 8.dp, bottom = padding.calculateBottomPadding() + 96.dp),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = padding.calculateTopPadding() + 8.dp, bottom = padding.calculateBottomPadding() + 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item { ModuleCard(state) }
@@ -144,30 +144,42 @@ private fun ManageCard(state: AppState, pickZip: () -> Unit) {
                 Button(onClick = { if (state.storage) pickZip() else state.needStorage() }, modifier = Modifier.weight(1.6f).heightIn(min = 52.dp)) {
                     Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(ButtonDefaults.IconSize))
                     Spacer(Modifier.size(ButtonDefaults.IconSpacing))
-                    Text("导入 MOD（.zip）", maxLines = 1)
+                    Text("导入 MOD", maxLines = 1, softWrap = false)
                 }
                 OutlinedButton(onClick = { state.refresh() }, modifier = Modifier.weight(1f).heightIn(min = 52.dp)) {
                     Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(ButtonDefaults.IconSize))
                     Spacer(Modifier.size(ButtonDefaults.IconSpacing))
-                    Text("刷新", maxLines = 1)
+                    Text("刷新", maxLines = 1, softWrap = false)
                 }
             }
         }
     }
 }
 
-/** 角色 MOD: one row per character with its number of mods; the mods themselves are on the character's page. */
+/**
+ * 角色 MOD: one row per character with its number of mods; the mods themselves are on the character's page. The search
+ * button opens a field that filters the characters by name or ID.
+ */
 @Composable
 private fun ModsCard(state: AppState) {
-    val groups = state.groups()
+    val all = state.groups()
+    var searching by rememberSaveable { mutableStateOf(false) }
+    var query by rememberSaveable { mutableStateOf("") }
+    val q = query.trim()
+    val groups = if (!searching || q.isEmpty()) all else all.filter { it.title.contains(q, ignoreCase = true) || it.id.toString().contains(q) }
     HomeCard {
         Column(Modifier.padding(vertical = 8.dp)) {
-            Row(Modifier.padding(start = 24.dp, end = 24.dp, top = 12.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.padding(start = 24.dp, end = 12.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("角色 MOD", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
-                Text("${groups.size} 个角色", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("${all.size} 个角色", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                IconButton(onClick = { searching = !searching; if (!searching) query = "" }) {
+                    Icon(if (searching) Icons.Filled.Close else Icons.Filled.Search, contentDescription = if (searching) "关闭搜索" else "搜索角色")
+                }
             }
+            if (searching) SearchField(query, { query = it }, "搜索角色名或 ID", Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
             HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh)
-            if (groups.isEmpty()) EmptyNote("还没有 MOD。点「导入 MOD」，在系统文件管理器里选 MOD 的 .zip 压缩包。")
+            if (all.isEmpty()) EmptyNote("还没有 MOD。点「导入 MOD」，在系统文件管理器里选 MOD 的 .zip 压缩包。")
+            else if (groups.isEmpty()) EmptyNote("没有找到“$q”")
             groups.forEach { g ->
                 Row(
                     Modifier.fillMaxWidth().clickable { state.open(Screen.Character(g.id)) }.padding(start = 24.dp, end = 16.dp, top = 16.dp, bottom = 16.dp),
