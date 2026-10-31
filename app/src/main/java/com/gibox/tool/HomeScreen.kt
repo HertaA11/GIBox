@@ -88,7 +88,7 @@ fun HomeScreen(state: AppState, pickZip: () -> Unit) {
     }
 }
 
-/** Whether LSPosed loaded the module, the game's and the module's versions; without file access, the button to grant it. */
+/** Whether LSPosed loaded the module and its version; without file access, the button to grant it. */
 @Composable
 private fun ModuleCard(state: AppState) {
     val active = state.moduleActive
@@ -107,7 +107,6 @@ private fun ModuleCard(state: AppState) {
                 Spacer(Modifier.width(12.dp))
                 Text(if (active) "模块已激活" else "模块未激活", style = MaterialTheme.typography.titleLarge)
             }
-            Text("原神版本 " + (state.gameVersion ?: "未安装"), style = MaterialTheme.typography.bodyMedium)
             Text("模块版本 " + state.appVersion, style = MaterialTheme.typography.bodyMedium)
             if (!active) Text("在 LSPosed 里启用 GIBox，作用域勾选原神和 GIBox 自己，然后重新打开 GIBox、彻底重启游戏。", style = MaterialTheme.typography.bodyMedium)
             if (!state.storage) {

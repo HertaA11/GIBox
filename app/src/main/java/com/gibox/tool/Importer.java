@@ -145,7 +145,7 @@ public final class Importer {
         log.append("角色：").append(Characters.nameOf(id)).append("（").append(id).append("）").append(r.library ? "，使用骨骼库：" + recorded.bones : lodLibrary.isEmpty() ? "，骨骼库里还没有这个角色：按游戏原骨骼顺序转换" : "，骨骼库里这个角色的记录是低精度模型 " + lodLibrary + "，不使用：按游戏原骨骼顺序转换").append('\n');
         if (!r.library && avatar != null && !avatar.model.isEmpty()) opt.names(avatar.model);
         r.model = ModelConverter.convert(src, r.library ? recorded.bones : null, new File(modelsRoot, name), id, opt, decoder, log);
-        if (TextureMod.is(r.model)) { r.summary = Characters.nameOf(id) + "（" + id + "）：纯贴图 MOD，只换游戏模型上的贴图。进游戏后按设置里的“纯贴图替换策略”处理（默认只诊断，不写入）；匹配不上的显示“等待映射”"; return r; }
+        if (TextureMod.is(r.model)) { r.summary = Characters.nameOf(id) + "（" + id + "）：纯贴图 MOD，只换游戏模型上的贴图。进游戏后自动替换确认过的部件（调试页里可换替换方式）；匹配不上的显示“等待映射”"; return r; }
         r.summary = Characters.nameOf(id) + "（" + id + "）" + (r.library ? "：骨骼库已有该角色，进游戏即可替换" : opt.reusedSkeleton ? "：复用本 MOD 已有骨骼记录，目标网格信息已保留"
             : "：骨骼库里还没有该角色，" + (opt.names.isEmpty() ? "需要该角色在大世界出场一次后生效" : "在大世界、队伍界面或角色详情页出现时识别部件"));
         for (String l : log.toString().split("\n")) if (l.startsWith("款式变量") || l.startsWith("模型动画：") || l.startsWith("动画骨骼兼容：") || l.contains("个顶点没有权重")) r.summary += "\n" + l;

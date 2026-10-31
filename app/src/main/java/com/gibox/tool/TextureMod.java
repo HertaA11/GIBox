@@ -74,7 +74,7 @@ final class TextureMod {
             manifest.put("generation", "t" + System.currentTimeMillis() + "-" + (++generation)); manifest.put("character", Json.of("id", id));
             if (o.sourcePath != null) manifest.put("source", Json.of("path", o.sourcePath, "signature", o.sourceSignature == null ? "" : o.sourceSignature));
             manifest.put("variants", Json.of("vars", vars, "default", defaults)); manifest.put("textures", textures); manifest.put("diag", doc);
-            log.append("纯贴图 MOD：").append(usable).append(" / ").append(rules).append(" 条规则有可写入的贴图，").append(textures.size()).append(" 张贴图共 ").append(bytes >> 20).append(" MiB；进游戏后按设置里的“纯贴图替换策略”处理，匹配不上的等待映射\n");
+            log.append("纯贴图 MOD：").append(usable).append(" / ").append(rules).append(" 条规则有可写入的贴图，").append(textures.size()).append(" 张贴图共 ").append(bytes >> 20).append(" MiB；进游戏后自动替换确认过的部件，匹配不上的等待映射\n");
             Files.write(new File(tmp, "conversion.log").toPath(), log.toString().getBytes(StandardCharsets.UTF_8));
             Files.write(new File(tmp, FILE).toPath(), Json.write(manifest).getBytes(StandardCharsets.UTF_8));   // last: the game reloads on it
             ModelConverter.commit(tmp, dest, o.replace); log.append("完成：").append(dest).append('\n'); return dest;

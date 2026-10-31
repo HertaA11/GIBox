@@ -78,12 +78,6 @@ class AppState(private val activity: Activity) {
         private set
     /** This APK's versionName (app/build.gradle.kts), read from the package rather than written in the source. */
     val appVersion: String = packageInfo(activity.packageName)?.versionName ?: "?"
-    /** The selected game's version as its package states it: versionName up to the first "_", versionCode in brackets. */
-    val gameVersion: String?
-        get() = packageInfo(game)?.let { p ->
-            @Suppress("DEPRECATION") val code = if (Build.VERSION.SDK_INT >= 28) p.longVersionCode else p.versionCode.toLong()
-            "${(p.versionName ?: "?").substringBefore('_')}($code)"
-        }
     var busy by mutableStateOf<Busy?>(null)
         private set
     var prompt by mutableStateOf<Prompt?>(null)

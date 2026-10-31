@@ -1270,7 +1270,7 @@ int main(int argc,char** argv){Fake fake;f=&fake;char temp[]="/tmp/model-runtime
   store<uint32_t>(load<Ptr>(mat+0x10)+8,7);control("auto",true);run(1500);Ptr acopy=load<Ptr>(f->obj[body].materials+0x20);
   assert(acopy!=mat&&f->diffuse[acopy]!=gameTex&&f->diffuse[mat]==gameTex&&count("auto: a loaded asset, copied")==1);
   control("auto",false);run(1000);assert(load<Ptr>(f->obj[body].materials+0x20)==mat&&f->diffuse[mat]==gameTex);store<uint32_t>(load<Ptr>(mat+0x10)+8,uint32_t(-3));
-  control("diagnose",true);unsigned writes=gameWrites;run(2000);assert(gameWrites==writes&&f->diffuse[mat]==gameTex&&JsonParser(text(sharedTex+"/status.json")).parse().at("detail").string=="TexMod：只诊断，不写入（设置里可换策略）");
+  control("diagnose",true);unsigned writes=gameWrites;run(2000);assert(gameWrites==writes&&f->diffuse[mat]==gameTex&&JsonParser(text(sharedTex+"/status.json")).parse().at("detail").string=="TexMod：只诊断，不写入（调试页里可换替换方式）");
   // Test rounds: direct, then clone; each restore verified against the saved slot.
   control("diagnose",true,",\"testRequest\":1,\"testStrategies\":[\"direct\",\"clone\"],\"observeMs\":1000");run(6000);
   assert(count("texture-test T1 start: direct -> clone")==1&&count("texture-test T1-1 direct baseline: Body#")==1&&count("texture-apply T1-1/direct TexMod")==1&&count("texture-apply T1-2/clone TexMod")==1);

@@ -54,10 +54,11 @@ struct Experiments {bool gameMaterials=false,neutralColors=false,noUv2=false,glo
  std::string text()const{return std::string("gameMaterials=")+(gameMaterials?"on":"off")+" firstRefreshMs="+(firstRefreshMs?std::to_string(firstRefreshMs):"default")+" neutralColors="+(neutralColors?"on":"off")+" noUv2="+(noUv2?"on":"off")+" glowTrace="+(glowTrace?"on":"off")+" slotTextures="+(slotTextures==1?"block":slotTextures==2?"custom":"off")+" separateDraws="+(separateDraws?"on":"off")+" animationMode="+std::to_string(animationMode)+" logicCore="+(logicCore?"on":"off");}};
 // keys: the App's presses of a model's [Key] sections (model.json logic.keys), numbered; each is taken once, by number.
 struct KeyPress {long long seq=0;size_t file=0;std::string section;bool back=false;bool operator==(const KeyPress& o)const{return seq==o.seq&&file==o.file&&section==o.section&&back==o.back;}};
-// Texture-only mods (control.json "textureMods", 0.7.52): strategy diagnose / direct / clone, lod full / migrate, test rounds.
+// Texture-only mods (control.json "textureMods", 0.7.52): strategy auto (default since 0.7.61) / diagnose / direct / clone, lod
+// full / migrate, test rounds.
 // auto (0.7.60): the game's own per-renderer instance is written in place (its effects keep running on it); a loaded asset
 // or a material another renderer shows is copied first, and the game's instance made from that copy is followed in place.
-struct TexModControl {std::string strategy="diagnose",lod="full";long long testRequest=0;std::vector<std::string> testStrategies{"auto","direct","clone"};int observeMs=4000;};
+struct TexModControl {std::string strategy="auto",lod="full";long long testRequest=0;std::vector<std::string> testStrategies{"auto","direct","clone"};int observeMs=4000;};
 struct ControlState {TexModControl tex;Experiments exp;bool enabled=false;int logLevel=int(Level::Info);std::vector<std::string> selected;long long exportBones=0,refreshBones=0,renderMark=0;unsigned refreshBonesCharacter=0;std::map<std::string,std::map<std::string,int>> variables;std::map<std::string,std::vector<KeyPress>> keys;};
 ControlState parseControl(const std::string& raw){
  Json c=JsonParser(raw).parse();require(c.type==Json::Object,"Control JSON object");ControlState s;
@@ -77,7 +78,7 @@ ControlState parseControl(const std::string& raw){
    require(k.at("section").type==Json::String&&!k.at("section").string.empty()&&k.at("section").string.size()<=256,"Key press section");x.section=k.at("section").string;x.back=k.at("back").type==Json::Bool&&k.at("back").boolean;s.keys[model.first].push_back(x);}}
  s.logLevel=logThreshold(c);
  const auto& t=c.at("textureMods");if(t.type==Json::Object){auto text=[&](const char* k,const char* fallback,std::initializer_list<const char*> allowed){const auto& v=t.at(k);if(v.type!=Json::String)return std::string(fallback);for(auto* a:allowed)if(v.string==a)return v.string;return std::string(fallback);};
-  s.tex.strategy=text("strategy","diagnose",{"diagnose","auto","direct","clone"});s.tex.lod=text("lod","full",{"full","migrate"});s.tex.testRequest=integerOf(t.at("testRequest"));require(s.tex.testRequest>=0,"textureMods.testRequest");
+  s.tex.strategy=text("strategy","auto",{"diagnose","auto","direct","clone"});s.tex.lod=text("lod","full",{"full","migrate"});s.tex.testRequest=integerOf(t.at("testRequest"));require(s.tex.testRequest>=0,"textureMods.testRequest");
   const auto& ts=t.at("testStrategies");if(ts.type==Json::Array){s.tex.testStrategies.clear();for(auto& v:ts.array)if(v.type==Json::String&&(v.string=="auto"||v.string=="direct"||v.string=="clone")&&s.tex.testStrategies.size()<4)s.tex.testStrategies.push_back(v.string);if(s.tex.testStrategies.empty())s.tex.testStrategies={"auto","direct","clone"};}
   auto ms=integerOf(t.at("observeMs"));if(ms)s.tex.observeMs=int(std::min<long long>(60000,std::max<long long>(1000,ms)));}
  const auto& x=c.at("experiments");if(x.type==Json::Object){auto flag=[&](const char* k){return x.at(k).type==Json::Bool&&x.at(k).boolean;};
@@ -874,7 +875,7 @@ struct Runtime::Impl {
   std::string status;
   for(auto& kv:texDiagDocs){auto& f=kv.second;if(!f.mod||!texModOn(f.mod->name))continue;const auto& m=*f.mod;std::string who=m.name+"：";
    if(!ch.entity||m.character!=ch.config){status+=(status.empty()?"":"；")+who+"等待角色 "+std::to_string(m.character);continue;}
-   if(strategy=="diagnose"){status+=(status.empty()?"":"；")+who+"只诊断，不写入（设置里可换策略）";continue;}
+   if(strategy=="diagnose"){status+=(status.empty()?"":"；")+who+"只诊断，不写入（调试页里可换替换方式）";continue;}
    TexLive* L=nullptr;std::shared_ptr<std::map<std::string,Texture>> px;std::string why;
    if(!texLiveFor(kv.first,f,strategy,test,L,px,why)){status+=(status.empty()?"":"；")+who+"贴图读取中";if(why!="reading the textures"&&why!="restoring the previous strategy first")log("texture-error",m.name+": "+why);continue;}
    if(!texStoreReady(kv.first,why)){status+=(status.empty()?"":"；")+who+"贴图准备中（"+why+"）";continue;}

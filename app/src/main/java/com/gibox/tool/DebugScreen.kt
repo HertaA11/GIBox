@@ -29,8 +29,8 @@ import com.alorma.compose.settings.ui.expressive.SettingsMenuLink
 import com.alorma.compose.settings.ui.expressive.SettingsSwitch
 
 /**
- * Debug and test tools, out of the way of the settings: every texture-only strategy, the test rounds and the index-buffer
- * hash diagnostic; the material and animation experiments; bone export and the old manual conversion.
+ * Debug and test tools, out of the way of the settings: texture-only mods (strategy, LOD, hash matching, test rounds), the
+ * 3DMigoto logic core, the material and animation experiments, bone export and the old manual conversion.
  */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -52,35 +52,47 @@ fun DebugScreen(state: AppState) {
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = padding.calculateTopPadding(), bottom = padding.calculateBottomPadding() + 24.dp),
         ) {
             item {
-                // Texture-only mods (0.7.52): takes effect within a second; the hash diagnostic at the next game start.
+                // Texture-only mods: strategy and LOD take effect within a second; hash matching at the next game start.
                 val rev = state.revision
-                val strategy = remember(rev) { state.textureMods("strategy", "diagnose") }
+                val strategy = remember(rev) { state.textureMods("strategy", "auto") }
+                val lod = remember(rev) { state.textureMods("lod", "full") }
                 val ibHash = remember(rev) { state.textureModsFlag("ibHash") }
                 SettingsGroup(title = { SectionTitle("纯贴图 MOD") }, verticalArrangement = gap) {
-                    SegmentedListItem(shapes = ListItemDefaults.segmentedShapes(0, 3)) {
+                    SegmentedListItem(shapes = ListItemDefaults.segmentedShapes(0, 4)) {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("替换方式（全部）", style = MaterialTheme.typography.titleSmall)
-                            Text("对比用：直接改游戏材质（读进来的原始材质会等游戏的实例）、克隆当前材质（游戏在自己实例上的效果可能看不到）。切换会先还原。日志 texture-apply / texture-restore / texture-event。", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("替换方式", style = MaterialTheme.typography.titleSmall)
+                            Text("默认用自动。其他方式用来对比和排查问题，切换时会先还原。", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                for ((value, label) in TEXTURE_STRATEGIES) {
+                                for ((value, label) in listOf("auto" to "自动（默认）", "diagnose" to "只检查，不替换", "direct" to "直接改游戏材质", "clone" to "复制材质再改")) {
                                     FilterChip(selected = strategy == value, onClick = { state.setTextureMods("strategy", value) }, label = { Text(label) })
                                 }
                             }
                         }
                     }
-                    SettingsMenuLink(
-                        title = { Text("开始轮测") },
-                        subtitle = { Text("角色在场时：自动、直接改材质、克隆材质各一轮，每轮保存基线 → 写入 → 读回 → 观察 4 秒 → 还原 → 核对还原；还原失败就停。首次出场、冷启动要重新进场景或重启才能测") },
-                        icon = { Icon(Icons.Filled.Build, contentDescription = null) },
-                        shapes = ListItemDefaults.segmentedShapes(1, 3),
-                        onClick = { state.startTextureTest() },
-                    )
+                    SegmentedListItem(shapes = ListItemDefaults.segmentedShapes(1, 4)) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("远处的简化模型", style = MaterialTheme.typography.titleSmall)
+                            Text("大世界里角色常用简化模型。默认只换完整模型；也可以换到核对一致的简化模型上。", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                for ((value, label) in listOf("full" to "只换完整模型", "migrate" to "简化模型也换")) {
+                                    FilterChip(selected = lod == value, onClick = { state.setTextureMods("lod", value) }, label = { Text(label) })
+                                }
+                            }
+                        }
+                    }
                     SettingsSwitch(
                         state = ibHash,
-                        title = { Text("索引 hash 诊断（Vulkan）") },
-                        subtitle = { Text("下次启动游戏生效。读取游戏上传的索引数据，按 3DMigoto 的算法算 hash：和 MOD 规则一致、且只对应一个 Mesh 的部件（刘海、眼睛这类分段起点分辨不出的）会被确认并存进映射，按替换方式写入；存下后关掉开关也照样用。日志 ib-hash / texture-hash-confirm，完整列表在 ib-hashes.txt") },
-                        shapes = ListItemDefaults.segmentedShapes(2, 3),
+                        title = { Text("用 hash 找部件") },
+                        subtitle = { Text("重启游戏后生效。像 PC 一样按 hash 找到刘海、眼睛等部件；找到后会记住，之后可以关掉") },
+                        shapes = ListItemDefaults.segmentedShapes(2, 4),
                         onCheckedChange = { state.setTextureModsFlag("ibHash", it) },
+                    )
+                    SettingsMenuLink(
+                        title = { Text("轮流测试替换方式") },
+                        subtitle = { Text("角色在场时依次试自动、直接改、复制，每轮换上、观察 4 秒、还原并核对；结果看日志 texture-test") },
+                        icon = { Icon(Icons.Filled.Build, contentDescription = null) },
+                        shapes = ListItemDefaults.segmentedShapes(3, 4),
+                        onClick = { state.startTextureTest() },
                     )
                 }
             }
@@ -124,8 +136,8 @@ fun DebugScreen(state: AppState) {
                     }
                     SettingsSwitch(
                         state = logic,
-                        title = { Text("由 MOD 自己的 INI 逻辑决定显示哪一帧、哪套款式") },
-                        subtitle = { Text("3DMigoto 逻辑核心在游戏里执行 [Constants]、[Present]、TextureOverride，按选中的资源找已转换的帧或款式；款式的选择作为逻辑的输入；MOD 详情里的“按键”按 MOD 自己的 [Key]（切换 / 开关），persist 变量按模型保存。需要用 0.7.36 重新转换的 MOD（按键要 0.7.37），否则或出错时仍按原来的方式。日志看 logic-") },
+                        title = { Text("使用 3DMigoto 进行转换") },
+                        subtitle = { Text("按 MOD 自带的 INI 规则切换动画和款式，支持 MOD 的按键。旧版本转换的 MOD 要重新转换") },
                         shapes = ListItemDefaults.segmentedShapes(1, 2),
                         onCheckedChange = { state.setExperiment("logicCore", it) },
                     )

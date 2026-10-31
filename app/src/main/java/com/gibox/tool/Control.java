@@ -74,8 +74,8 @@ public final class Control {
         JSONObject j = load(pkg); JSONObject x = j.optJSONObject("experiments"); if (x == null) x = new JSONObject();
         x.put(key, value); j.put("experiments", x); save(pkg, j);
     }
-    /** Texture-only mods (control.json "textureMods", read by the game): "strategy" diagnose (default: match and log, no
-     *  writes) / auto (the game's own instance written in place, an asset or shared material copied) / direct (the game's
+    /** Texture-only mods (control.json "textureMods", read by the game): "strategy" auto (default: the game's own instance
+     *  written in place, an asset or shared material copied) / diagnose (match and log, no writes) / direct (the game's
      *  material gets the texture) / clone (a copy of the material does); "lod" full (only a
      *  slot confirmed on the full mesh is written) / migrate (a confirmed slot also on a checked lower LOD); "testRequest"
      *  a counter: each new value runs the test rounds over "testStrategies", "observeMs" each (save, apply, read back,
