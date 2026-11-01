@@ -53,6 +53,22 @@ fun DebugScreen(state: AppState) {
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = padding.calculateTopPadding(), bottom = padding.calculateBottomPadding() + 24.dp),
         ) {
             item {
+                // What the framework told the app (LspService): no service means GIBox was not loaded on the modern API.
+                SettingsGroup(title = { SectionTitle("框架") }, verticalArrangement = gap) {
+                    SegmentedListItem(shapes = ListItemDefaults.segmentedShapes(0, 1)) {
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("LSPosed 服务", style = MaterialTheme.typography.titleSmall)
+                            val scope = LspService.scope
+                            Text(
+                                if (scope == null) "没有收到（框架没有按新接口加载 GIBox，或用的是旧接口）"
+                                else "${LspService.framework ?: "?"}\n作用域：" + (scope.ifEmpty { listOf("（空）") }).joinToString("、"),
+                                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+            }
+            item {
                 // Texture-only mods: strategy and LOD take effect within a second; hash matching at the next game start.
                 val rev = state.revision
                 val strategy = remember(rev) { state.textureMods("strategy", "auto") }
