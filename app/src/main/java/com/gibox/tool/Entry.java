@@ -63,7 +63,17 @@ public final class Entry implements IXposedHookLoadPackage, IXposedHookZygoteIni
         if (!temp.renameTo(out)) throw new IllegalStateException("Cannot install " + out);
     }
 
+    /** Where install() reports to: XposedBridge (legacy API) or the modern API's log (ModernEntry). */
+    interface Log { void log(String message, Throwable error); }
+
     private static void install(final Context context) {
+        install(context, moduleApk, new Log() {
+            @Override public void log(String message, Throwable error) { if (error != null) XposedBridge.log(error); else XposedBridge.log(message); }
+        });
+    }
+
+    /** In a game process, once: the mark for the app, then libgibox.so out of the module APK, loaded and started. */
+    static void install(final Context context, final String apk, final Log log) {
         if (!loading.compareAndSet(false, true)) return;
         new Thread(new Runnable() {
             @Override public void run() {
@@ -75,21 +85,21 @@ public final class Entry implements IXposedHookLoadPackage, IXposedHookZygoteIni
                     if (dir != null && (dir.isDirectory() || dir.mkdirs())) Files.write(mark.toPath(), String.valueOf(System.currentTimeMillis()).getBytes(StandardCharsets.UTF_8));
                 } catch (Throwable ignored) {}
                 try {
-                    if (moduleApk == null) throw new IllegalStateException("Xposed module APK path unavailable");
+                    if (apk == null) throw new IllegalStateException("Xposed module APK path unavailable");
                     File runtime = new File(privateDir, "runtime");
                     if (!runtime.isDirectory() && !runtime.mkdirs()) throw new IllegalStateException("Cannot create runtime directory");
                     File library = new File(runtime, "libgibox.so");
-                    try (ZipFile zip = new ZipFile(moduleApk)) {
+                    try (ZipFile zip = new ZipFile(apk)) {
                         extract(zip, "lib/arm64-v8a/libgibox.so", library);
                     }
                     library.setReadable(true, true); library.setExecutable(true, true);
                     NativeBridge.loadModule(library.getAbsolutePath());
                     // Mods are imported and converted in the app; the game only loads finished models (no scanning here).
                     NativeBridge.start(context.getPackageName(),privateDir.getAbsolutePath());
-                    XposedBridge.log("GIBox: runtime loaded for " + context.getPackageName());
+                    log.log("GIBox: runtime loaded for " + context.getPackageName(), null);
                 } catch (Throwable e) {
                     loading.set(false);
-                    XposedBridge.log(e);
+                    try { log.log("GIBox: runtime not loaded", e); } catch (Throwable ignored) {}
                     try { privateDir.mkdirs(); Files.write(new File(privateDir, "bootstrap-error.txt").toPath(), e.toString().getBytes(StandardCharsets.UTF_8)); } catch (Exception ignored) {}
                 }
             }

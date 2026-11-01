@@ -55,6 +55,9 @@ class Busy(val title: String, val text: String)
 
 /** Everything the pages show and do. File work runs on a background thread; state is changed on the UI thread only. */
 class AppState(private val activity: Activity) {
+    /** The games GIBox may work for (more than one: both ticked in LSPosed and installed; the home card switches). */
+    var games by mutableStateOf<List<String>>(emptyList())
+        private set
     /** The game package GIBox works for, picked by detectGame (no setting). */
     var game by mutableStateOf(detectGame())
         private set
@@ -124,7 +127,8 @@ class AppState(private val activity: Activity) {
     fun refresh() {
         storage = hasStorage()
         detectGame().let { if (it != game) useGame(it) }
-        moduleActive = ModuleStatus.active
+        // The legacy entry marks GIBox's own process; a framework on the modern API instead hands over its service.
+        moduleActive = ModuleStatus.active || LspService.scope != null
         frameworkApi = ModuleStatus.api
         mods = Importer.list(modsRoot, modelsRoot)
         labels = Labels.read(labelsFile)
@@ -170,16 +174,28 @@ class AppState(private val activity: Activity) {
     fun selected(name: String): Boolean = Control.selected(game, name)
 
     /**
-     * The game LSPosed injects GIBox into: Entry leaves GIBox/injected.txt in the game's media folder each time it loads
-     * there. With one supported game installed, that one; with both, the one injected most recently; nothing injected yet
-     * (or no file access to see it), the official one.
+     * The game LSPosed injects GIBox into. The installed games, narrowed to the scope ticked in LSPosed when the modern
+     * service tells it (LspService); one left: that one. More than one: the one chosen on the home card (game.txt), else
+     * the one injected most recently (Entry leaves GIBox/injected.txt in the game's media folder each time it loads
+     * there), else the official one.
      */
     private fun detectGame(): String {
         val all = listOf("com.miHoYo.Yuanshen", "com.miHoYo.ys.bilibili")
         val installed = all.filter { packageInfo(it) != null }.ifEmpty { all }
-        if (installed.size == 1) return installed[0]
-        val marks = installed.associateWith { File(Control.shared(it), "injected.txt") }.filterValues { it.isFile }
-        return marks.maxByOrNull { it.value.lastModified() }?.key ?: installed[0]
+        val scope = LspService.scope
+        val candidates = (if (scope == null) installed else installed.filter { it in scope }).ifEmpty { installed }
+        games = if (scope != null && candidates.size > 1) candidates else emptyList()
+        if (candidates.size == 1) return candidates[0]
+        readPrivate("game.txt").takeIf { it in candidates }?.let { return it }
+        val marks = candidates.associateWith { File(Control.shared(it), "injected.txt") }.filterValues { it.isFile }
+        return marks.maxByOrNull { it.value.lastModified() }?.key ?: candidates[0]
+    }
+    /** The home card's switch, when both games are ticked in LSPosed. */
+    fun chooseGame(pkg: String) {
+        if (pkg !in games || pkg == game) return
+        writePrivate("game.txt", pkg)
+        useGame(pkg)
+        refresh()
     }
     private fun useGame(pkg: String) {
         game = pkg

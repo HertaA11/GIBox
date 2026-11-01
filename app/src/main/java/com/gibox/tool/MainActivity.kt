@@ -9,6 +9,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 
 /** GIBox: the module's app. Pages are a simple back stack in AppState; every page is a full screen. */
 class MainActivity : ComponentActivity() {
@@ -17,6 +18,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        LspService.start()
         state = AppState(this)
         setContent { GIBoxTheme { GIBoxApp(state) } }
     }
@@ -35,6 +37,8 @@ fun GIBoxApp(state: AppState) {
     // The system file manager (Storage Access Framework), .zip only.
     val zip = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) state.importFrom(uri) }
     BackHandler(enabled = state.stack.size > 1) { state.back() }
+    // The framework's service can arrive after the first page: the scope it brings picks the game and the module state.
+    LaunchedEffect(LspService.scope) { state.refresh() }
     AnimatedContent(targetState = state.stack.last(), label = "page") { screen ->
         when (screen) {
             Screen.Home -> HomeScreen(state, pickZip = { zip.launch(ZIP_TYPES) })
