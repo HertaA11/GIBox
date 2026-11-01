@@ -139,7 +139,7 @@ private fun ModuleCard(state: AppState) {
                     Text("模块版本 " + state.appVersion, style = MaterialTheme.typography.bodyMedium)
                 }
             }
-            if (!active) Text("在 LSPosed 里启用 GIBox，作用域勾选原神（官服或 B 服），然后重新打开 GIBox、彻底重启游戏。", style = MaterialTheme.typography.bodyMedium)
+            if (!active) Text("在 LSPosed 里启用 GIBox，作用域勾选原神（官服或 B 服）和 GIBox 自己，然后重新打开 GIBox、彻底重启游戏。", style = MaterialTheme.typography.bodyMedium)
             // Both games ticked in LSPosed: which one the app manages.
             if (state.games.size > 1) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 for (pkg in state.games) FilterChip(selected = state.game == pkg, onClick = { state.chooseGame(pkg) }, label = { Text(serverName(pkg)) })

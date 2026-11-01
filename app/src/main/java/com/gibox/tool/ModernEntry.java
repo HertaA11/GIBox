@@ -20,6 +20,10 @@ import java.nio.charset.StandardCharsets;
  *
  * Every step is also written to GIBox/modern-entry.txt in the game's media folder and to logcat (tag GIBox), so a
  * device where nothing happens shows how far the framework got.
+ *
+ * Not declared since 0.7.68 (no META-INF/xposed): on LSPosed 2.2.0-it (API 102) the trace stopped after "Application
+ * created" (install's thread never reported) and the game hung checking for resource updates. The legacy entry
+ * (Entry) is what loads until that is understood.
  */
 public final class ModernEntry extends XposedModule {
     private String process = "";

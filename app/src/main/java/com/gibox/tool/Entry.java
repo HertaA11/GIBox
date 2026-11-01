@@ -93,7 +93,9 @@ public final class Entry implements IXposedHookLoadPackage, IXposedHookZygoteIni
                         extract(zip, "lib/arm64-v8a/libgibox.so", library);
                     }
                     library.setReadable(true, true); library.setExecutable(true, true);
+                    log.log("GIBox: libgibox.so extracted (" + library.length() + " bytes), loading", null);
                     NativeBridge.loadModule(library.getAbsolutePath());
+                    log.log("GIBox: libgibox.so loaded, starting the runtime", null);
                     // Mods are imported and converted in the app; the game only loads finished models (no scanning here).
                     NativeBridge.start(context.getPackageName(),privateDir.getAbsolutePath());
                     log.log("GIBox: runtime loaded for " + context.getPackageName(), null);
