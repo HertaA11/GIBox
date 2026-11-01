@@ -55,7 +55,8 @@ class Busy(val title: String, val text: String)
 
 /** Everything the pages show and do. File work runs on a background thread; state is changed on the UI thread only. */
 class AppState(private val activity: Activity) {
-    var game by mutableStateOf(readPrivate("game.txt").takeIf { Control.supported(it) } ?: "com.miHoYo.Yuanshen")
+    /** The game package GIBox works for, picked by detectGame (no setting). */
+    var game by mutableStateOf(detectGame())
         private set
     var mods by mutableStateOf<List<Importer.Mod>>(emptyList())
         private set
@@ -100,6 +101,8 @@ class AppState(private val activity: Activity) {
 
     init {
         AppLog.debug(game, "app", "App Start $appVersion")
+        // File access is asked for once, at the first start after installing; later a feature that needs it asks again.
+        if (!hasStorage() && readPrivate("storage-asked.txt").isEmpty()) { writePrivate("storage-asked.txt", "1"); grantStorage() }
         runCatching { Control.retireExperiments(game) }
         Importer.discardAll(modsRoot)
         refresh()
@@ -120,6 +123,7 @@ class AppState(private val activity: Activity) {
     // ---------------------------------------------------------------- state
     fun refresh() {
         storage = hasStorage()
+        detectGame().let { if (it != game) useGame(it) }
         moduleActive = ModuleStatus.active
         frameworkApi = ModuleStatus.api
         mods = Importer.list(modsRoot, modelsRoot)
@@ -159,18 +163,29 @@ class AppState(private val activity: Activity) {
         .map { (id, list) -> Group(id, if (id == 0) "未选择角色" else Characters.nameOf(id), list.sortedBy { label(it.name).lowercase() }) }
     fun group(id: Int): Group? = groups().firstOrNull { it.id == id }
 
-    fun rename(name: String, text: String) = save("改名") {
+    fun rename(name: String, text: String) = save("改名", needsStorage = false) {
         Labels.set(labelsFile, name, text)
         AppLog.info(game, LOGGER, "改名 $name → ${text.trim().ifEmpty { name }}")
     }
     fun selected(name: String): Boolean = Control.selected(game, name)
 
-    fun setServer(pkg: String) {
+    /**
+     * The game LSPosed injects GIBox into: Entry leaves GIBox/injected.txt in the game's media folder each time it loads
+     * there. With one supported game installed, that one; with both, the one injected most recently; nothing injected yet
+     * (or no file access to see it), the official one.
+     */
+    private fun detectGame(): String {
+        val all = listOf("com.miHoYo.Yuanshen", "com.miHoYo.ys.bilibili")
+        val installed = all.filter { packageInfo(it) != null }.ifEmpty { all }
+        if (installed.size == 1) return installed[0]
+        val marks = installed.associateWith { File(Control.shared(it), "injected.txt") }.filterValues { it.isFile }
+        return marks.maxByOrNull { it.value.lastModified() }?.key ?: installed[0]
+    }
+    private fun useGame(pkg: String) {
         game = pkg
-        writePrivate("game.txt", pkg)
+        AppLog.info(pkg, LOGGER, "游戏：${serverName(pkg)}（$pkg，按 LSPosed 注入自动选择）")
         runCatching { Control.retireExperiments(pkg) }
         Importer.discardAll(modsRoot)
-        refresh()
     }
     fun setReplacement(on: Boolean) = save("保存") {
         Control.setEnabled(game, on)
@@ -256,7 +271,9 @@ class AppState(private val activity: Activity) {
             } },
         )
     }
-    private fun save(what: String, change: () -> Unit) {
+    /** A change to the game's files (control.json, the log): without file access, the reminder instead. */
+    private fun save(what: String, needsStorage: Boolean = true, change: () -> Unit) {
+        if (needsStorage && !hasStorage()) { needStorage(); return }
         try { change() } catch (e: Throwable) { fail(what, e, null) }
         refresh()
     }
@@ -280,7 +297,7 @@ class AppState(private val activity: Activity) {
     fun schemes(dir: File?): List<String> = dir?.let { Importer.schemes(it) } ?: emptyList()
     fun scheme(dir: File?): String = dir?.let { Importer.scheme(it) } ?: ""
     fun animationBoneFallback(dir: File?): Boolean = dir?.let { Importer.animationBoneFallback(it) } ?: false
-    fun setAnimationBoneFallback(mod: Importer.Mod, enabled: Boolean) = save("保存动画转换实验") {
+    fun setAnimationBoneFallback(mod: Importer.Mod, enabled: Boolean) = save("保存动画转换实验", needsStorage = false) {
         mod.source?.let { Importer.setAnimationBoneFallback(it, enabled) }
         AppLog.info(game, LOGGER, "${mod.name} 动画骨骼兼容 = $enabled（下次转换生效）")
         toast(if (enabled) "已开启动画骨骼兼容，请重新转换此 MOD" else "已恢复严格检查，请重新转换此 MOD")

@@ -44,6 +44,7 @@ fun LogScreen(state: AppState) {
     Scaffold(
         topBar = {
             TopAppBar(
+                colors = pageBarColors(),
                 title = { Text("运行日志") },
                 subtitle = { Text("${lines.size} 行") },
                 navigationIcon = { BackButton { state.back() } },

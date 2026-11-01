@@ -1,5 +1,6 @@
 package com.gibox.tool
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -41,15 +42,32 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 
-/** The mods of one character: a search field, then each mod to switch on or off here, or tap for its details. */
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+/**
+ * The mods of one character: a search box (it opens the search page), then each mod to switch on or off here, or tap
+ * for its details.
+ */
 @Composable
 fun CharacterScreen(state: AppState, id: Int) {
-    val group = state.group(id)
-    val all = group?.mods.orEmpty()
+    var searching by rememberSaveable(id) { mutableStateOf(false) }
     var query by rememberSaveable(id) { mutableStateOf("") }
-    val q = query.trim()
-    val mods = if (q.isEmpty()) all else all.filter { state.label(it.name).contains(q, ignoreCase = true) || it.name.contains(q, ignoreCase = true) }
+    AnimatedContent(targetState = searching, transitionSpec = { searchFade() }, label = "search") { open ->
+        if (!open) CharacterMain(state, id) { searching = true }
+        else {
+            val q = query.trim()
+            val found = if (q.isEmpty()) emptyList() else state.group(id)?.mods.orEmpty().filter { state.label(it.name).contains(q, ignoreCase = true) || it.name.contains(q, ignoreCase = true) }
+            SearchPage(query, { query = it }, "搜索这个角色的 MOD", onClose = { searching = false; query = "" }) {
+                if (q.isNotEmpty() && found.isEmpty()) item { EmptyNote("没有找到“$q”") }
+                itemsIndexed(found, key = { _, m -> m.name }) { index, m -> ModRow(state, m, index, found.size) }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun CharacterMain(state: AppState, id: Int, onSearch: () -> Unit) {
+    val group = state.group(id)
+    val mods = group?.mods.orEmpty()
     val title = group?.title ?: if (id == 0) "未选择角色" else Characters.nameOf(id)
     val pending = state.refreshingBones(id)
     val pkg = state.game
@@ -65,6 +83,7 @@ fun CharacterScreen(state: AppState, id: Int) {
         modifier = Modifier.nestedScroll(scroll.nestedScrollConnection),
         topBar = {
             LargeFlexibleTopAppBar(
+                colors = pageBarColors(),
                 title = {
                     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text(title, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -82,7 +101,7 @@ fun CharacterScreen(state: AppState, id: Int) {
                         }
                     }
                 },
-                subtitle = { Text("${all.size} 个 MOD" + if (id != 0) " · $id" else "") },
+                subtitle = { Text("${mods.size} 个 MOD" + if (id != 0) " · $id" else "") },
                 navigationIcon = { BackButton { state.back() } },
                 scrollBehavior = scroll,
             )
@@ -96,32 +115,35 @@ fun CharacterScreen(state: AppState, id: Int) {
             state.boneRefreshMessage(id)?.let { message ->
                 item(key = -id.toLong()) { Text(message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
-            if (all.isNotEmpty()) item(key = Long.MIN_VALUE) { SearchField(query, { query = it }, "搜索这个角色的 MOD", Modifier.padding(bottom = 8.dp)) }
-            if (all.isEmpty()) item { EmptyNote("这个角色下没有 MOD 了") }
-            else if (mods.isEmpty()) item { EmptyNote("没有找到“$q”") }
-            itemsIndexed(mods, key = { _, m -> m.name }) { index, m ->
-                val on = m.converted && state.selected(m.name)
-                val label = state.label(m.name)
-                SegmentedListItem(
-                    onClick = { state.open(Screen.Detail(m.name)) },
-                    shapes = ListItemDefaults.segmentedShapes(index, mods.size),
-                    supportingContent = {
-                        val parts = mutableListOf(if (!m.converted) "未转换" else if (on) "已开启" else "未开启")
-                        if (m.outdated) parts.add("需重新转换")
-                        Text(
-                            parts.joinToString(" · "),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            color = if (m.outdated) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    },
-                    trailingContent = {
-                        Switch(checked = on, onCheckedChange = { state.setSelected(m, it) }, enabled = m.converted)
-                    },
-                ) {
-                    Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-            }
+            if (mods.isNotEmpty()) item(key = Long.MIN_VALUE) { SearchBox("搜索这个角色的 MOD", onSearch, Modifier.padding(bottom = 8.dp)) }
+            if (mods.isEmpty()) item { EmptyNote("这个角色下没有 MOD 了") }
+            itemsIndexed(mods, key = { _, m -> m.name }) { index, m -> ModRow(state, m, index, mods.size) }
         }
+    }
+}
+
+/** One mod: its name, its state, the switch; tap for its details. */
+@Composable
+private fun ModRow(state: AppState, m: Importer.Mod, index: Int, count: Int) {
+    val on = m.converted && state.selected(m.name)
+    val label = state.label(m.name)
+    SegmentedListItem(
+        onClick = { state.open(Screen.Detail(m.name)) },
+        shapes = ListItemDefaults.segmentedShapes(index, count),
+        supportingContent = {
+            val parts = mutableListOf(if (!m.converted) "未转换" else if (on) "已开启" else "未开启")
+            if (m.outdated) parts.add("需重新转换")
+            Text(
+                parts.joinToString(" · "),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                color = if (m.outdated) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        },
+        trailingContent = {
+            Switch(checked = on, onCheckedChange = { state.setSelected(m, it) }, enabled = m.converted)
+        },
+    ) {
+        Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }

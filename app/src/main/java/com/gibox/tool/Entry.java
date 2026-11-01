@@ -68,6 +68,12 @@ public final class Entry implements IXposedHookLoadPackage, IXposedHookZygoteIni
         new Thread(new Runnable() {
             @Override public void run() {
                 File privateDir = new File(context.getFilesDir(), "gibox");
+                // The app picks the game it works for by this mark: LSPosed injected GIBox here, and when.
+                try {
+                    File mark = new File(Control.shared(context.getPackageName()), "injected.txt");
+                    File dir = mark.getParentFile();
+                    if (dir != null && (dir.isDirectory() || dir.mkdirs())) Files.write(mark.toPath(), String.valueOf(System.currentTimeMillis()).getBytes(StandardCharsets.UTF_8));
+                } catch (Throwable ignored) {}
                 try {
                     if (moduleApk == null) throw new IllegalStateException("Xposed module APK path unavailable");
                     File runtime = new File(privateDir, "runtime");

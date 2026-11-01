@@ -73,6 +73,7 @@ fun PickScreen(state: AppState, pick: Screen.Pick) {
     Scaffold(
         topBar = {
             TopAppBar(
+                colors = pageBarColors(),
                 title = { Text("选择角色") },
                 subtitle = { Text(pick.modName) },
                 navigationIcon = { BackButton { state.back() } },

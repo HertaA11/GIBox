@@ -1,6 +1,10 @@
 package com.gibox.tool
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.SegmentedListItem
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -18,7 +22,6 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
@@ -28,7 +31,6 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -55,18 +57,43 @@ import androidx.compose.ui.unit.dp
  * Home: top bar (日志 / 设置), the module card (state and version), a card with the replacement switch, import and
  * refresh, and a card of the mods by character (searchable by name or ID).
  */
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun HomeScreen(state: AppState, pickZip: () -> Unit) {
+    var searching by rememberSaveable { mutableStateOf(false) }
+    var query by rememberSaveable { mutableStateOf("") }
+    AnimatedContent(targetState = searching, transitionSpec = { searchFade() }, label = "search") { open ->
+        if (!open) HomeMain(state, pickZip) { searching = true }
+        else {
+            val q = query.trim()
+            val found = if (q.isEmpty()) emptyList() else state.groups().filter { it.title.contains(q, ignoreCase = true) || it.id.toString().contains(q) }
+            SearchPage(query, { query = it }, "搜索角色名或 ID", onClose = { searching = false; query = "" }) {
+                if (q.isNotEmpty() && found.isEmpty()) item { EmptyNote("没有找到“$q”") }
+                itemsIndexed(found, key = { _, g -> g.id }) { index, g ->
+                    SegmentedListItem(
+                        onClick = { state.open(Screen.Character(g.id)) },
+                        shapes = ListItemDefaults.segmentedShapes(index, found.size),
+                        trailingContent = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("${g.mods.size} 个", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        },
+                    ) { Text(g.title, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun HomeMain(state: AppState, pickZip: () -> Unit, onSearch: () -> Unit) {
     val scroll = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
-    // A tinted page under white cards; the bar keeps that tint when the list scrolls under it.
-    val page = MaterialTheme.colorScheme.surfaceContainer
     Scaffold(
         modifier = Modifier.nestedScroll(scroll.nestedScrollConnection),
-        containerColor = page,
         topBar = {
             LargeFlexibleTopAppBar(
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = page, scrolledContainerColor = page),
+                colors = pageBarColors(),
                 title = { Text("GIBox") },
                 subtitle = { Text("原神模型导入器") },
                 actions = {
@@ -84,16 +111,16 @@ fun HomeScreen(state: AppState, pickZip: () -> Unit) {
         ) {
             item { ModuleCard(state) }
             item { ManageCard(state, pickZip) }
-            item { ModsCard(state) }
+            item { ModsCard(state, onSearch) }
         }
     }
 }
 
-/** Whether LSPosed loaded the module, and the module's version; without file access, the button to grant it. */
+/** Whether LSPosed loaded the module, and its version. */
 @Composable
 private fun ModuleCard(state: AppState) {
     val active = state.moduleActive
-    val warn = !active || !state.storage
+    val warn = !active
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.extraLarge,
@@ -112,10 +139,6 @@ private fun ModuleCard(state: AppState) {
                 }
             }
             if (!active) Text("在 LSPosed 里启用 GIBox，作用域勾选原神和 GIBox 自己，然后重新打开 GIBox、彻底重启游戏。", style = MaterialTheme.typography.bodyMedium)
-            if (!state.storage) {
-                Text("还没有文件访问权限：模型放在原神的目录里，需要“所有文件访问权限”。", style = MaterialTheme.typography.bodyMedium)
-                FilledTonalButton(onClick = { state.grantStorage() }) { Text("授予文件访问权限") }
-            }
         }
     }
 }
@@ -158,28 +181,20 @@ private fun ManageCard(state: AppState, pickZip: () -> Unit) {
 
 /**
  * 角色 MOD: one row per character with its number of mods; the mods themselves are on the character's page. The search
- * button opens a field that filters the characters by name or ID.
+ * button opens the search page (characters by name or ID).
  */
 @Composable
-private fun ModsCard(state: AppState) {
-    val all = state.groups()
-    var searching by rememberSaveable { mutableStateOf(false) }
-    var query by rememberSaveable { mutableStateOf("") }
-    val q = query.trim()
-    val groups = if (!searching || q.isEmpty()) all else all.filter { it.title.contains(q, ignoreCase = true) || it.id.toString().contains(q) }
+private fun ModsCard(state: AppState, onSearch: () -> Unit) {
+    val groups = state.groups()
     HomeCard {
         Column(Modifier.padding(vertical = 8.dp)) {
             Row(Modifier.padding(start = 24.dp, end = 12.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("角色 MOD", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
-                Text("${all.size} 个角色", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                IconButton(onClick = { searching = !searching; if (!searching) query = "" }) {
-                    Icon(if (searching) Icons.Filled.Close else Icons.Filled.Search, contentDescription = if (searching) "关闭搜索" else "搜索角色")
-                }
+                Text("${groups.size} 个角色", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                IconButton(onClick = onSearch) { Icon(Icons.Filled.Search, contentDescription = "搜索角色") }
             }
-            if (searching) SearchField(query, { query = it }, "搜索角色名或 ID", Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
             HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh)
-            if (all.isEmpty()) EmptyNote("还没有 MOD。点「导入 MOD」，在系统文件管理器里选 MOD 的 .zip 压缩包。")
-            else if (groups.isEmpty()) EmptyNote("没有找到“$q”")
+            if (groups.isEmpty()) EmptyNote("还没有 MOD。点「导入 MOD」，在系统文件管理器里选 MOD 的 .zip 压缩包。")
             groups.forEach { g ->
                 Row(
                     Modifier.fillMaxWidth().clickable { state.open(Screen.Character(g.id)) }.padding(start = 24.dp, end = 16.dp, top = 16.dp, bottom = 16.dp),

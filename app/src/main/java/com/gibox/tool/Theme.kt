@@ -1,5 +1,25 @@
 package com.gibox.tool
 
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.draw.clip
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.ListItemDefaults
+import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.ContentTransform
+import androidx.activity.compose.BackHandler
 import android.os.Build
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -29,6 +49,8 @@ import androidx.compose.material3.MotionScheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBarColors
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
@@ -77,8 +99,15 @@ fun GIBoxTheme(content: @Composable () -> Unit) {
         dark -> BlueDark
         else -> BlueLight
     }
-    MaterialExpressiveTheme(colorScheme = colors, motionScheme = MotionScheme.expressive(), content = content)
+    // Every page as the home screen: a tinted page (background) under white lists and cards (surface); top bars take the
+    // page's tint (pageBarColors).
+    val pages = colors.copy(background = colors.surfaceContainer, surface = colors.surfaceContainerLowest)
+    MaterialExpressiveTheme(colorScheme = pages, motionScheme = MotionScheme.expressive(), content = content)
 }
+
+/** Top bars in the page's tint, scrolled or not (GIBoxTheme). */
+@Composable
+fun pageBarColors(): TopAppBarColors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background, scrolledContainerColor = MaterialTheme.colorScheme.background)
 
 @Composable
 fun BackButton(onClick: () -> Unit) {
@@ -130,7 +159,6 @@ fun RenameDialog(state: AppState) {
                 onValueChange = { if (it.length <= Labels.MAX) text = it.replace("\n", " ") },
                 singleLine = true,
                 label = { Text("名称") },
-                supportingText = { Text("只改 GIBox 里显示的名字；留空恢复为「$name」") },
             )
         },
         confirmButton = { TextButton(onClick = { close(); state.rename(name, text) }) { Text("保存") } },
@@ -182,3 +210,49 @@ fun SearchField(value: String, onValueChange: (String) -> Unit, placeholder: Str
         trailingIcon = { if (value.isNotEmpty()) IconButton(onClick = { onValueChange("") }) { Icon(Icons.Filled.Close, contentDescription = "清除") } },
     )
 }
+
+/** What a page shows before searching: a field-shaped button; tapping it opens the SearchPage. */
+@Composable
+fun SearchBox(placeholder: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val shape = MaterialTheme.shapes.extraLarge
+    Surface(
+        modifier = modifier.fillMaxWidth().heightIn(min = 56.dp).clip(shape).clickable(onClick = onClick),
+        shape = shape,
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    ) {
+        Row(Modifier.padding(horizontal = 16.dp, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Filled.Search, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.width(12.dp))
+            Text(placeholder, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+/**
+ * Search: the page fades to just the field at the top (focused, keyboard up), the results under it. Back (the arrow or
+ * the system) closes it. The caller fades between its page and this one.
+ */
+@Composable
+fun SearchPage(query: String, onQuery: (String) -> Unit, placeholder: String, onClose: () -> Unit, results: LazyListScope.() -> Unit) {
+    val focus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { focus.requestFocus() }
+    BackHandler(onBack = onClose)
+    Scaffold { padding ->
+        Column(Modifier.fillMaxSize().padding(top = padding.calculateTopPadding() + 8.dp)) {
+            Row(Modifier.padding(start = 4.dp, end = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onClose) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回") }
+                SearchField(query, onQuery, placeholder, Modifier.weight(1f).focusRequester(focus))
+            }
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = padding.calculateBottomPadding() + 24.dp),
+                verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap),
+                content = results,
+            )
+        }
+    }
+}
+
+/** The fade between a page and its SearchPage: quick out, quick in. */
+fun searchFade(): ContentTransform = fadeIn(tween(160)) togetherWith fadeOut(tween(110))

@@ -41,6 +41,7 @@ fun DebugScreen(state: AppState) {
         modifier = Modifier.nestedScroll(scroll.nestedScrollConnection),
         topBar = {
             LargeFlexibleTopAppBar(
+                colors = pageBarColors(),
                 title = { Text("调试") },
                 navigationIcon = { BackButton { state.back() } },
                 scrollBehavior = scroll,

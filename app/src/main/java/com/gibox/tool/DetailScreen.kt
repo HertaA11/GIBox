@@ -44,6 +44,7 @@ fun DetailScreen(state: AppState, name: String) {
         modifier = Modifier.nestedScroll(scroll.nestedScrollConnection),
         topBar = {
             LargeFlexibleTopAppBar(
+                colors = pageBarColors(),
                 title = { Text(state.label(name)) },
                 subtitle = { Text(if (mod == null) "已删除" else who(mod)) },
                 navigationIcon = { BackButton { state.back() } },
@@ -81,7 +82,7 @@ fun DetailScreen(state: AppState, name: String) {
                 SettingsGroup(title = { SectionTitle("名称") }) {
                     SettingsMenuLink(
                         title = { Text("重命名") },
-                        subtitle = { Text(if (label == mod.name) mod.name else "$label（原名 ${mod.name}）") },
+                        subtitle = { Text(label) },
                         icon = { Icon(Icons.Filled.Edit, contentDescription = null) },
                         shapes = ListItemDefaults.segmentedShapes(0, 1),
                         onClick = { state.renaming = mod.name },

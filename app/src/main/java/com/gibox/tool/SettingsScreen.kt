@@ -8,7 +8,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LargeFlexibleTopAppBar
@@ -22,11 +21,9 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.dp
 import com.alorma.compose.settings.ui.expressive.SettingsGroup
 import com.alorma.compose.settings.ui.expressive.SettingsMenuLink
-import com.alorma.compose.settings.ui.expressive.SettingsRadioButton
 
-private val SERVERS = listOf("com.miHoYo.Yuanshen", "com.miHoYo.ys.bilibili")
 
-/** Settings: general access and file directories; the debug page at the bottom. */
+/** Settings: file directories; the debug page at the bottom. (The game is picked by LSPosed injection; file access is asked for when needed.) */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun SettingsScreen(state: AppState) {
@@ -36,6 +33,7 @@ fun SettingsScreen(state: AppState) {
         modifier = Modifier.nestedScroll(scroll.nestedScrollConnection),
         topBar = {
             LargeFlexibleTopAppBar(
+                colors = pageBarColors(),
                 title = { Text("设置") },
                 navigationIcon = { BackButton { state.back() } },
                 scrollBehavior = scroll,
@@ -46,26 +44,6 @@ fun SettingsScreen(state: AppState) {
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = padding.calculateTopPadding(), bottom = padding.calculateBottomPadding() + 24.dp),
         ) {
-            item {
-                SettingsGroup(title = { SectionTitle("通用") }, verticalArrangement = gap) {
-                    SERVERS.forEachIndexed { index, pkg ->
-                        SettingsRadioButton(
-                            state = state.game == pkg,
-                            title = { Text(serverName(pkg)) },
-                            subtitle = { Text(pkg) },
-                            shapes = ListItemDefaults.segmentedShapes(index, SERVERS.size + 1),
-                            onClick = { state.setServer(pkg) },
-                        )
-                    }
-                    SettingsMenuLink(
-                        title = { Text("文件访问权限") },
-                        subtitle = { Text(if (state.storage) "已授予" else "未授予：点这里去授予") },
-                        icon = { Icon(Icons.Filled.Lock, contentDescription = null) },
-                        shapes = ListItemDefaults.segmentedShapes(SERVERS.size, SERVERS.size + 1),
-                        onClick = { state.grantStorage() },
-                    )
-                }
-            }
             item {
                 val paths = listOf(
                     "点击打开 Mods 文件夹" to state.modsRoot,

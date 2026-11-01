@@ -36,6 +36,7 @@ fun ManualScreen(state: AppState) {
     Scaffold(
         topBar = {
             TopAppBar(
+                colors = pageBarColors(),
                 title = { Text("手动转换") },
                 subtitle = { Text("旧流程") },
                 navigationIcon = { BackButton { state.back() } },
