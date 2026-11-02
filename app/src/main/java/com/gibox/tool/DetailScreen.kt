@@ -114,7 +114,7 @@ fun DetailScreen(state: AppState, name: String) {
                     SettingsSwitch(
                         state = state.animationBoneFallback(mod.source),
                         title = { Text("忽略越界骨骼关联") },
-                        subtitle = { Text("仅作用于此 MOD 的逐帧动画转换。保留每个顶点自身的有效权重后重新归一化；需要完整骨骼库，可能改变新增部件的运动。保存后重新转换。") },
+                        subtitle = { Text("只作用于此 MOD 的逐帧动画：保留顶点的有效权重并重新归一化；需完整骨骼库，可能改变新增部件的运动，保存后重新转换") },
                         enabled = state.busy == null,
                         shapes = ListItemDefaults.segmentedShapes(0, 1),
                         onCheckedChange = { state.setAnimationBoneFallback(mod, it) },
@@ -178,8 +178,8 @@ fun DetailScreen(state: AppState, name: String) {
                     SegmentedListItem(shapes = ListItemDefaults.segmentedShapes(0, 1)) {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text(
-                                "在游戏里按一次；需要模型正在显示，并且逻辑核心在驱动它" +
-                                    if (driven) "。这套 MOD 由自己的程序（时间、按键）选款式，逻辑核心运行时上面的款式表不起作用" else "",
+                                "游戏里按一次（需模型显示中且由逻辑核心驱动）" +
+                                    if (driven) "。这套 MOD 自己选款式，上面的款式表不起作用" else "",
                                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

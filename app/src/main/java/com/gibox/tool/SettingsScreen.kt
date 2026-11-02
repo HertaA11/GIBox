@@ -67,7 +67,7 @@ fun SettingsScreen(state: AppState) {
                 SettingsGroup(title = { SectionTitle("调试") }, verticalArrangement = gap) {
                     SettingsMenuLink(
                         title = { Text("调试") },
-                        subtitle = { Text("纯贴图 MOD、3DMigoto 转换、实验功能、骨骼导出、旧流程") },
+                        subtitle = { Text("纯贴图、3DMigoto、实验功能和旧流程") },
                         icon = { Icon(Icons.Filled.Build, contentDescription = null) },
                         shapes = ListItemDefaults.segmentedShapes(0, 1),
                         onClick = { state.open(Screen.Debug) },

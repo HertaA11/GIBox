@@ -162,7 +162,7 @@ private fun ManageCard(state: AppState, pickZip: () -> Unit) {
                 Row(Modifier.padding(horizontal = 20.dp, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text("全局模型替换", style = MaterialTheme.typography.titleMedium)
-                        Text(if (state.enabled) "已开启 · 进入游戏后自动替换已启用的 MOD" else "已关闭 · 游戏里显示原模型", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(if (state.enabled) "已开启 · 游戏里替换已启用的 MOD" else "已关闭 · 游戏里显示原模型", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Switch(checked = state.enabled, onCheckedChange = { state.setReplacement(it) })
                 }

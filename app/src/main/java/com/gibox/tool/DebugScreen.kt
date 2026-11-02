@@ -60,7 +60,7 @@ fun DebugScreen(state: AppState) {
                             Text("LSPosed 服务", style = MaterialTheme.typography.titleSmall)
                             val scope = LspService.scope
                             Text(
-                                if (scope == null) "没有收到（框架没有按新接口加载 GIBox，或用的是旧接口）"
+                                if (scope == null) "未收到（GIBox 没有按新接口加载）"
                                 else "${LspService.framework ?: "?"}\n作用域：" + (scope.ifEmpty { listOf("（空）") }).joinToString("、"),
                                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -78,7 +78,7 @@ fun DebugScreen(state: AppState) {
                     SegmentedListItem(shapes = ListItemDefaults.segmentedShapes(0, 4)) {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text("替换方式", style = MaterialTheme.typography.titleSmall)
-                            Text("默认用自动。其他方式用来对比和排查问题，切换时会先还原。", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("其他方式只用于对比排查，切换前会先还原。", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 for ((value, label) in listOf("auto" to "自动（默认）", "diagnose" to "只检查，不替换", "direct" to "直接改游戏材质", "clone" to "复制材质再改")) {
                                     FilterChip(selected = strategy == value, onClick = { state.setTextureMods("strategy", value) }, label = { Text(label) })
@@ -100,13 +100,13 @@ fun DebugScreen(state: AppState) {
                     SettingsSwitch(
                         state = ibHash,
                         title = { Text("用 hash 找部件") },
-                        subtitle = { Text("重启游戏后生效。像 PC 一样按 hash 找到刘海、眼睛等部件；找到后会记住，之后可以关掉") },
+                        subtitle = { Text("重启游戏后生效。像 PC 一样按 hash 找到刘海、眼睛等部件，找到后可关掉") },
                         shapes = ListItemDefaults.segmentedShapes(2, 4),
                         onCheckedChange = { state.setTextureModsFlag("ibHash", it) },
                     )
                     SettingsMenuLink(
                         title = { Text("轮流测试替换方式") },
-                        subtitle = { Text("角色在场时依次试自动、直接改、复制，每轮换上、观察 4 秒、还原并核对；结果看日志 texture-test") },
+                        subtitle = { Text("依次试三种方式，每轮观察 4 秒后还原核对") },
                         icon = { Icon(Icons.Filled.Build, contentDescription = null) },
                         shapes = ListItemDefaults.segmentedShapes(3, 4),
                         onClick = { state.startTextureTest() },
@@ -122,7 +122,7 @@ fun DebugScreen(state: AppState) {
                     SettingsSwitch(
                         state = trace,
                         title = { Text("追踪游戏对材质的写入") },
-                        subtitle = { Text("不改画面。切人和装上模型时，把谁改了哪个参数、改成什么写进日志（日志级别为“调试”时记录）") },
+                        subtitle = { Text("不改画面。切人或装模型时，记录游戏改了哪些材质参数（日志级别为“调试”时）") },
                         shapes = ListItemDefaults.segmentedShapes(0, 2),
                         onCheckedChange = { state.setExperiment("glowTrace", it) },
                     )
@@ -143,7 +143,7 @@ fun DebugScreen(state: AppState) {
                     SegmentedListItem(shapes = ListItemDefaults.segmentedShapes(0, 2)) {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text("动画播放方式", style = MaterialTheme.typography.titleSmall)
-                            Text("切换后自动重建动画模型。预热完成后开始播放；只影响带动画的 MOD。调试日志记录帧号、耗时和内存估算。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("切换后自动重建动画模型，预热完成后开始播放，只影响带动画的 MOD", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 for ((value, label) in listOf(0 to "缓存帧网格", 1 to "动态网格", 2 to "暂停（初始帧）")) {
                                     FilterChip(selected = animation == value, onClick = { state.setExperiment("animationMode", value) }, label = { Text(label) })
@@ -154,7 +154,7 @@ fun DebugScreen(state: AppState) {
                     SettingsSwitch(
                         state = logic,
                         title = { Text("使用 3DMigoto 进行转换") },
-                        subtitle = { Text("按 MOD 自带的 INI 规则切换动画和款式，支持 MOD 的按键。旧版本转换的 MOD 要重新转换") },
+                        subtitle = { Text("按 MOD 自带的 INI 规则切换动画、款式和按键；旧版转换的 MOD 需重新转换") },
                         shapes = ListItemDefaults.segmentedShapes(1, 2),
                         onCheckedChange = { state.setExperiment("logicCore", it) },
                     )
@@ -164,14 +164,14 @@ fun DebugScreen(state: AppState) {
                 SettingsGroup(title = { SectionTitle("骨骼和旧流程") }, verticalArrangement = gap) {
                     SettingsMenuLink(
                         title = { Text("导出当前角色骨骼") },
-                        subtitle = { Text("游戏里有角色在场时，导出一份带时间的骨骼目录，供手动转换用") },
+                        subtitle = { Text("导出当前角色的骨骼目录，供手动转换用") },
                         icon = { Icon(Icons.Filled.Person, contentDescription = null) },
                         shapes = ListItemDefaults.segmentedShapes(0, 2),
                         onClick = { state.exportBones() },
                     )
                     SettingsMenuLink(
                         title = { Text("手动转换（旧流程）") },
-                        subtitle = { Text("直接指定骨骼文件夹、角色 ID 和部件映射，不经过 Mods 列表") },
+                        subtitle = { Text("手动指定骨骼、角色 ID 和部件映射") },
                         icon = { Icon(Icons.Filled.Build, contentDescription = null) },
                         shapes = ListItemDefaults.segmentedShapes(1, 2),
                         onClick = { state.open(Screen.Manual) },

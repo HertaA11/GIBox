@@ -258,7 +258,7 @@ class AppState(private val activity: Activity) {
     fun startTextureTest() = save("开始轮测") {
         val n = Control.requestTextureTest(game, 4000)
         AppLog.info(game, LOGGER, "纯贴图轮测 #$n：自动 → 直接改材质 → 克隆材质，各观察 4 秒")
-        toast("已通知游戏开始轮测 #$n；结果看日志 texture-test")
+        toast("已开始轮测 #$n，结果见日志 texture-test")
     }
     /** 显示替换 开/关 for a model with its own on/off switch (model.json "replaceWhen"). */
     fun setReplacing(mod: Importer.Mod, variants: Variants, on: Boolean) = save("保存") {
@@ -268,7 +268,7 @@ class AppState(private val activity: Activity) {
     fun changeLogLevel(level: String) = save("保存") { Control.setLogLevel(game, level) }
     fun exportBones() = save("保存") {
         Control.requestBoneExport(game)
-        toast("已通知游戏：骨骼采集校验通过后导出，未通过会自动重试")
+        toast("已通知游戏导出骨骼，校验未通过会自动重试")
     }
     fun confirmBoneRefresh(id: Int) {
         if (id !in 10000000..10001999 || refreshingBones(id)) return
@@ -283,7 +283,7 @@ class AppState(private val activity: Activity) {
             onConfirm = { save("重新采集骨骼") {
                 Control.requestBoneRefresh(pkg, id)
                 AppLog.info(pkg, LOGGER, "请求重新采集 ${Characters.nameOf(id)}（$id）的骨骼")
-                toast("已提交骨骼采集请求，请在大世界切换到${Characters.nameOf(id)}")
+                toast("已提交，请在大世界切换到${Characters.nameOf(id)}")
             } },
         )
     }

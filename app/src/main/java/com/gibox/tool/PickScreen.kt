@@ -112,7 +112,7 @@ fun PickScreen(state: AppState, pick: Screen.Pick) {
         Column(Modifier.fillMaxSize().padding(top = padding.calculateTopPadding())) {
             if (schemes.size > 1) {
                 Text(
-                    "这个 MOD 有 ${schemes.size} 套 INI 方案，选一套转换（之后可在 MOD 详情里更换）",
+                    "有 ${schemes.size} 套 INI 方案，选一套转换（之后可更换）",
                     modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 8.dp),
                     style = MaterialTheme.typography.bodyMedium,
                     color = if (scheme == null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
@@ -137,7 +137,7 @@ fun PickScreen(state: AppState, pick: Screen.Pick) {
             )
             val names = guess.recommended.joinToString("、") { it.name }
             Text(
-                if (guess.recommended.isEmpty()) "没有从 MOD 的名字里认出角色，请按 ID 或名称查找。" else "根据 MOD 名称推荐：$names",
+                if (guess.recommended.isEmpty()) "没认出角色，请按 ID 或名称查找" else "根据 MOD 名称推荐：$names",
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
                 style = MaterialTheme.typography.bodyMedium,
                 color = if (guess.recommended.isEmpty()) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary,
