@@ -12,8 +12,8 @@ import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 
 /**
- * The entry for frameworks with the modern Xposed API (101+, listed in META-INF/xposed/java_init.list): the same work as
- * Entry (legacy API 82) in a game's main process, the runtime started when the game's Application is created
+ * The entry for frameworks with the modern Xposed API (102, listed in META-INF/xposed/java_init.list): the same work as
+ * Entry (legacy API 82) in a game's main process, through Loader (no legacy classes: API 102 forbids them), the runtime started when the game's Application is created
  * (Instrumentation.callApplicationOnCreate, public API: no hidden-API reflection) and again after Activity.onResume.
  * A framework that takes this entry ignores assets/xposed_init, and it hands the app its service, through which the
  * app reads the real scope (LspService).
@@ -21,9 +21,8 @@ import java.nio.charset.StandardCharsets;
  * Every step is also written to GIBox/modern-entry.txt in the game's media folder and to logcat (tag GIBox), so a
  * device where nothing happens shows how far the framework got.
  *
- * Not declared since 0.7.68 (no META-INF/xposed): on LSPosed 2.2.0-it (API 102) the trace stopped after "Application
- * created" (install's thread never reported) and the game hung checking for resource updates. The legacy entry
- * (Entry) is what loads until that is understood.
+ * 0.7.66 / 0.7.67 called Entry.install here: loading Entry needs its legacy interfaces, which a module targeting API
+ * 102 may not load, so the trace stopped after "Application created" (NoClassDefFoundError, caught by the framework).
  */
 public final class ModernEntry extends XposedModule {
     private String process = "";
@@ -40,13 +39,13 @@ public final class ModernEntry extends XposedModule {
         if (!game || !param.isFirstPackage() || !Control.supported(pkg) || !pkg.equals(process)) return;
         step("package ready: " + pkg, null);
         final String apk = getModuleApplicationInfo().sourceDir;
-        final Entry.Log log = this::step;
+        final Loader.Log log = this::step;
         try {
             Method create = Instrumentation.class.getDeclaredMethod("callApplicationOnCreate", Application.class);
             hook(create).intercept(chain -> {
                 Object result = chain.proceed();
                 step("Application created", null);
-                Entry.install((Application) chain.getArg(0), apk, log);
+                Loader.install((Application) chain.getArg(0), apk, log);
                 return result;
             });
             Method resume = Activity.class.getDeclaredMethod("onResume");
@@ -54,7 +53,7 @@ public final class ModernEntry extends XposedModule {
                 Object result = chain.proceed();
                 Activity activity = (Activity) chain.getThisObject();
                 // No in-game panel for now (an ImGui overlay will replace it); everything is controlled from the app.
-                if (Control.supported(activity.getPackageName())) Entry.install(activity, apk, log);
+                if (Control.supported(activity.getPackageName())) Loader.install(activity, apk, log);
                 return result;
             });
             step("hooks installed (Instrumentation.callApplicationOnCreate, Activity.onResume); module APK " + apk, null);

@@ -24,6 +24,12 @@ run([out/'glow_test'])
 if (root/'tests/runtime_test.cpp').exists():
     run(['g++',*flags,'-pthread','tests/runtime_test.cpp','app/src/main/cpp/runtime.cpp','-o',out/'runtime_test'])
     run([out/'runtime_test'])
+# A module targeting Xposed API 102 cannot load de.robv.android.xposed classes: whatever the modern entry reaches
+# (ModernEntry -> Loader -> Control, NativeBridge) must not refer to them, or loading it fails (0.7.66 / 0.7.67).
+for name in ['ModernEntry','Loader','Control','NativeBridge','ModuleStatus']:
+    code=''.join(l for l in (root/'app/src/main/java/com/gibox/tool'/(name+'.java')).read_text(encoding='utf-8').splitlines(True) if not l.lstrip().startswith(('*','/*','//')))
+    assert 'de.robv' not in code and 'Entry.' not in code.replace('ModernEntry',''), name+' refers to the legacy Xposed API or to Entry'
+print('Modern entry classes: PASS (no legacy Xposed API reachable)')
 java=shutil.which('java')
 if not java:raise RuntimeError('JDK 17 is required')
 stubsrc=out/'stub-src';stubclasses=out/'stub-classes';classes=out/'classes'
