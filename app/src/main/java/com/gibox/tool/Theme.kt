@@ -18,7 +18,13 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.fadeIn
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.BoundsTransform
+import androidx.compose.animation.EnterExitState
+import androidx.compose.animation.SharedTransitionLayout
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.foundation.background
 import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.SharedTransitionScope
 import androidx.activity.compose.BackHandler
@@ -236,9 +242,10 @@ fun SearchBox(placeholder: String, onClick: () -> Unit, modifier: Modifier = Mod
  * the system) closes it. The caller fades between its page and this one.
  */
 @Composable
-fun SearchPage(query: String, onQuery: (String) -> Unit, placeholder: String, onClose: () -> Unit, field: Modifier = Modifier, results: LazyListScope.() -> Unit) {
+fun SearchPage(query: String, onQuery: (String) -> Unit, placeholder: String, onClose: () -> Unit, field: Modifier = Modifier, entered: Boolean = true, results: LazyListScope.() -> Unit) {
     val focus = remember { FocusRequester() }
-    LaunchedEffect(Unit) { focus.requestFocus() }
+    // The keyboard only once the field has arrived: opening it mid-move relays out both pages on every frame.
+    LaunchedEffect(entered) { if (entered) focus.requestFocus() }
     BackHandler(onBack = onClose)
     Scaffold { padding ->
         Column(Modifier.fillMaxSize().padding(top = padding.calculateTopPadding() + 8.dp)) {
@@ -265,4 +272,19 @@ fun searchFade(): ContentTransform = fadeIn(tween(220, delayMillis = 60)) togeth
  */
 @Composable
 fun SharedTransitionScope.searchBounds(scope: AnimatedVisibilityScope): Modifier =
-    Modifier.sharedBounds(rememberSharedContentState("search"), scope, resizeMode = SharedTransitionScope.ResizeMode.RemeasureToBounds)
+    Modifier.sharedBounds(
+        rememberSharedContentState("search"), scope,
+        boundsTransform = BoundsTransform { _, _ -> tween(280, easing = FastOutSlowInEasing) },
+        resizeMode = SharedTransitionScope.ResizeMode.RemeasureToBounds,
+    )
+
+/** A page and its SearchPage, cross-faded on the page colour (never the window's white) with the field shared. */
+@Composable
+fun SearchSwitch(searching: Boolean, content: @Composable SharedTransitionScope.(open: Boolean, field: Modifier, entered: Boolean) -> Unit) {
+    SharedTransitionLayout(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+        AnimatedContent(targetState = searching, transitionSpec = { searchFade() }, label = "search") { open ->
+            val entered = transition.currentState == EnterExitState.Visible && transition.targetState == EnterExitState.Visible
+            this@SharedTransitionLayout.content(open, searchBounds(this), entered)
+        }
+    }
+}

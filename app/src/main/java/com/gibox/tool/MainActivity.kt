@@ -8,6 +8,10 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.ui.Modifier
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.background
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 
@@ -39,7 +43,8 @@ fun GIBoxApp(state: AppState) {
     BackHandler(enabled = state.stack.size > 1) { state.back() }
     // The framework's service can arrive after the first page: the scope it brings picks the game and the module state.
     LaunchedEffect(LspService.scope) { state.refresh() }
-    AnimatedContent(targetState = state.stack.last(), label = "page") { screen ->
+    // The page colour under every page: while two pages cross-fade, the window's own (white) background never shows.
+    AnimatedContent(targetState = state.stack.last(), label = "page", modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) { screen ->
         when (screen) {
             Screen.Home -> HomeScreen(state, pickZip = { zip.launch(ZIP_TYPES) })
             Screen.Settings -> SettingsScreen(state)

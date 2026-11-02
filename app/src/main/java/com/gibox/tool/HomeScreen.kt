@@ -1,7 +1,5 @@
 package com.gibox.tool
 
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.ListItemDefaults
@@ -63,13 +61,12 @@ import androidx.compose.ui.unit.dp
 fun HomeScreen(state: AppState, pickZip: () -> Unit) {
     var searching by rememberSaveable { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
-    SharedTransitionLayout { AnimatedContent(targetState = searching, transitionSpec = { searchFade() }, label = "search") { open ->
-        val field = searchBounds(this)
+    SearchSwitch(searching) { open, field, entered ->
         if (!open) HomeMain(state, pickZip, field) { searching = true }
         else {
             val q = query.trim()
             val found = if (q.isEmpty()) emptyList() else state.groups().filter { it.title.contains(q, ignoreCase = true) || it.id.toString().contains(q) }
-            SearchPage(query, { query = it }, "搜索角色名或 ID", onClose = { searching = false; query = "" }, field = field) {
+            SearchPage(query, { query = it }, "搜索角色名或 ID", onClose = { searching = false; query = "" }, field = field, entered = entered) {
                 if (q.isNotEmpty() && found.isEmpty()) item { EmptyNote("没有找到“$q”") }
                 itemsIndexed(found, key = { _, g -> g.id }) { index, g ->
                     SegmentedListItem(
@@ -85,7 +82,7 @@ fun HomeScreen(state: AppState, pickZip: () -> Unit) {
                 }
             }
         }
-    } }
+    }
 }
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
