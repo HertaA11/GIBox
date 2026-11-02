@@ -103,11 +103,15 @@ public final class Control {
     }
     /** A press of a model's [Key] (model.json logic.keys), read by the runtime from control.json "keys": numbered from
      *  "keySeq", the last 16 per model kept; the runtime takes each number once and ignores the ones there at game start. */
-    public static synchronized void pressKey(String pkg, String model, int file, String section, boolean back) throws Exception {
+    public static void pressKey(String pkg, String model, int file, String section, boolean back) throws Exception { keyInput(pkg, model, file, section, back, -1, null); }
+    /** One key input: a press (back: a cycle's back =), "select" a cycle's preset by position (activated as stepping to it
+     *  would: its condition, transition and run list), or "hold" "down" / "up" for a hold key. */
+    public static synchronized void keyInput(String pkg, String model, int file, String section, boolean back, int select, String hold) throws Exception {
         JSONObject j = load(pkg); long seq = j.optLong("keySeq", 0) + 1; j.put("keySeq", seq);
         JSONObject all = j.optJSONObject("keys"); if (all == null) all = new JSONObject();
         JSONArray old = all.optJSONArray(model), keep = new JSONArray(); if (old != null) for (int i = Math.max(0, old.length() - 15); i < old.length(); i++) { JSONObject x = old.optJSONObject(i); if (x != null) keep.put(x); }
-        JSONObject p = new JSONObject(); p.put("seq", seq); p.put("file", file); p.put("section", section); if (back) p.put("back", true); keep.put(p);
+        JSONObject p = new JSONObject(); p.put("seq", seq); p.put("file", file); p.put("section", section); if (back) p.put("back", true);
+        if (select >= 0) p.put("select", select); if (hold != null) p.put("hold", hold); keep.put(p);
         all.put(model, keep); j.put("keys", all); save(pkg, j);
     }
     public static int variable(String pkg, String model, String var, int fallback) {
@@ -117,7 +121,12 @@ public final class Control {
     public static final class Status {
         public boolean loaded; public String state = "", detail = "", scan = "", model = ""; public int characterId; public final List<String> models = new ArrayList<>();
         public long boneRefreshRequest; public int boneRefreshCharacter; public String boneRefreshState = "", boneRefreshDetail = "";
+        /** Per model the logic core runs, its keys in model.json order: see KeyState. */
+        public final java.util.Map<String, List<KeyState>> keys = new java.util.HashMap<>();
     }
+    /** A key as the logic core has it now: a cycle's preset whose values are in effect (current, -1: none, as 3DMigoto's
+     *  smart cycle resyncs), whether an activate / toggle / hold key is on (active) and whether its values are in effect (matches). */
+    public static final class KeyState { public String section = ""; public int current = -1; public boolean active, matches; }
     public static Status status(String pkg) {
         Status st = new Status();
         try {
@@ -126,6 +135,12 @@ public final class Control {
             JSONArray a = j.optJSONArray("models"); if (a != null) for (int i = 0; i < a.length(); i++) st.models.add(a.optString(i));
             st.boneRefreshRequest = j.optLong("boneRefreshRequest", 0); st.boneRefreshCharacter = j.optInt("boneRefreshCharacter", 0);
             st.boneRefreshState = j.optString("boneRefreshState", ""); st.boneRefreshDetail = j.optString("boneRefreshDetail", "");
+            JSONObject keys = j.optJSONObject("keys");
+            if (keys != null) for (java.util.Iterator<String> it = keys.keys(); it.hasNext(); ) {
+                String model = it.next(); JSONArray list = keys.optJSONArray(model); if (list == null) continue; List<KeyState> out = new ArrayList<>();
+                for (int i = 0; i < list.length(); i++) { JSONObject x = list.optJSONObject(i); KeyState k = new KeyState(); if (x != null) { k.section = x.optString("section", ""); k.current = x.optInt("current", -1); k.active = x.optBoolean("active", false); k.matches = x.optBoolean("matches", false); } out.add(k); }
+                st.keys.put(model, out);
+            }
         } catch (Exception ignored) {}
         return st;
     }

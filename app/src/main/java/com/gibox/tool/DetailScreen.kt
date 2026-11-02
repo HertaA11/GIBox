@@ -14,7 +14,6 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.AssistChip
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LargeFlexibleTopAppBar
@@ -25,6 +24,7 @@ import androidx.compose.material3.SegmentedListItem
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -33,6 +33,10 @@ import com.alorma.compose.settings.ui.expressive.SettingsGroup
 import com.alorma.compose.settings.ui.expressive.SettingsMenuLink
 import com.alorma.compose.settings.ui.expressive.SettingsSwitch
 import java.io.File
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.withContext
 
 /** One mod: enable, name, character, variants (款式), conversion record, delete. */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
@@ -61,6 +65,15 @@ fun DetailScreen(state: AppState, name: String) {
         val keys = manifest?.keys?.toList().orEmpty()
         val driven = manifest?.driven == true
         val logicCore = remember(state.revision) { state.experiment("logicCore") }
+        // The keys' state (which preset, which switch is on) as the game has it, while the panel is shown.
+        val pkg = state.game
+        if (logicCore && keys.isNotEmpty()) LaunchedEffect(pkg, name) {
+            while (isActive) {
+                val snapshot = withContext(Dispatchers.IO) { Control.status(pkg) }
+                state.acceptStatus(pkg, snapshot)
+                delay(500)
+            }
+        }
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = padding.calculateTopPadding(), bottom = padding.calculateBottomPadding() + 24.dp),
@@ -171,31 +184,8 @@ fun DetailScreen(state: AppState, name: String) {
                     }
                 }
             }
-            if (logicCore && keys.isNotEmpty()) item {
-                // The mod's own keys, as on PC: the logic core in the game runs what the key does (its run lists, conditions,
-                // assignments); 款式 above stays the App's own table and its fallback.
-                SettingsGroup(title = { SectionTitle("按键（逻辑核心）") }, verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)) {
-                    SegmentedListItem(shapes = ListItemDefaults.segmentedShapes(0, 1)) {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(
-                                "游戏里按一次（需模型显示中且由逻辑核心驱动）" +
-                                    if (driven) "。这套 MOD 自己选款式，上面的款式表不起作用" else "",
-                                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                for (k in keys) {
-                                    val name = k.section.substring(3)
-                                    AssistChip(
-                                        onClick = { state.pressKey(mod, k) },
-                                        label = { Text(name + if (k.type == "toggle") "（开关）" else if (k.back) "（下一个）" else "（切换）") },
-                                    )
-                                    if (k.back) AssistChip(onClick = { state.pressKey(mod, k, true) }, label = { Text("$name（上一个）") })
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+            // The mod's own keys, as on PC: the logic core in the game runs what each key does.
+            if (keys.isNotEmpty()) item { KeyPanel(state, mod, keys, driven, logicCore) }
             item {
                 val record = mod.model?.let { File(it, "conversion.log") }?.takeIf { it.isFile }
                 val count = if (record != null) 2 else 1

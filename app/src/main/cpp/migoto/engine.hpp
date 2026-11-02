@@ -108,7 +108,9 @@ public:
  std::map<Var*,Transition> varTransitions;std::map<std::pair<int,char>,Transition> paramTransitions;
  struct GlobalSave {float save=0;int refcount=0;};std::map<Var*,GlobalSave> globalSaves;std::map<std::pair<int,char>,GlobalSave> globalParamSaves;
  std::vector<CommandList*> pendingPost;
- struct Input {size_t key;enum Kind {Down,Up,Back} kind;};std::vector<Input> queued;
+ // Select (GIBox, not upstream): a cycle key's preset by its index, activated as a press reaching it would activate it
+ // (condition, transition, run); upstream only steps (Down / Back), and mods offer direct jumps as activate keys.
+ struct Input {size_t key;enum Kind {Down,Up,Back,Select} kind;int index=-1;};std::vector<Input> queued;
 
  void note(Event::Kind k,const std::string& where,const std::string& detail,float before=0,float after=0){if(trace)trace->push_back({k,where,detail,before,after});}
  void limitation(const std::string& where,const std::string& m){diag.add(Diagnostic::Limitation,where,m);}
@@ -142,6 +144,18 @@ public:
  void keyDown(const std::string& section){queue(section,Input::Down);}
  void keyUp(const std::string& section){queue(section,Input::Up);}
  void keyBack(const std::string& section){queue(section,Input::Back);}
+ void keySelect(const std::string& section,int index){queue(section,Input::Select,index);}
+ // What each key shows now: a cycle's preset matching the variables (smart's resync, without changing anything; -1 none),
+ // whether an activate key's assignments are all in effect, whether a toggle / hold is on.
+ struct KeyState {std::string name,type;int current=-1;bool active=false,matches=false;};
+ bool matchesCurrent(const Preset& p){if(p.vars.empty()&&p.params.empty())return false;for(auto& v:p.vars)if(v.second!=currentOrTarget(v.first))return false;for(auto& v:p.params)if(v.second!=currentOrTarget(v.first))return false;return true;}
+ std::vector<KeyState> keyStates(){std::vector<KeyState> out;
+  for(auto& k:keys){KeyState st;st.name=k.name;st.type=k.type;
+   if(k.type=="cycle"){if(k.current>=0&&size_t(k.current)<k.presets.size()&&matchesCurrent(k.presets[size_t(k.current)]))st.current=k.current;
+    else for(size_t i=0;i<k.presets.size();i++)if(matchesCurrent(k.presets[i])){st.current=int(i);break;}}
+   else if(!k.presets.empty()){st.active=k.presets[0].active;st.matches=matchesCurrent(k.presets[0]);}
+   out.push_back(st);}
+  return out;}
  std::map<std::string,float> persistent()const{std::map<std::string,float> m;for(auto& kv:globals)if(kv.second.flags&VarPersist)m[kv.first]=kv.second.value;return m;}
 
  // ---- execution (used by the commands)
@@ -173,11 +187,11 @@ public:
 private:
  struct Scope {std::deque<std::map<std::string,Var*>> levels;};
  // section: the namespaced name, or the name as the MOD writes it when only one file has a key of that name.
- void queue(const std::string& section,Input::Kind k){std::vector<size_t> hits;
+ void queue(const std::string& section,Input::Kind k,int index=-1){std::vector<size_t> hits;
   for(size_t i=0;i<keys.size();i++){std::string full;if(lower(keys[i].name)==lower(section)){hits={i};break;}
    if(!keys[i].ns.empty()&&namespacedSection(section,keys[i].ns,full)&&lower(full)==lower(keys[i].name))hits.push_back(i);}
   if(hits.size()!=1)throw std::invalid_argument((hits.empty()?"No key section ":"Several key sections named ")+section);
-  queued.push_back({hits[0],k});}
+  queued.push_back({hits[0],k,index});}
  Resolver resolver(const std::string& ns,Scope* scope){return [this,ns,scope](const std::string& name)->Var*{std::string low=lower(name);
   if(scope)for(auto& level:scope->levels){auto it=level.find(low);if(it!=level.end())return it->second;}
   return global(low,ns);};}
@@ -475,6 +489,8 @@ inline void Engine::frame(double seconds){
   if(k.type=="cycle"){
    auto matchesCurrent=[&](Preset& p){for(auto& v:p.vars)if(v.second!=currentOrTarget(v.first))return false;for(auto& v:p.params)if(v.second!=currentOrTarget(v.first))return false;return true;};
    if(in.kind==Input::Up)continue;
+   if(in.kind==Input::Select){if(in.index<0||size_t(in.index)>=k.presets.size())continue;k.current=in.index;
+    note(Event::Key,k.name,"select -> "+std::to_string(k.current));activate(k,k.presets[size_t(k.current)],false);continue;}
    if(k.smart&&!(k.current>=0&&size_t(k.current)<k.presets.size()&&matchesCurrent(k.presets[size_t(k.current)])))
     for(size_t i=0;i<k.presets.size();i++)if(int(i)!=k.current&&matchesCurrent(k.presets[i])){k.current=int(i);break;}
    int n=int(k.presets.size());
@@ -483,6 +499,7 @@ inline void Engine::frame(double seconds){
    note(Event::Key,k.name,"cycle -> "+std::to_string(k.current));activate(k,k.presets[size_t(k.current)],false);continue;}
   Preset& p=k.presets[0];
   if(in.kind==Input::Back)continue;
+  if(in.kind==Input::Select)in.kind=Input::Down;   // one preset: selecting it is pressing it
   if(in.kind==Input::Down){
    if(k.type=="toggle"){if(p.conditional){RunState s(*this);s.bindings=&contextBindings;if(p.condition(s)==0){note(Event::Key,k.name,"toggle: condition not met");continue;}}
     if(p.active)deactivate(p);else activate(k,p,true);}

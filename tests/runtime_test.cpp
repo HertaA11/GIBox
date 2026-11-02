@@ -1054,24 +1054,34 @@ int main(int argc,char** argv){Fake fake;f=&fake;char temp[]="/tmp/model-runtime
   std::string fields;for(std::string f:{"ib","position","blend","texcoord","ps-t0","ps-t1","ps-t2"})fields+=(fields.empty()?"":",")+("\""+f+"\":[\"Part\",\""+(f=="ib"||f.rfind("ps-",0)==0?f:std::string("vb0"))+"\"]");
   std::string logic="{\"signature\":2,\"main\":\"Mods\\\\Keys\\\\a.ini\",\"files\":[{\"namespace\":\"Mods\\\\Keys\\\\a.ini\",\"file\":\"logic/0.ini\"}],\"resources\":{\"resource\\\\mods\\\\keys\\\\a.ini\\\\l0\":\"file:l0.ib\",\"resource\\\\mods\\\\keys\\\\a.ini\\\\l1\":\"file:l1.ib\",\"resource\\\\mods\\\\keys\\\\a.ini\\\\l2\":\"file:l2.ib\"},"
    "\"passes\":[{\"name\":\"Part\",\"bindings\":{\"ib\":\"aaaa0001\"},\"checks\":[\"ib\"]}],\"fields\":{\"Part\":{"+fields+"}},\"variants\":["+variants+"],"
-   "\"keys\":[{\"file\":0,\"section\":\"KeyLook\",\"type\":\"cycle\"},{\"file\":0,\"section\":\"KeyFlip\",\"type\":\"toggle\"}]}";
+   "\"keys\":[{\"file\":0,\"section\":\"KeyLook\",\"type\":\"cycle\"},{\"file\":0,\"section\":\"KeyFlip\",\"type\":\"toggle\"},{\"file\":0,\"section\":\"KeyHold\",\"type\":\"hold\"}]}";
   sp.edit=[logic](std::string& t){t.insert(t.rfind('}'),",\"logic\":"+logic);};writeModel(dir,sp);
   Ptr full=f->mesh(),w=f->renderer(full);f->world(w);f->scene={w};int revision=0;std::string presses;int seq=0;
   auto control=[&](bool logic){write(sharedK+"/control.json","{\"enabled\":true,\"logLevel\":\"debug\",\"revision\":"+std::to_string(++revision)+",\"selected\":[\"Keys\"],\"variables\":{\"Keys\":{\"$look\":0}},\"keys\":{\"Keys\":["+presses+"]},\"experiments\":{\"logicCore\":"+(logic?"true":"false")+"}}");};
-  auto press=[&](const std::string& section){presses+=std::string(presses.empty()?"":",")+"{\"seq\":"+std::to_string(++seq)+",\"file\":0,\"section\":\""+section+"\"}";};
+  auto press=[&](const std::string& section,const std::string& extra=""){presses+=std::string(presses.empty()?"":",")+"{\"seq\":"+std::to_string(++seq)+",\"file\":0,\"section\":\""+section+"\""+extra+"}";};
   auto log=[&]{return text(sharedK+"/GIBox Log.txt");};auto persisted=sharedK+"/logic-persist/Keys.json";
   Runtime keys(e,pkg,root+"/keys-private",mediaK,false);uint64_t now=7500000;
   auto run=[&](int n){for(int i=0;i<n;i++){keys.tick(now);now+=600;}};
   press("KeyLook");control(true);run(12);   // a press made before this game start
   assert(log().find("logic-start Keys: 1 INI")!=std::string::npos&&log().find("first outfit $look=0")!=std::string::npos&&log().find("logic-key")==std::string::npos);
   press("KeyLook");control(true);run(6);
-  assert(log().find("logic-key Keys: KeyLook (cycle) pressed, press 2")!=std::string::npos&&log().find("variant Keys $look=1")!=std::string::npos);
+  assert(log().find("logic-key Keys: KeyLook (cycle) press, input 2")!=std::string::npos&&log().find("variant Keys $look=1")!=std::string::npos);
   run(4);assert(exists(persisted)&&!exists(persisted+".tmp"));
   {Json p=JsonParser(text(persisted)).parse();assert(p.at("main").string=="Mods\\Keys\\a.ini"&&p.at("values").object.size()==1&&p.at("values").at("$\\mods\\keys\\a.ini\\look").number==1);}
-  press("KeyFlip");control(true);run(6);assert(log().find("logic-key Keys: KeyFlip (toggle) pressed, press 3")!=std::string::npos&&log().find("variant Keys $look=2")!=std::string::npos);
+  press("KeyFlip");control(true);run(6);assert(log().find("logic-key Keys: KeyFlip (toggle) press, input 3")!=std::string::npos&&log().find("variant Keys $look=2")!=std::string::npos);
   press("KeyFlip");control(true);run(6);assert(log().rfind("variant Keys $look=1")>log().find("variant Keys $look=2"));   // the toggle puts back what it saved
-  press("KeyHold");press("KeyNone");control(true);run(6);
-  assert(log().find("logic-key Keys: KeyHold is not a cycle or toggle key of this model; not pressed")!=std::string::npos&&log().find("logic-key Keys: KeyNone is not a cycle or toggle key")!=std::string::npos);
+  // The App's panel: a cycle's preset chosen directly, its state in status.json; a hold key held and let go.
+  press("KeyLook",",\"select\":0");control(true);run(6);
+  assert(log().find("logic-key Keys: KeyLook (cycle) preset 1, input 5")!=std::string::npos&&log().rfind("variant Keys $look=0")>log().rfind("variant Keys $look=1"));
+  {Json st=JsonParser(text(sharedK+"/status.json")).parse();auto& ks=st.at("keys").at("Keys").array;
+   assert(ks.size()==3&&ks[0].at("section").string=="KeyLook"&&ks[0].at("current").number==0&&!ks[1].at("active").boolean&&!ks[2].at("active").boolean);}
+  press("KeyHold",",\"hold\":\"down\"");control(true);run(6);
+  assert(log().find("logic-key Keys: KeyHold (hold) hold down, input 6")!=std::string::npos&&log().rfind("variant Keys $look=2")>log().rfind("variant Keys $look=0"));
+  {Json st=JsonParser(text(sharedK+"/status.json")).parse();assert(st.at("keys").at("Keys").array[2].at("active").boolean);}
+  press("KeyHold",",\"hold\":\"up\"");control(true);run(6);assert(log().rfind("variant Keys $look=0")>log().rfind("variant Keys $look=2"));
+  press("KeyHold");press("KeyNone");press("KeyFlip",",\"select\":0");press("KeyLook",",\"select\":1");control(true);run(6);   // back to $look = 1, the persist value below
+  assert(log().find("logic-key Keys: KeyHold press: not a key of this model that takes it; not pressed")!=std::string::npos&&log().find("logic-key Keys: KeyNone press: not a key of this model")!=std::string::npos
+   &&log().find("logic-key Keys: KeyFlip preset 1: not a key of this model")!=std::string::npos);
   control(false);run(6);assert(log().find("logic-off Keys: switched off; the App's outfit choice from here")!=std::string::npos&&log().rfind("variant Keys $look=0")>log().rfind("variant Keys $look=1"));
   press("KeyLook");control(false);run(4);assert(log().find("logic-key Keys: KeyLook not pressed: the logic core does not run this model")!=std::string::npos);
   // Again on: the saved $look = 1 stands over the App's 0.
@@ -1105,11 +1115,11 @@ int main(int argc,char** argv){Fake fake;f=&fake;char temp[]="/tmp/model-runtime
   control();run(12);
   assert(log().find("logic-start Driven: 1 INI")!=std::string::npos&&log().find("driven by its own program")!=std::string::npos&&log().find("first outfit $look=0")!=std::string::npos);
   assert(log().find("variant Driven $look=1")==std::string::npos);   // the App's table says 1; the program says $sel = 0
-  press("KeySel",false);run(4);assert(log().find("logic-key Driven: KeySel (cycle) pressed")!=std::string::npos&&log().find("variant Driven $look=1")!=std::string::npos);
-  press("KeySel",true);run(4);assert(log().find("logic-key Driven: KeySel (cycle, back) pressed")!=std::string::npos&&log().rfind("variant Driven $look=0")>log().find("variant Driven $look=1"));
+  press("KeySel",false);run(4);assert(log().find("logic-key Driven: KeySel (cycle) press, input")!=std::string::npos&&log().find("variant Driven $look=1")!=std::string::npos);
+  press("KeySel",true);run(4);assert(log().find("logic-key Driven: KeySel (cycle) back, input")!=std::string::npos&&log().rfind("variant Driven $look=0")>log().find("variant Driven $look=1"));
   press("KeyQ",false);run(3);auto at=log().size();assert(log().find("variant Driven $look=2")!=std::string::npos);
   run(8);assert(log().substr(at).find("variant Driven $look=0")!=std::string::npos);   // 3 s later: the selection again
-  press("KeyQ",true);run(2);assert(log().find("logic-key Driven: KeyQ back is not a cycle or toggle key of this model with back =; not pressed")!=std::string::npos);
+  press("KeyQ",true);run(2);assert(log().find("logic-key Driven: KeyQ back: not a key of this model that takes it; not pressed")!=std::string::npos);
   driven.shutdown();assert(meshOf(w)==full);}
  // Missing indexed targets stop before either playback backend. Report LOD and required palette together,
  // keep another character's active mod from masking the wait, and still reject an undersized full mesh.

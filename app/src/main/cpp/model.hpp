@@ -233,7 +233,7 @@ inline LogicSpec logicOf(const Json& m,const std::string& dir,const AnimationSpe
    l.assignments.push_back(x);l.choices.push_back(partsOf(jfield(v,"draws"),"outfit "+std::to_string(l.choices.size())));}}
  l.driven=jbool(j,"driven",false);require(!l.driven||!animation.present(),"logic: driven is for outfit models");
  const auto& keys=j.at("keys");if(keys.type!=Json::Null)for(auto& k:jarr(j,"keys",0,256)){LogicSpec::Key x;x.file=size_t(juint(k,"file",0,l.files.size()-1));x.section=jstr(k,"section",256);x.type=jstr(k,"type",16);x.back=jbool(k,"back",false);
-  require(x.section.size()>3&&(x.section[0]|32)=='k'&&(x.section[1]|32)=='e'&&(x.section[2]|32)=='y'&&x.section.find_first_of("\\[]\r\n")==std::string::npos,"logic: key section "+x.section);require(x.type=="cycle"||x.type=="toggle","logic: key type "+x.type);l.keys.push_back(std::move(x));}
+  require(x.section.size()>3&&(x.section[0]|32)=='k'&&(x.section[1]|32)=='e'&&(x.section[2]|32)=='y'&&x.section.find_first_of("\\[]\r\n")==std::string::npos,"logic: key section "+x.section);require(x.type=="cycle"||x.type=="toggle"||x.type=="activate"||x.type=="hold","logic: key type "+x.type);l.keys.push_back(std::move(x));}
  return l;}
 struct ModelFile {std::string name,path,generation;unsigned id=0;std::vector<std::string> names;bool originalMaterials=false,diffuseOnly=false;Variants variants;std::vector<PartFile> parts;std::map<std::string,MaterialFile> materials;uint64_t blobSize=0;uint32_t blobCrc=0;AnimationSpec animation;std::vector<TextureSwap> swaps;LogicSpec logic;};
 

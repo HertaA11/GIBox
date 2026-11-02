@@ -79,13 +79,27 @@ public:
  // as upstream dispatches input; the key's condition, run lists, transitions and assignments are the core's. False
  // when the model lists no such key. Presses before the next Present all go in, in order.
  // back: the key's back event (a cycle's previous preset), for a key the converter lists with back =.
- bool press(const LogicSpec::Key& k,bool back=false){if(k.file>=spec.files.size()||(back&&!k.back))return false;std::string full=k.section,ns;
+ // One App input for a [Key] of the model (control.json "keys"): a press (down and up; a hold's down or up alone), the
+ // previous preset of a cycle with back =, or a cycle's preset by index (the App's direct choice, as PC tools offer).
+ enum class KeyInput {Press,Back,Select,HoldDown,HoldUp};
+ migoto::KeySection* keyOf(const LogicSpec::Key& k){if(k.file>=spec.files.size())return nullptr;std::string full=k.section,ns;
   {std::string out;if(migoto::namespacedSection(k.section,spec.files[k.file].ns,out))ns=out;}
-  for(auto& key:engine.keys){std::string low=migoto::lower(key.name);if(low!=migoto::lower(ns)&&low!=migoto::lower(full))continue;
-   if(key.type!=k.type)return false;
-   if(back)engine.keyBack(key.name);else{engine.keyDown(key.name);engine.keyUp(key.name);}
-   stats.keys++;return true;}
-  return false;}
+  for(auto& key:engine.keys){std::string low=migoto::lower(key.name);if(low==migoto::lower(ns)||low==migoto::lower(full))return key.type==k.type?&key:nullptr;}
+  return nullptr;}
+ bool input(const LogicSpec::Key& k,KeyInput in,int index=-1){auto* key=keyOf(k);if(!key)return false;
+  switch(in){
+   case KeyInput::Back:if(!k.back||key->type!="cycle")return false;engine.keyBack(key->name);break;
+   case KeyInput::Select:if(key->type!="cycle"||index<0||size_t(index)>=key->presets.size())return false;engine.keySelect(key->name,index);break;
+   case KeyInput::HoldDown:if(key->type!="hold")return false;engine.keyDown(key->name);break;
+   case KeyInput::HoldUp:if(key->type!="hold")return false;engine.keyUp(key->name);break;
+   case KeyInput::Press:if(key->type=="hold")return false;engine.keyDown(key->name);engine.keyUp(key->name);break;}
+  stats.keys++;return true;}
+ bool press(const LogicSpec::Key& k,bool back=false){return input(k,back?KeyInput::Back:KeyInput::Press);}
+ // The state of each of the model's keys (spec order), for the App: see migoto::Engine::keyStates.
+ std::vector<migoto::Engine::KeyState> keyStates(){std::vector<migoto::Engine::KeyState> out;auto all=engine.keyStates();
+  for(auto& k:spec.keys){migoto::Engine::KeyState st;st.name=k.section;st.type=k.type;auto* key=keyOf(k);
+   if(key){for(auto& x:all)if(x.name==key->name){st=x;st.name=k.section;break;}}out.push_back(st);}
+  return out;}
  // Persist variables by full name, with their current values (what the runtime saves); changed(): one of them
  // changed since the last call.
  std::map<std::string,float> persistent()const{return engine.persistent();}

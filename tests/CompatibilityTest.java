@@ -335,19 +335,34 @@ public final class CompatibilityTest {
         ok(body0.equals("kind=drawindexed;count=3;start=0;base=0;ib="+body+common+"kind=drawindexed;count=3;start=3;base=0;ib="+body+common),"two draws, ranges from $half, in command order: "+body0);
         ok(body1.equals("kind=drawindexed;count=6;start=0;base=0;ib="+body+common)&&head0.equals("kind=drawindexed;count=auto;start=0;base=0;ib="+head+common),"frame 1 and the auto draw: "+body1+" / "+head0);}
     private static String nativeChecker;   // tools/test_host.py passes build/host/core_test
-    // The [Key] sections the App may press: cycle and toggle with a key= or back=; the first type= counts; a hold, an
-    // activate (no type), a section without a key, a commented-out type and a name 3DMigoto would not take are left out.
+    // The [Key] sections for the App's panel: every type with a key= or back= (the first type= counts, an unknown one is
+    // activate, as 3DMigoto takes it); a section without a key, a commented-out type and a name 3DMigoto would not take are
+    // left out. Presets as KeyOverrideCycle splits them: by position, blank or non-numeric cells left out; "special" with a
+    // condition or a run at that position (the App then only steps).
     static void logicKeys(){
         String a="[KeyA]\r\nkey = 1\r\ntype = cycle\r\ntype = hold\r\n$x = 0,1\r\n[KeyB]\nback = 2\ntype = Toggle\n$x = 1\n[KeyHold]\nkey = 3\ntype = hold\n$x = 1\n"
-            +"[KeyPlain]\nkey = 4\n$x = 1\n[KeyNone]\ntype = cycle\n$x = 0,1\n[KeyNote]\nkey = 5\n;type = cycle\n[Key]\nkey = 6\ntype = cycle\n[TextureOverrideKey]\nkey = 7\ntype = cycle\n";
+            +"[KeyPlain]\nkey = 4\nkey = no_modifiers 4\n$x = 2\n[KeyNone]\ntype = cycle\n$x = 0,1\n[KeyNote]\nkey = 5\n;type = cycle\n[Key]\nkey = 6\ntype = cycle\n[TextureOverrideKey]\nkey = 7\ntype = cycle\n";
         List<Object> keys=ModelConverter.logicKeys(Arrays.asList(a,"[keyC]\nkey = 8\ntype = toggle\n"));
-        ok(keys.equals(Arrays.asList(Json.of("file",0,"section","KeyA","type","cycle"),Json.of("file",0,"section","KeyB","type","toggle"),Json.of("file",1,"section","keyC","type","toggle"))),"logic keys: "+keys);
+        List<Object> none=new ArrayList<>();Map<String,Object> empty=new LinkedHashMap<>();
+        ok(keys.equals(Arrays.asList(
+            Json.of("file",0,"section","KeyA","type","cycle","bind",Arrays.asList("1"),"presets",Arrays.asList(Json.of("values",Json.of("$x","0"),"special",false),Json.of("values",Json.of("$x","1"),"special",false))),
+            Json.of("file",0,"section","KeyB","type","toggle","bind",none,"presets",Arrays.asList(Json.of("values",Json.of("$x","1"),"special",false))),
+            Json.of("file",0,"section","KeyHold","type","hold","bind",Arrays.asList("3"),"presets",Arrays.asList(Json.of("values",Json.of("$x","1"),"special",false))),
+            Json.of("file",0,"section","KeyPlain","type","activate","bind",Arrays.asList("4","no_modifiers 4"),"presets",Arrays.asList(Json.of("values",Json.of("$x","2"),"special",false))),
+            Json.of("file",0,"section","KeyNote","type","activate","bind",Arrays.asList("5"),"presets",Arrays.asList(Json.of("values",empty,"special",false))),
+            Json.of("file",1,"section","keyC","type","toggle","bind",Arrays.asList("8"),"presets",Arrays.asList(Json.of("values",empty,"special",false))))),"logic keys: "+keys);
         List<Object> back=ModelConverter.logicKeys(Arrays.asList("[KeySwap]\nkey = ]\nback = [\ntype = cycle\n$x = 0,1\n"));
-        ok(back.equals(Arrays.asList(Json.of("file",0,"section","KeySwap","type","cycle","back",true))),"a cycle with back = is listed with back: "+back);
+        ok(back.size()==1&&Json.obj(back.get(0),"key").get("back").equals(true),"a cycle with back = is listed with back: "+back);
+        List<Object> special=ModelConverter.logicKeys(Arrays.asList("[KeyLook]\nkey = 1\ntype = cycle\n$a = 0,1,,2\n$b = 1,x,1\ncondition = ,,$on == 1\nrun = ,CommandListB\n[KeyExpr]\nkey = 2\n$a = $b + 1\n"));
+        ok(special.equals(Arrays.asList(
+            Json.of("file",0,"section","KeyLook","type","cycle","bind",Arrays.asList("1"),"presets",Arrays.asList(
+                Json.of("values",Json.of("$a","0","$b","1"),"special",false),Json.of("values",Json.of("$a","1"),"special",true),
+                Json.of("values",Json.of("$b","1"),"special",true),Json.of("values",Json.of("$a","2"),"special",false))),
+            Json.of("file",0,"section","KeyExpr","type","activate","bind",Arrays.asList("2"),"presets",Arrays.asList(Json.of("values",empty,"special",true))))),"cycle presets by position, special ones: "+special);
     }
     public static void main(String[] args)throws Exception{
         nativeChecker=args.length>0?args[0]:null;File base=Files.createTempDirectory("gibox-compatibility-").toFile();
-        try{logicKeys();legacy(base);hohe(base);animation(base);rehearsedAnimation(base);drivenOutfits(base);staticBackend(base);logicSignature(base);face(base);System.out.println("Compatibility: PASS (3dm backend for static, outfit and animated models, logic core data for animations and outfits, rehearsed Present programs, driven outfits, switched-off schemes, App keys (cycle / toggle / back), face texture swap, layout precedence, variants, R16, main INI, duplicates, PC filename casing, TexFx ranges, ambiguity, INI schemes)");}
+        try{logicKeys();legacy(base);hohe(base);animation(base);rehearsedAnimation(base);drivenOutfits(base);staticBackend(base);logicSignature(base);face(base);System.out.println("Compatibility: PASS (3dm backend for static, outfit and animated models, logic core data for animations and outfits, rehearsed Present programs, driven outfits, switched-off schemes, App keys (every type, presets by position, special presets, back), face texture swap, layout precedence, variants, R16, main INI, duplicates, PC filename casing, TexFx ranges, ambiguity, INI schemes)");}
         finally{ModelConverter.remove(base);}
     }
 }

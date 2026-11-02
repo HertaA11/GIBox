@@ -53,7 +53,8 @@ struct Experiments {bool gameMaterials=false,neutralColors=false,noUv2=false,glo
  bool any()const{return gameMaterials||neutralColors||noUv2||glowTrace||separateDraws||firstRefreshMs||slotTextures||animationMode||logicCore;}
  std::string text()const{return std::string("gameMaterials=")+(gameMaterials?"on":"off")+" firstRefreshMs="+(firstRefreshMs?std::to_string(firstRefreshMs):"default")+" neutralColors="+(neutralColors?"on":"off")+" noUv2="+(noUv2?"on":"off")+" glowTrace="+(glowTrace?"on":"off")+" slotTextures="+(slotTextures==1?"block":slotTextures==2?"custom":"off")+" separateDraws="+(separateDraws?"on":"off")+" animationMode="+std::to_string(animationMode)+" logicCore="+(logicCore?"on":"off");}};
 // keys: the App's presses of a model's [Key] sections (model.json logic.keys), numbered; each is taken once, by number.
-struct KeyPress {long long seq=0;size_t file=0;std::string section;bool back=false;bool operator==(const KeyPress& o)const{return seq==o.seq&&file==o.file&&section==o.section&&back==o.back;}};
+// select: a cycle's preset by index (the App's direct choice); hold: 1 down, 2 up (a hold key as an on / off switch).
+struct KeyPress {long long seq=0;size_t file=0;std::string section;bool back=false;int select=-1,hold=0;bool operator==(const KeyPress& o)const{return seq==o.seq&&file==o.file&&section==o.section&&back==o.back&&select==o.select&&hold==o.hold;}};
 // Texture-only mods (control.json "textureMods", 0.7.52): strategy auto (default since 0.7.61) / diagnose / direct / clone, lod
 // full / migrate, test rounds.
 // auto (0.7.60): the game's own per-renderer instance is written in place (its effects keep running on it); a loaded asset
@@ -75,7 +76,10 @@ ControlState parseControl(const std::string& raw){
  const auto& keys=c.at("keys");require(keys.type==Json::Object||keys.type==Json::Null,"Keys object");
  for(auto& model:keys.object){require(model.second.type==Json::Array&&model.second.array.size()<=32,"Key presses of a model");
   for(auto& k:model.second.array){require(k.type==Json::Object,"Key press");KeyPress x;x.seq=integerOf(k.at("seq"));auto file=integerOf(k.at("file"));require(x.seq>0&&file>=0&&file<64,"Key press number / file");x.file=size_t(file);
-   require(k.at("section").type==Json::String&&!k.at("section").string.empty()&&k.at("section").string.size()<=256,"Key press section");x.section=k.at("section").string;x.back=k.at("back").type==Json::Bool&&k.at("back").boolean;s.keys[model.first].push_back(x);}}
+   require(k.at("section").type==Json::String&&!k.at("section").string.empty()&&k.at("section").string.size()<=256,"Key press section");x.section=k.at("section").string;x.back=k.at("back").type==Json::Bool&&k.at("back").boolean;
+   if(k.at("select").type==Json::Number){auto i=integerOf(k.at("select"));require(i>=0&&i<4096,"Key press select");x.select=int(i);}
+   if(k.at("hold").type==Json::String){require(k.at("hold").string=="down"||k.at("hold").string=="up","Key press hold");x.hold=k.at("hold").string=="down"?1:2;}
+   s.keys[model.first].push_back(x);}}
  s.logLevel=logThreshold(c);
  const auto& t=c.at("textureMods");if(t.type==Json::Object){auto text=[&](const char* k,const char* fallback,std::initializer_list<const char*> allowed){const auto& v=t.at(k);if(v.type!=Json::String)return std::string(fallback);for(auto* a:allowed)if(v.string==a)return v.string;return std::string(fallback);};
   s.tex.strategy=text("strategy","auto",{"diagnose","auto","direct","clone"});s.tex.lod=text("lod","full",{"full","migrate"});s.tex.testRequest=integerOf(t.at("testRequest"));require(s.tex.testRequest>=0,"textureMods.testRequest");
@@ -238,7 +242,7 @@ struct Runtime::Impl {
  bool bindingReady=false,bindingUncertain=true;std::string bindingStamp;
  Recent<BindingRejectKey,uint64_t> bindingRejected{2048};uint64_t bindingNow=0,bindingStatsAt=0,bindingChecks=0,bindingCacheHits=0,bindingFiltered=0,bindingDeep=0;bool bindingStatsDirty=false;
  std::atomic<int> logLevel{int(Level::Info)};std::map<std::string,std::string> learnedGen;  // log threshold (control.json "logLevel"); generation the learned targets belong to
- Ptr rendererTypeObject=0;bool typeDumped=false;bool findOff=false;unsigned findFails=0;uint64_t next=0,discoverAt=0,findAt=0;bool inTick=false;std::string lastStatus;std::vector<std::string> notes;std::map<std::string,std::string> missingLogged;std::set<std::string> extraSlots,lodLogged;
+ Ptr rendererTypeObject=0;bool typeDumped=false;bool findOff=false;unsigned findFails=0;uint64_t next=0,discoverAt=0,findAt=0;bool inTick=false;std::string lastStatus,lastStatusLogged;std::vector<std::string> notes;std::map<std::string,std::string> missingLogged;std::set<std::string> extraSlots,lodLogged;
  std::map<unsigned,std::pair<std::string,std::vector<SkeletonRenderer>>> libraryRead;  // id -> file stamp, records  // model|part -> last target-missing reason
  Owned handoffTypeRoots;uint64_t handoffTypeRetry=0;
  // Last scan, for the wait reason: world character's renderers, FindObjectsOfType results (-1: not run), renderers left
@@ -1745,8 +1749,10 @@ struct Runtime::Impl {
    if(!s.logic.driver){const char* why=!ctl.exp.logicCore?"logicCore is off":!s.logicSpec.present()?"the model has no logic data (convert it again)":s.logic.failed?"it stopped or did not start; the logic-error / logic-unavailable line above says why":"it has not started yet (the model is not shown)";
     log("logic-key",s.name+": "+k.section+" not pressed: the logic core does not run this model ("+why+")");continue;}
    const LogicSpec::Key* key=nullptr;for(auto& x:s.logicSpec.keys)if(x.file==k.file&&x.section==k.section)key=&x;
-   if(!key||!s.logic.driver->press(*key,k.back)){log("logic-key",s.name+": "+k.section+(k.back?" back":"")+" is not a cycle or toggle key of this model"+(k.back?" with back =":"")+"; not pressed");continue;}
-   log("logic-key",s.name+": "+k.section+" ("+key->type+(k.back?", back":"")+") pressed, press "+std::to_string(k.seq));}}
+   using In=LogicDriver::KeyInput;In in=k.back?In::Back:k.select>=0?In::Select:k.hold==1?In::HoldDown:k.hold==2?In::HoldUp:In::Press;
+   std::string what=k.back?"back":k.select>=0?"preset "+std::to_string(k.select+1):k.hold==1?"hold down":k.hold==2?"hold up":"press";
+   if(!key||!s.logic.driver->input(*key,in,k.select)){log("logic-key",s.name+": "+k.section+" "+what+": not a key of this model that takes it; not pressed");continue;}
+   log("logic-key",s.name+": "+k.section+" ("+key->type+") "+what+", input "+std::to_string(k.seq));}}
  void logicSwitch(Set& s){auto& L=s.logic;
   if(ctl.exp.logicCore&&!s.logicSpec.present()&&!L.noted){L.noted=true;log("logic-unavailable",s.name+": converted without logic data (before 0.7.34 for animations, 0.7.36 for outfits, or the converter could not state it: see its conversion log); "+fallback(s)+" plays it");}
   if(!ctl.exp.logicCore||!s.logicSpec.present()){if(L.driver)stopLogic(s,"logic-off","switched off");return;}
@@ -2489,8 +2495,15 @@ struct Runtime::Impl {
    else if(libraryPending.count(ch.config)){refreshState="saving";refreshDetail="骨骼已通过校验，正在保存并回读检查";}
    else{refreshState=exportLodWait?"waiting-full-mesh":libraryError.count(ch.config)?"retrying":"capturing";refreshDetail=exportWait;}
   }
+  // The keys of each model the logic core runs: a cycle's current preset, an activate key in effect, a toggle / hold on.
+  // Only the rest of the status goes to the log: a key the mod's own program moves would otherwise log every change.
+  std::string ks;for(auto& set:sets){if(!set->logic.driver)continue;std::string one;
+   for(auto& k:set->logic.driver->keyStates())one+=std::string(one.empty()?"":",")+"{\"section\":"+quote(k.name)+",\"current\":"+std::to_string(k.current)+",\"active\":"+(k.active?"true":"false")+",\"matches\":"+(k.matches?"true":"false")+"}";
+   ks+=std::string(ks.empty()?"":",")+quote(set->name)+":["+one+"]";}
   s.pop_back();s+=",\"boneRefreshRequest\":"+std::to_string(ctl.refreshBones)+",\"boneRefreshCharacter\":"+std::to_string(ctl.refreshBonesCharacter)+",\"boneRefreshState\":"+quote(refreshState)+",\"boneRefreshDetail\":"+quote(refreshDetail)+"}";
-  if(s==lastStatus){return;}lastStatus=s;auto dir=shared;worker.post([dir,s]{write(dir+"/status.json.tmp",s);std::filesystem::rename(dir+"/status.json.tmp",dir+"/status.json");});log(state,detail);}
+  std::string full=s;full.pop_back();full+=",\"keys\":{"+ks+"}}";if(full==lastStatus)return;lastStatus=full;
+  if(s!=lastStatusLogged){lastStatusLogged=s;log(state,detail);}
+  auto dir=shared;worker.post([dir,full]{write(dir+"/status.json.tmp",full);std::filesystem::rename(dir+"/status.json.tmp",dir+"/status.json");});}
 
  // ---------------------------------------------------------------- tick
  bool boneRefreshPending()const{return ctl.refreshBones&&(boneRefreshDone!=ctl.refreshBones||boneRefreshDoneId!=ctl.refreshBonesCharacter);}

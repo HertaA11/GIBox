@@ -237,6 +237,16 @@ class AppState(private val activity: Activity) {
         Control.pressKey(game, mod.name, key.file, key.section, back)
         AppLog.info(game, LOGGER, "按键 ${mod.name} ${key.section}" + if (back) "（上一个）" else "")
     }
+    /** A cycle key's preset chosen directly (0-based), activated in the game as if stepped to. */
+    fun selectKey(mod: Importer.Mod, key: ModelManifest.Key, index: Int) = save("按键") {
+        Control.keyInput(game, mod.name, key.file, key.section, false, index, null)
+        AppLog.info(game, LOGGER, "按键 ${mod.name} ${key.section} 选第 ${index + 1} 个")
+    }
+    /** A hold key held (down) or released (up). */
+    fun holdKey(mod: Importer.Mod, key: ModelManifest.Key, down: Boolean) = save("按键") {
+        Control.keyInput(game, mod.name, key.file, key.section, false, -1, if (down) "down" else "up")
+        AppLog.info(game, LOGGER, "按键 ${mod.name} ${key.section} " + if (down) "按住" else "松开")
+    }
     /** Material experiments (debug): read back on every recomposition through `revision`. */
     fun experiment(key: String): Boolean = Control.experiment(game, key)
     fun experimentInt(key: String): Int = Control.experimentInt(game, key)

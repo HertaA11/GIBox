@@ -117,12 +117,21 @@ static void keys(){
  press("KeyCycle");CHECK_EQ(var(e,"$c"),1.0f);press("KeyCycle");CHECK_EQ(var(e,"$c"),2.0f);press("KeyCycle");CHECK_EQ(var(e,"$c"),0.0f);
  e.keyBack("KeyCycle");e.frame(t+=0.01);CHECK_EQ(var(e,"$c"),2.0f);
  e.globals["$c"].value=0;press("KeyCycle");CHECK_EQ(var(e,"$c"),1.0f);   // smart: resynced to the preset matching $c = 0 first
+ // The App's direct choice (no upstream key does this): that preset activated as stepping to it would, then steps go on from it.
+ auto state=[&](const char* name){for(auto& s:e.keyStates())if(lower(s.name)==lower(name))return s;return Engine::KeyState{};};
+ CHECK_EQ(state("KeyCycle").current,1);
+ e.keySelect("KeyCycle",2);CHECK_EQ(var(e,"$c"),1.0f);e.frame(t+=0.01);CHECK_EQ(var(e,"$c"),2.0f);CHECK_EQ(state("KeyCycle").current,2);
+ press("KeyCycle");CHECK_EQ(var(e,"$c"),0.0f);
+ e.keySelect("KeyCycle",3);e.keySelect("KeyCycle",-1);e.frame(t+=0.01);CHECK_EQ(var(e,"$c"),0.0f);   // out of range: nothing
+ e.globals["$c"].value=2;CHECK_EQ(state("KeyCycle").current,2);e.globals["$c"].value=7;CHECK_EQ(state("KeyCycle").current,-1);   // read back as the smart resync would
+ e.globals["$c"].value=0;
  press("KeyNoWrap");press("KeyNoWrap");CHECK_EQ(var(e,"$nw"),1.0f);press("KeyNoWrap");CHECK_EQ(var(e,"$nw"),1.0f);
- press("KeyToggle");CHECK_EQ(var(e,"$t"),1.0f);press("KeyToggle");CHECK_EQ(var(e,"$t"),0.0f);
+ press("KeyToggle");CHECK_EQ(var(e,"$t"),1.0f);CHECK(state("KeyToggle").active&&state("KeyToggle").matches);press("KeyToggle");CHECK_EQ(var(e,"$t"),0.0f);CHECK(!state("KeyToggle").active);
+ e.keySelect("KeyToggle",0);e.frame(t+=0.01);CHECK_EQ(var(e,"$t"),1.0f);press("KeyToggle");CHECK_EQ(var(e,"$t"),0.0f);   // select on another type: a press
  press("KeyHold1");CHECK_EQ(var(e,"$h"),5.0f);press("KeyHold2");CHECK_EQ(var(e,"$h"),7.0f);
  release("KeyHold1");CHECK_EQ(var(e,"$h"),3.0f);   // Hold1's own save is 3; the shared save still has a holder
  release("KeyHold2");CHECK_EQ(var(e,"$h"),3.0f);   // Hold2 saved 5, but the last release takes the shared save   // the last release restores the shared save
- press("KeyCond");CHECK_EQ(var(e,"$cond"),0.0f);e.globals["$enabled"].value=1;press("KeyCond");CHECK_EQ(var(e,"$cond"),1.0f);
+ press("KeyCond");CHECK_EQ(var(e,"$cond"),0.0f);CHECK(!state("KeyCond").matches);e.globals["$enabled"].value=1;press("KeyCond");CHECK_EQ(var(e,"$cond"),1.0f);CHECK(state("KeyCond").matches);
  e.keyDown("KeyTrans");e.frame(t=10.0);CHECK_EQ(var(e,"$tr"),0.0f);e.frame(10.25);CHECK_EQ(var(e,"$tr"),2.5f);e.frame(10.5);CHECK_EQ(var(e,"$tr"),5.0f);e.frame(11.0);CHECK_EQ(var(e,"$tr"),10.0f);}
 
 // TextureOverride: hash plus draw context (match_first_index), sorted by match_priority then section name;

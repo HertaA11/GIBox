@@ -992,19 +992,34 @@ public final class ModelConverter {
         List<Object> keyList=logicKeys(texts);
         log.append("逻辑核心数据：").append(files.size()).append(" 个 INI、").append(table.size()).append(" 个资源、").append(passes.size()).append(" 次绘制、").append(frames.size()).append(" ").append(unit).append("的资源记录、").append(keyList.size()).append(" 个可在 App 里按的按键（实验开关“逻辑核心驱动”使用；关闭时仍按原来的方式）\n");
         return Json.of("signature",2,"main",mainNs,"files",list,"resources",table,"passes",passes,"fields",fields,"choices",frames,"keys",keyList);}
-    /** The [Key] sections of the logic files the App can press as buttons: cycle and toggle (a hold needs a release the
-     *  App does not send; activate is left for later). The file's index, the section as the file writes it, its type
-     *  (the first type= line counts, as in 3DMigoto), and "back" for a cycle with back = (its previous preset). A section
-     *  without key= or back= is not a key there either. */
+    /** The [Key] sections of the logic files, for the App's switch panel: every type (activate, toggle, hold, cycle; the
+     *  first type= line counts, as in 3DMigoto), the file's index, the section as the file writes it, "back" for a cycle
+     *  with back =, "bind" (its key= values, as labels) and "presets": what each preset assigns, split as 3DMigoto splits a
+     *  cycle (KeyOverrideCycle::ParseIniSection: comma lists by position, a blank or non-numeric entry leaves the variable
+     *  alone; one preset for the other types), with "special" when that preset has a condition or a run (then choosing
+     *  it directly may not equal stepping to it, and the App only steps). A section without key= or back= is not a key. */
     static List<Object> logicKeys(List<String> texts){List<Object> out=new ArrayList<>();Set<String> seen=new HashSet<>();
-        for(int i=0;i<texts.size();i++){String section=null,type=null;boolean bound=false,back=false;
+        for(int i=0;i<texts.size();i++){String section=null;Map<String,String> first=new LinkedHashMap<>();List<String> binds=new ArrayList<>();boolean back=false;
             for(String raw:(texts.get(i)+"\n[]").split("\r?\n")){String line=raw.trim();
                 if(line.startsWith("[")&&line.endsWith("]")){
-                    String t=type==null?"activate":type;
-                    if(section!=null&&bound&&(t.equals("cycle")||t.equals("toggle"))&&out.size()<256&&seen.add(i+"|"+lower(section))){Map<String,Object> k=Json.of("file",i,"section",section,"type",t);if(back&&t.equals("cycle"))k.put("back",true);out.add(k);}
-                    String n=line.substring(1,line.length()-1).trim();section=n.length()>3&&lower(n).startsWith("key")&&n.length()<=256&&!n.matches(".*[\\\\\\[\\]].*")?n:null;type=null;bound=false;back=false;continue;}
-                if(section==null||line.startsWith(";"))continue;int eq=line.indexOf('=');if(eq<0)continue;String k=lower(line.substring(0,eq).trim());
-                if(k.equals("type")&&type==null)type=lower(line.substring(eq+1).trim());else if(k.equals("key"))bound=true;else if(k.equals("back")){bound=true;back=true;}}}
+                    if(section!=null&&(!binds.isEmpty()||back)&&out.size()<256&&seen.add(i+"|"+lower(section))){
+                        String t=first.getOrDefault("type","activate");if(!t.equals("cycle")&&!t.equals("toggle")&&!t.equals("hold"))t="activate";
+                        Map<String,Object> k=Json.of("file",i,"section",section,"type",t);if(back&&t.equals("cycle"))k.put("back",true);
+                        k.put("bind",new ArrayList<Object>(binds.subList(0,Math.min(binds.size(),8))));k.put("presets",keyPresets(first,t.equals("cycle")));out.add(k);}
+                    String n=line.substring(1,line.length()-1).trim();section=n.length()>3&&lower(n).startsWith("key")&&n.length()<=256&&!n.matches(".*[\\\\\\[\\]].*")?n:null;first=new LinkedHashMap<>();binds=new ArrayList<>();back=false;continue;}
+                if(section==null||line.startsWith(";"))continue;int eq=line.indexOf('=');if(eq<0)continue;String k=lower(line.substring(0,eq).trim()),v=line.substring(eq+1).trim();
+                if(k.equals("key")){if(!v.isEmpty()&&v.length()<=64)binds.add(v);}else if(k.equals("back"))back=true;else first.putIfAbsent(k,k.equals("type")?lower(v):v);}}
+        return out;}
+    private static List<Object> keyPresets(Map<String,String> first,boolean cycle){List<Object> out=new ArrayList<>();
+        Map<String,List<String>> vars=new LinkedHashMap<>();for(Map.Entry<String,String> e:first.entrySet())if(e.getKey().startsWith("$")&&e.getKey().length()>1&&e.getKey().length()<=64)vars.put(e.getKey(),cycle?Arrays.asList(e.getValue().split(",",-1)):Collections.singletonList(e.getValue()));
+        List<String> cond=cycle?Arrays.asList(first.getOrDefault("condition","").split(",",-1)):Collections.singletonList(first.getOrDefault("condition","")),
+            run=cycle?Arrays.asList(first.getOrDefault("run","").split(",",-1)):Collections.singletonList(first.getOrDefault("run",""));
+        int n=1;if(cycle){n=0;for(List<String> c:vars.values())n=Math.max(n,c.size());n=Math.max(n,Math.max(first.containsKey("condition")?cond.size():0,first.containsKey("run")?run.size():0));}
+        for(int i=0;i<Math.min(n,64);i++){Map<String,Object> values=new LinkedHashMap<>();boolean special=false;
+            for(Map.Entry<String,List<String>> e:vars.entrySet()){if(values.size()>=16)break;String cell=i<e.getValue().size()?e.getValue().get(i).trim():"";if(cell.isEmpty())continue;
+                if(cell.length()<=32&&cell.matches("-?\\d+(?:\\.\\d+)?"))values.put(e.getKey(),cell);else if(!cycle)special=true;}   // a cycle skips what does not read as a number, like sscanf
+            String c=i<cond.size()?cond.get(i).trim():"",r=i<run.size()?run.get(i).trim():"";if(!c.isEmpty()||!r.isEmpty())special=true;
+            out.add(Json.of("values",values,"special",special));}
         return out;}
     private static File convertAnimation(Ini ini,File src,List<Bones> bones,Map<String,String> mapping,File dest,int id,Options o,TextureDecoder decoder,StringBuilder log,Animation animation)throws Exception {
         if(o.animationBoneFallback){for(Bones bone:bones)check(!bone.synthetic,"动画骨骼兼容需要完整骨骼库或本 MOD 已保存的完整骨骼记录，不能用未知的索引上限判断哪些关联可忽略");

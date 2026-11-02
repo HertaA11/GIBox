@@ -31,7 +31,18 @@ public final class ModelManifest {
     public String lodMesh = "";
     /** A [Key] of the model's INI logic the App can press (model.json "logic.keys", 0.7.37): with the logic core on, a
      *  press goes to the core as a key event. */
-    public static final class Key { public int file; public String section = "", type = ""; public boolean back; }
+    public static final class Key {
+        public int file; public String section = "", type = ""; public boolean back;
+        /** Its key= values as the INI writes them (labels only: the App never reads the keyboard). */
+        public final List<String> binds = new ArrayList<>();
+        /** What each preset assigns (a cycle: one per position; the other types: one); empty for models before 0.7.73. */
+        public final List<Preset> presets = new ArrayList<>();
+        /** A preset may be chosen directly: every preset assigns something and none has a condition or a run. */
+        public boolean selectable() { if (!type.equals("cycle") || presets.size() < 2) return false; for (Preset p : presets) if (p.special || p.values.isEmpty()) return false; return true; }
+    }
+    /** One preset of a [Key]: variable → value as written, and "special" when it has a condition or a run (or, outside a
+     *  cycle, a value that is not a plain number): choosing it directly could differ from stepping to it, so it is only stepped. */
+    public static final class Preset { public final Map<String, String> values = new LinkedHashMap<>(); public boolean special; }
     /** The logic data says the mod's own program picks the outfit (logic.driven): with the logic core on, the 款式 table
      *  is not its input. */
     public boolean driven;
@@ -112,7 +123,14 @@ public final class ModelManifest {
             if (logic instanceof Map && ((Map<?, ?>) logic).get("keys") != null) for (Object x : Json.arr(((Map<?, ?>) logic).get("keys"), "logic.keys", 0, 256)) {
                 Map<String, Object> e = Json.obj(x, "logic.keys"); Key k = new Key();
                 k.file = (int) Json.integer(e.get("file"), "logic.keys.file", 0, 63); k.section = Json.str(e.get("section"), "logic.keys.section", 256); k.type = Json.str(e.get("type"), "logic.keys.type", 16);
-                Json.check(k.type.equals("cycle") || k.type.equals("toggle"), "logic.keys.type"); k.back = Json.bool(e.get("back"), "logic.keys.back", false); r.keys.add(k);
+                Json.check(k.type.equals("cycle") || k.type.equals("toggle") || k.type.equals("activate") || k.type.equals("hold"), "logic.keys.type"); k.back = Json.bool(e.get("back"), "logic.keys.back", false);
+                if (e.get("bind") != null) for (Object b : Json.arr(e.get("bind"), "logic.keys.bind", 0, 8)) k.binds.add(Json.str(b, "logic.keys.bind", 128));
+                if (e.get("presets") != null) for (Object x2 : Json.arr(e.get("presets"), "logic.keys.presets", 0, 64)) {
+                    Map<String, Object> po = Json.obj(x2, "logic.keys.presets"); Preset p = new Preset(); p.special = Json.bool(po.get("special"), "logic.keys.presets.special", false);
+                    for (Map.Entry<String, Object> pv : Json.obj(po.get("values"), "logic.keys.presets.values").entrySet()) { Json.check(pv.getKey().startsWith("$") && pv.getKey().length() <= 64, "logic.keys.presets.values"); p.values.put(pv.getKey(), Json.str(pv.getValue(), "logic.keys.presets.values", 32)); }
+                    k.presets.add(p);
+                }
+                r.keys.add(k);
             }
         } catch (Exception e) { r.keys.clear(); }
         return r;

@@ -202,7 +202,7 @@ int main(int argc,char**argv){
    assert((shown==std::vector<size_t>{0,1,2,1,1,2,1,1}));loop.showFrom(2);assert(loop.current==2&&loop.step==2);
    refused(root+"/sequence-range",[&](Spec& s){s=sequenced("\"sequence\":[0,3],\"loop\":0");},"animation sequence out of range");
    refused(root+"/sequence-loop",[&](Spec& s){s=sequenced("\"sequence\":[0,1],\"loop\":2");},"\"loop\" out of range");}
-  logicRefused("logic-key",fixture::withLogic(fixture::animated(),[&]{auto j=fixture::logicJson(ibs);j.insert(j.rfind('}'),",\"keys\":[{\"file\":0,\"section\":\"KeyA\",\"type\":\"hold\"}]");return j;}()),"logic: key type hold");
+  logicRefused("logic-key",fixture::withLogic(fixture::animated(),[&]{auto j=fixture::logicJson(ibs);j.insert(j.rfind('}'),",\"keys\":[{\"file\":0,\"section\":\"KeyA\",\"type\":\"press\"}]");return j;}()),"logic: key type press");
   // A drawindexed of 0 indices before the part's real draw (BarbaraCelestialRose), or draws after ib = null
   // (NahidaPoS): they draw nothing, the converter does not record them, and the driver's selection must not either.
   {LogicSpec z;z.mainNs="Mods\\Z\\a.ini";z.files.push_back({z.mainNs,"logic/0.ini","[Constants]\nglobal $look = 0\n[TextureOverridePart]\nhash = aaaa0001\nhandling = skip\nib = ResourceL0\nif $look == 2\n ib = null\nendif\ndrawindexed = 0, 0, 0\ndrawindexed = 3, 0, 0\nif $look == 1\n ib = ResourceL1\n drawindexed = 0, 0, 0\nendif\n[ResourceL0]\nfilename = l0.ib\n[ResourceL1]\nfilename = l1.ib\n"});
@@ -232,7 +232,24 @@ int main(int argc,char**argv){
    auto saved=d.persistent();assert(saved.size()==1&&saved.at("$\\mods\\k\\a.ini\\look")==1);
    saved["$\\mods\\k\\a.ini\\armed"]=0;   // not persist: ignored, as upstream ignores it in d3dx_user.ini
    LogicDriver back(k,saved);assert(back.frame()==1&&back.restoredCount()==1&&back.restoredVar("$look")&&!back.restoredVar("$armed")&&!back.persistChanged());
-   assert(back.press(k.keys[0]));back.tick(0,0);assert(back.frame()==1);back.tick(1,1/60.0);assert(back.frame()==2);}   // no Present on the first tick; smart cycle goes on from the restored 1
+   assert(back.press(k.keys[0]));back.tick(0,0);assert(back.frame()==1);back.tick(1,1/60.0);assert(back.frame()==2);   // no Present on the first tick; smart cycle goes on from the restored 1
+   // The App's panel: a cycle's preset chosen directly (its condition still applies), the state read back, other types refused.
+   using In=LogicDriver::KeyInput;
+   assert(back.input(k.keys[0],In::Select,0));back.tick(2,2/60.0);assert(back.frame()==0&&back.keyStates()[0].current==0&&back.keyStates()[0].name=="KeyLook");
+   assert(!back.input(k.keys[0],In::Select,3)&&!back.input(k.keys[1],In::Select,0)&&!back.input(k.keys[0],In::Back)&&!back.input(k.keys[0],In::HoldDown));
+   assert(back.set("$armed",0));assert(back.input(k.keys[0],In::Select,2));back.tick(3,3/60.0);assert(back.frame()==0);   // condition not met: as stepping
+   assert(back.set("$armed",1));assert(back.input(k.keys[0],In::Select,2));back.tick(4,4/60.0);assert(back.frame()==2&&back.keyStates()[0].current==2&&!back.keyStates()[1].active);}
+  // A hold key and an activate key (a MOD's own "1 2 3" keys): held and released, pressed; their states.
+  {LogicSpec k;k.mainNs="Mods\\H\\a.ini";k.files.push_back({k.mainNs,"logic/0.ini","[Constants]\nglobal $look = 0\n[KeyHold]\nkey = 1\ntype = hold\n$look = 1\n[KeyTwo]\nkey = 2\n$look = 2\n"
+    "[TextureOverridePart]\nhash = aaaa0001\nhandling = skip\nif $look == 0\n ib = ResourceL0\nelif $look == 1\n ib = ResourceL1\nelse\n ib = ResourceL2\nendif\ndrawindexed = auto\n[ResourceL0]\nfilename = l0.ib\n[ResourceL1]\nfilename = l1.ib\n[ResourceL2]\nfilename = l2.ib\n"});
+   for(int i=0;i<3;i++){k.resources["resource\\mods\\h\\a.ini\\l"+std::to_string(i)]="file:l"+std::to_string(i)+".ib";k.choices.push_back({{"Part",fixture::logicDraw("file:l"+std::to_string(i)+".ib")}});k.assignments.push_back({{"$look",i}});}
+   LogicSpec::Pass pass;pass.name="Part";pass.bindings["ib"]=0xaaaa0001u;pass.checks={"ib"};k.passes.push_back(pass);
+   for(auto& f:logicFields())k.parts["Part"].push_back({f,"Part",f=="ib"||f.rfind("ps-",0)==0?f:std::string("vb0")});
+   k.keys={{0,"KeyHold","hold"},{0,"KeyTwo","activate"}};using In=LogicDriver::KeyInput;
+   LogicDriver d(k);d.tick(0,0);assert(!d.press(k.keys[0])&&!d.input(k.keys[1],In::HoldDown));
+   assert(d.input(k.keys[0],In::HoldDown));d.tick(1,1/60.0);assert(d.frame()==1&&d.keyStates()[0].active&&d.keyStates()[0].matches);
+   assert(d.input(k.keys[0],In::HoldUp));d.tick(2,2/60.0);assert(d.frame()==0&&!d.keyStates()[0].active);
+   assert(!d.keyStates()[1].matches&&d.press(k.keys[1]));d.tick(3,3/60.0);assert(d.frame()==2&&d.keyStates()[1].matches);}
   {fixture::writeLogicModel(root+"/logic-ok",fixture::withLogic(fixture::animated(),fixture::logicJson(ibs)));auto m=loadModelFile(root+"/logic-ok");
    assert(m->logic.present()&&m->logic.files[0].text==fixture::logicIni&&m->logic.passes[0].bindings.at("ib")==0xaaaa0001u&&m->logic.choices.size()==3);
    LogicDriver d(m->logic);assert(d.frame()==0&&d.signature("Part")==fixture::logicSignature("file:a.ib"));
