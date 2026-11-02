@@ -1,6 +1,7 @@
 package com.gibox.tool
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -50,22 +51,23 @@ import kotlinx.coroutines.withContext
 fun CharacterScreen(state: AppState, id: Int) {
     var searching by rememberSaveable(id) { mutableStateOf(false) }
     var query by rememberSaveable(id) { mutableStateOf("") }
-    AnimatedContent(targetState = searching, transitionSpec = { searchFade() }, label = "search") { open ->
-        if (!open) CharacterMain(state, id) { searching = true }
+    SharedTransitionLayout { AnimatedContent(targetState = searching, transitionSpec = { searchFade() }, label = "search") { open ->
+        val field = searchBounds(this)
+        if (!open) CharacterMain(state, id, field) { searching = true }
         else {
             val q = query.trim()
             val found = if (q.isEmpty()) emptyList() else state.group(id)?.mods.orEmpty().filter { state.label(it.name).contains(q, ignoreCase = true) || it.name.contains(q, ignoreCase = true) }
-            SearchPage(query, { query = it }, "搜索这个角色的 MOD", onClose = { searching = false; query = "" }) {
+            SearchPage(query, { query = it }, "搜索这个角色的 MOD", onClose = { searching = false; query = "" }, field = field) {
                 if (q.isNotEmpty() && found.isEmpty()) item { EmptyNote("没有找到“$q”") }
                 itemsIndexed(found, key = { _, m -> m.name }) { index, m -> ModRow(state, m, index, found.size) }
             }
         }
-    }
+    } }
 }
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun CharacterMain(state: AppState, id: Int, onSearch: () -> Unit) {
+private fun CharacterMain(state: AppState, id: Int, searchField: Modifier, onSearch: () -> Unit) {
     val group = state.group(id)
     val mods = group?.mods.orEmpty()
     val title = group?.title ?: if (id == 0) "未选择角色" else Characters.nameOf(id)
@@ -115,7 +117,7 @@ private fun CharacterMain(state: AppState, id: Int, onSearch: () -> Unit) {
             state.boneRefreshMessage(id)?.let { message ->
                 item(key = -id.toLong()) { Text(message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
-            if (mods.isNotEmpty()) item(key = Long.MIN_VALUE) { SearchBox("搜索这个角色的 MOD", onSearch, Modifier.padding(bottom = 8.dp)) }
+            if (mods.isNotEmpty()) item(key = Long.MIN_VALUE) { SearchBox("搜索这个角色的 MOD", onSearch, Modifier.padding(bottom = 8.dp).then(searchField)) }
             if (mods.isEmpty()) item { EmptyNote("这个角色下没有 MOD 了") }
             itemsIndexed(mods, key = { _, m -> m.name }) { index, m -> ModRow(state, m, index, mods.size) }
         }

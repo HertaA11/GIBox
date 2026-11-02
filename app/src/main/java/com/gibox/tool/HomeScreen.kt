@@ -1,6 +1,7 @@
 package com.gibox.tool
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.ListItemDefaults
@@ -62,12 +63,13 @@ import androidx.compose.ui.unit.dp
 fun HomeScreen(state: AppState, pickZip: () -> Unit) {
     var searching by rememberSaveable { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
-    AnimatedContent(targetState = searching, transitionSpec = { searchFade() }, label = "search") { open ->
-        if (!open) HomeMain(state, pickZip) { searching = true }
+    SharedTransitionLayout { AnimatedContent(targetState = searching, transitionSpec = { searchFade() }, label = "search") { open ->
+        val field = searchBounds(this)
+        if (!open) HomeMain(state, pickZip, field) { searching = true }
         else {
             val q = query.trim()
             val found = if (q.isEmpty()) emptyList() else state.groups().filter { it.title.contains(q, ignoreCase = true) || it.id.toString().contains(q) }
-            SearchPage(query, { query = it }, "搜索角色名或 ID", onClose = { searching = false; query = "" }) {
+            SearchPage(query, { query = it }, "搜索角色名或 ID", onClose = { searching = false; query = "" }, field = field) {
                 if (q.isNotEmpty() && found.isEmpty()) item { EmptyNote("没有找到“$q”") }
                 itemsIndexed(found, key = { _, g -> g.id }) { index, g ->
                     SegmentedListItem(
@@ -83,12 +85,12 @@ fun HomeScreen(state: AppState, pickZip: () -> Unit) {
                 }
             }
         }
-    }
+    } }
 }
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun HomeMain(state: AppState, pickZip: () -> Unit, onSearch: () -> Unit) {
+private fun HomeMain(state: AppState, pickZip: () -> Unit, searchField: Modifier, onSearch: () -> Unit) {
     val scroll = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     Scaffold(
         modifier = Modifier.nestedScroll(scroll.nestedScrollConnection),
@@ -112,7 +114,7 @@ private fun HomeMain(state: AppState, pickZip: () -> Unit, onSearch: () -> Unit)
         ) {
             item { ModuleCard(state) }
             item { ManageCard(state, pickZip) }
-            item { ModsCard(state, onSearch) }
+            item { ModsCard(state, searchField, onSearch) }
         }
     }
 }
@@ -189,14 +191,14 @@ private fun ManageCard(state: AppState, pickZip: () -> Unit) {
  * button opens the search page (characters by name or ID).
  */
 @Composable
-private fun ModsCard(state: AppState, onSearch: () -> Unit) {
+private fun ModsCard(state: AppState, searchField: Modifier, onSearch: () -> Unit) {
     val groups = state.groups()
     HomeCard {
         Column(Modifier.padding(vertical = 8.dp)) {
             Row(Modifier.padding(start = 24.dp, end = 12.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("角色 MOD", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
                 Text("${groups.size} 个角色", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                IconButton(onClick = onSearch) { Icon(Icons.Filled.Search, contentDescription = "搜索角色") }
+                IconButton(onClick = onSearch, modifier = searchField) { Icon(Icons.Filled.Search, contentDescription = "搜索角色") }
             }
             HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh)
             if (groups.isEmpty()) EmptyNote("还没有 MOD。点「导入 MOD」，在系统文件管理器里选 MOD 的 .zip 压缩包。")

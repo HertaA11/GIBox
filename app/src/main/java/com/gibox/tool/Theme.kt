@@ -18,7 +18,9 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.fadeIn
+import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ContentTransform
+import androidx.compose.animation.SharedTransitionScope
 import androidx.activity.compose.BackHandler
 import android.os.Build
 import androidx.compose.foundation.layout.Arrangement
@@ -234,7 +236,7 @@ fun SearchBox(placeholder: String, onClick: () -> Unit, modifier: Modifier = Mod
  * the system) closes it. The caller fades between its page and this one.
  */
 @Composable
-fun SearchPage(query: String, onQuery: (String) -> Unit, placeholder: String, onClose: () -> Unit, results: LazyListScope.() -> Unit) {
+fun SearchPage(query: String, onQuery: (String) -> Unit, placeholder: String, onClose: () -> Unit, field: Modifier = Modifier, results: LazyListScope.() -> Unit) {
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { focus.requestFocus() }
     BackHandler(onBack = onClose)
@@ -242,7 +244,7 @@ fun SearchPage(query: String, onQuery: (String) -> Unit, placeholder: String, on
         Column(Modifier.fillMaxSize().padding(top = padding.calculateTopPadding() + 8.dp)) {
             Row(Modifier.padding(start = 4.dp, end = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onClose) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回") }
-                SearchField(query, onQuery, placeholder, Modifier.weight(1f).focusRequester(focus))
+                SearchField(query, onQuery, placeholder, Modifier.weight(1f).then(field).focusRequester(focus))
             }
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
@@ -254,5 +256,13 @@ fun SearchPage(query: String, onQuery: (String) -> Unit, placeholder: String, on
     }
 }
 
-/** The fade between a page and its SearchPage: quick out, quick in. */
-fun searchFade(): ContentTransform = fadeIn(tween(160)) togetherWith fadeOut(tween(110))
+/** The fade between a page and its SearchPage: the page goes quickly, the search page comes in behind the moving field. */
+fun searchFade(): ContentTransform = fadeIn(tween(220, delayMillis = 60)) togetherWith fadeOut(tween(120))
+
+/**
+ * The search box (or button) on a page and the field at the top of its SearchPage as one shared element: it moves and
+ * stretches up to the top while the rest of the page fades (and back). The content is remeasured, not scaled.
+ */
+@Composable
+fun SharedTransitionScope.searchBounds(scope: AnimatedVisibilityScope): Modifier =
+    Modifier.sharedBounds(rememberSharedContentState("search"), scope, resizeMode = SharedTransitionScope.ResizeMode.RemeasureToBounds)
