@@ -543,7 +543,7 @@ struct Runtime::Impl {
  struct TexPixels {std::string generation,error;std::shared_ptr<std::map<std::string,Texture>> pixels;uint64_t bytes=0,ms=0;bool loading=false;};
  std::map<std::string,TexPixels> texPixels;   // texture.json path -> decoded textures (the worker fills it, under sm)
  // Texture2D made from them, per mod (not per strategy or test round): kept while the mod is on.
- struct TexStore:Owned {std::string generation;std::map<std::string,Ptr> made;std::vector<std::pair<std::string,bool>> wanted;size_t next=0;uint64_t ms=0,bytes=0,ticks=0,readyAt=0;bool done=false;};
+ struct TexStore:Owned {std::string generation;std::map<std::string,Ptr> made;std::vector<std::pair<std::string,bool>> wanted;size_t next=0;uint64_t ms=0,bytes=0,ticks=0,readyAt=0;unsigned kept=0,lost=0;bool done=false;};
  std::map<std::string,std::unique_ptr<TexStore>> texStores;std::vector<std::unique_ptr<TexStore>> texStoresKept;
  struct TexDone {texdiag::Write write;Ptr before=0,ours=0;};
  struct TexSlot {std::string rule,evidence,label,mesh,plan;size_t ruleIndex=0;Ptr renderer=0,native=0,material=0,materialNative=0,clone=0;int slot=-1;bool lod=false;std::vector<TexDone> writes;unsigned again=0;bool gaveUp=false;uint64_t writtenAt=0;
@@ -626,17 +626,26 @@ struct Runtime::Impl {
   for(auto& kv:texDiagDocs){auto& f=kv.second;if(!f.mod||!texModOn(f.mod->name))continue;auto& S=texStores[kv.first];
    if(!S){S=std::make_unique<TexStore>();S->generation=f.mod->generation;std::set<std::pair<std::string,bool>> seenKeys;
     for(auto& r:f.mod->doc.rules)for(auto& b:r.textures){if(b.resource.empty()||(b.role!="diffuse"&&b.role!="lightmap"))continue;auto k=std::make_pair(b.resource,b.role!="diffuse");if(seenKeys.insert(k).second)S->wanted.push_back(k);}}
-   if(S->done){continue;}std::shared_ptr<std::map<std::string,Texture>> px;std::string why;if(!texPixelsReady(kv.first,f,px,why))continue;
+   // A texture destroyed under us (before 0.7.74 the game's unused-asset unload at a scene change took the ones no material
+   // held yet, and co-op showed the mod's slots with null textures: the whole body lit): made again, and slots wait for it.
+   if(S->done){std::vector<std::string> dead;for(auto& m:S->made)if(!alive(m.second))dead.push_back(m.first);
+    if(dead.empty()){continue;}
+    for(auto& d:dead){S->made.erase(d);}
+    S->lost+=unsigned(dead.size());S->done=false;S->next=0;
+    log("texture-lost",f.mod->name+": "+std::to_string(dead.size())+" of our Texture2D destroyed by the game (not by GIBox), e.g. "+dead[0]+"; made again one per tick, slots wait for them");}
+   std::shared_ptr<std::map<std::string,Texture>> px;std::string why;if(!texPixelsReady(kv.first,f,px,why))continue;
    while(S->next<S->wanted.size()&&!px->count(S->wanted[S->next].first))S->next++;   // a resource the import could not decode
-   if(S->next<S->wanted.size()){auto& w=S->wanted[S->next++];auto key=w.first+(w.second?"#linear":"");if(!S->made.count(key)){auto t0=std::chrono::steady_clock::now();auto& p=px->at(w.first);S->made[key]=makeTexture(*S,p,w.second);S->bytes+=uint64_t(p.w)*p.h*4;
+   if(S->next<S->wanted.size()){auto& w=S->wanted[S->next++];auto key=w.first+(w.second?"#linear":"");if(!S->made.count(key)){auto t0=std::chrono::steady_clock::now();auto& p=px->at(w.first);S->made[key]=texMake(*S,p,w.second);S->bytes+=uint64_t(p.w)*p.h*4;
       S->ms+=uint64_t(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now()-t0).count());}S->ticks++;}
    if(S->next>=S->wanted.size()){S->done=true;S->readyAt=texClock();uint64_t readMs=0,readBytes=0;{std::lock_guard<std::mutex> l(sm);auto& p=texPixels[kv.first];readMs=p.ms;readBytes=p.bytes;}
-    log("texture-ready",f.mod->name+": "+std::to_string(S->made.size())+" Texture2D made on the game thread, one per tick ("+std::to_string(S->ms/1000)+" ms in all, "+std::to_string(S->bytes>>20)+" MiB RGBA32, no mipmaps); pixels read in the background in "+std::to_string(readMs)+" ms ("+std::to_string(readBytes>>20)+" MiB)");}}}
+    log("texture-ready",f.mod->name+": "+std::to_string(S->made.size())+" Texture2D made on the game thread, one per tick ("+std::to_string(S->ms/1000)+" ms in all, "+std::to_string(S->bytes>>20)+" MiB RGBA32, no mipmaps); pixels read in the background in "+std::to_string(readMs)+" ms ("+std::to_string(readBytes>>20)+" MiB); kept from the game's unused-asset unload: "+std::to_string(S->kept)+" of "+std::to_string(S->made.size())+" made so far (HideFlags read back)"+(S->lost?"; destroyed by the game earlier: "+std::to_string(S->lost):""));}}}
  bool texStoreReady(const std::string& path,std::string& why){auto it=texStores.find(path);if(it==texStores.end()||!it->second){why="textures not prepared yet";return false;}if(it->second->done)return true;
   why="textures being prepared ("+std::to_string(it->second->made.size())+" / "+std::to_string(it->second->wanted.size())+")";return false;}
  Ptr texOurs(TexLive& L,const std::map<std::string,Texture>& px,const texdiag::Write& w,std::string& note){auto key=w.resource+(w.linear?"#linear":"");auto& S=texStores[L.path];if(!S){S=std::make_unique<TexStore>();}
-  auto it=S->made.find(key);if(it!=S->made.end())return it->second;auto p=px.find(w.resource);require(p!=px.end(),"texture "+w.resource+" not decoded at import");
-  Ptr t=makeTexture(*S,p->second,w.linear);S->made[key]=t;note=" (made on demand, not prepared yet)";return t;}
+  auto it=S->made.find(key);if(it!=S->made.end()&&alive(it->second))return it->second;bool lost=it!=S->made.end();if(lost){S->made.erase(it);S->lost++;}
+  auto p=px.find(w.resource);require(p!=px.end(),"texture "+w.resource+" not decoded at import");
+  Ptr t=texMake(*S,p->second,w.linear);S->made[key]=t;note=lost?" (made again: the earlier one was destroyed by the game)":" (made on demand, not prepared yet)";return t;}
+ Ptr texMake(TexStore& S,const Texture& p,bool linear){bool k=false;Ptr x=makeTexture(S,p,linear,&k);if(k)S.kept++;return x;}
  std::vector<int32_t> texIds(Ptr m){std::vector<int32_t> ids;Owned tmp;try{Ptr a=e.get(glow::rvaGetTextureIds,m);if(a){pin(tmp,a);auto n=length(a,64);for(uint64_t i=0;i<n;i++)ids.push_back(load<int32_t>(a+0x20+4*i));}}catch(...){freeOwned(tmp);throw;}freeOwned(tmp);return ids;}
  // A light read for matching (hand-off): names, mesh features, the submesh layout through the engine getters, the
  // material names; no texture details.
@@ -762,7 +771,8 @@ struct Runtime::Impl {
    bool derived=on!=(s.clone?s.clone:s.material)&&texDerived(s,on);
    if(s.clone){if(on!=s.clone)event="the game put "+(alive(on)?texMaterial(on):hex(on))+" in place of our copy";}
    else if(on!=s.material)event="the game put "+(alive(on)?texMaterial(on):hex(on))+" in place of "+hex(s.material);
-   else for(auto& w:s.writes){Ptr now=e.call<Ptr>(glow::rvaGetTexture,s.material,slotId(w.write.property.c_str()),Ptr(0));if(now!=w.ours){event=w.write.property+" overwritten by the game (now "+texDescribe(now)+")";break;}}
+   else for(auto& w:s.writes){if(!alive(w.ours)){event="our texture for "+w.write.property+" was destroyed by the game (not by GIBox; a scene change's unused-asset unload)";break;}
+    Ptr now=e.call<Ptr>(glow::rvaGetTexture,s.material,slotId(w.write.property.c_str()),Ptr(0));if(now!=w.ours){event=w.write.property+" overwritten by the game (now "+texDescribe(now)+")";break;}}
    if(event.empty()){continue;}uint64_t noticed=texClock(),since=s.writtenAt?noticed-s.writtenAt:0;
    if(++s.again>16){s.gaveUp=true;log("texture-event",head+event+"; done again 16 times, stops here");continue;}
    unsigned again=s.again;std::string when="; noticed by "+via+" "+std::to_string(since)+" ms after our write";
@@ -771,7 +781,8 @@ struct Runtime::Impl {
    // glow): it stays on the slot and is watched in place. Copying it again would show a still of the effect.
    if(derived){std::string line;bool ok=texAdopt(L,s,on,line);log("texture-event",head+event+"; it was made from "+line+(ok?"":"; RESTORE FAILED")+when+" ("+std::to_string(again)+")");continue;}
    // The game's instance made from ours lost a texture: written again in it, not copied.
-   if(s.adopted&&on==s.material){std::string line;for(auto& w:s.writes){int32_t id=slotId(w.write.property.c_str());Ptr now=e.call<Ptr>(glow::rvaGetTexture,s.material,id,Ptr(0));if(now==w.ours)continue;
+   if(s.adopted&&on==s.material){std::string line;for(auto& w:s.writes){int32_t id=slotId(w.write.property.c_str());Ptr now=e.call<Ptr>(glow::rvaGetTexture,s.material,id,Ptr(0));if(now==w.ours&&alive(w.ours))continue;
+      if(!alive(w.ours)){std::string note;w.ours=texOurs(L,px,w.write,note);line+=" | "+w.write.property+note;}
       putTexture(s.material,w.write.property.c_str(),w.ours);Ptr back=e.call<Ptr>(glow::rvaGetTexture,s.material,id,Ptr(0));line+=" | "+w.write.property+": "+texDescribe(now)+" -> "+texDescribe(w.ours)+" readback="+(back==w.ours?"ok":"FAILED, now "+texDescribe(back));}
     s.writtenAt=texClock();log("texture-event",head+event+"; written again in the game's instance made from ours (not copied)"+line+when+" ("+std::to_string(again)+")");continue;}
    TexTarget t{s.renderer,s.native,s.slot,s.ruleIndex,s.evidence,s.label,s.mesh,s.lod};
@@ -1296,10 +1307,15 @@ struct Runtime::Impl {
    c.v3=cls(abi::getPositions,12);c.v2=cls(abi::getUV,8);c.i32=cls(abi::getTriangles,4);c.c32=cls(abi::getColors,4);c.v4=cls(abi::getTangents,16);}
   catch(...){freeOwned(tmp);throw;}freeOwned(tmp);arrayClasses=c;log("array-classes","learned from "+name(mesh));}
  void freeOwned(Owned& o){for(auto i=o.objects.rbegin();i!=o.objects.rend();++i)if(alive(*i))e.action(abi::destroy,*i);for(auto h:o.handles)e.call<void>(abi::unpin,h);o.objects.clear();o.handles.clear();}
- Ptr makeTexture(Owned& o,const Texture& t,bool linear){Ptr descriptor=e.call<Ptr>(abi::textureType);require(descriptor!=0,"Texture type missing");
+ // keep: HideFlags.DontUnloadUnusedAsset, so the game's unused-asset unload (a scene change: entering co-op, a domain)
+ // does not destroy a texture made ahead of use that no material holds yet; it is still destroyed by freeOwned. The
+ // flag read back says whether it took (a texture-only mod's store counts them for its texture-ready line).
+ Ptr makeTexture(Owned& o,const Texture& t,bool linear,bool* kept=nullptr){Ptr descriptor=e.call<Ptr>(abi::textureType);require(descriptor!=0,"Texture type missing");
   // objectNew only allocates the managed shell; its native texture (+0x10) exists once the constructor (textureInit) has run.
   Ptr x=e.call<Ptr>(abi::objectNew,load<Ptr>(descriptor));require(x!=0,"Texture allocation failed");o.objects.push_back(x);pin(o,x);
-  e.call<void>(abi::textureInit,x,int(t.w),int(t.h),4,0,linear?1:0,Ptr(0));require(alive(x),"Texture init failed");e.call<void>(abi::texturePixels,x,reinterpret_cast<Ptr>(t.pixels.data()),int(t.pixels.size()),Ptr(0));e.action(abi::textureApply,x);return x;}
+  e.call<void>(abi::textureInit,x,int(t.w),int(t.h),4,0,linear?1:0,Ptr(0));require(alive(x),"Texture init failed");e.call<void>(abi::texturePixels,x,reinterpret_cast<Ptr>(t.pixels.data()),int(t.pixels.size()),Ptr(0));e.action(abi::textureApply,x);
+  if(kept){e.call<void>(abi::setHideFlags,x,int(32),Ptr(0));*kept=(e.call<int>(abi::getHideFlags,x,Ptr(0))&32)!=0;}
+  return x;}
  void extraTexture(Ptr mat,Ptr tx,std::initializer_list<const char*> properties){if(auto* prop=firstProperty(mat,properties))e.call<void>(abi::setTexture,mat,managedName(prop),tx,Ptr(0));}
  Character current(){Ptr root=load<Ptr>(e.base+abi::manager);if(!root)return {};Ptr m=load<Ptr>(root+0x8c00);if(!m)return {};unsigned id=load<uint32_t>(m+0x288);Ptr list=load<Ptr>(m+0x10);if(!id||!list)return {};Ptr a=load<Ptr>(list+0x10);unsigned n=load<uint32_t>(list+0x18);if(!a||n>1024||length(a,1024)<n)return {};for(unsigned i=0;i<n;i++){Ptr ent=load<Ptr>(a+0x20+i*8);if(ent&&load<uint32_t>(ent+0x430)==id){unsigned config=load<uint32_t>(ent+0x3a4);if(config>=10000000&&config<=10001999)return {ent,id,config};}}return {};}
  // The renderer owner is null while the character is still loading: no renderers yet, not an error.

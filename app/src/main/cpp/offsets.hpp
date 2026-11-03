@@ -18,6 +18,8 @@ enum Offset:uintptr_t {
  // dump.cs: public Mesh.MarkDynamic(), static Time.get_frameCount().
  meshDynamic=0x8bb8e38,frameCount=0x875eb9c,
  textureType=0x8fef0f4,textureInit=0x8fef020,texturePixels=0x8fef48c,textureApply=0x8fef5b0,
+ // dump.cs: UnityEngine.Object.set_hideFlags(HideFlags) / get_hideFlags() (MethodIndex 18972 / 18971; HideFlags.DontUnloadUnusedAsset = 32).
+ setHideFlags=0x8bf51a0,getHideFlags=0x8bf5f2c,
  mainTexture=0xc2c53c0,
  // newString(null, const char*) returns a managed System.String*; the two Material calls take that pointer (a property NAME), not an int ID.
  newString=0x8d93dcc,hasProperty=0xc2c5ebc,setTexture=0xc2c69b0,
