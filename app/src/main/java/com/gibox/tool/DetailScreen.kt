@@ -65,6 +65,7 @@ fun DetailScreen(state: AppState, name: String) {
         val keys = manifest?.keys?.toList().orEmpty()
         val driven = manifest?.driven == true
         val logicCore = remember(state.revision) { state.experiment("logicCore") }
+        val steps = remember(state.revision) { state.experiment("keySteps") }
         // The keys' state (which preset, which switch is on) as the game has it, while the panel is shown.
         val pkg = state.game
         if (logicCore && keys.isNotEmpty()) LaunchedEffect(pkg, name) {
@@ -185,7 +186,7 @@ fun DetailScreen(state: AppState, name: String) {
                 }
             }
             // The mod's own keys, as on PC: the logic core in the game runs what each key does.
-            if (keys.isNotEmpty()) item { KeyPanel(state, mod, keys, driven, logicCore) }
+            if (keys.isNotEmpty()) item { KeyPanel(state, mod, keys, driven, logicCore, steps) }
             item {
                 val record = mod.model?.let { File(it, "conversion.log") }?.takeIf { it.isFile }
                 val count = if (record != null) 2 else 1

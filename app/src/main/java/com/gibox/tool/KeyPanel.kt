@@ -41,21 +41,21 @@ private fun keyName(k: ModelManifest.Key) = k.section.drop(3).trim('_', ' ', '.'
 private fun bindLabel(k: ModelManifest.Key): String = k.binds.firstOrNull()?.split(' ', '\t')
     ?.filter { it.isNotBlank() && !it.lowercase().startsWith("no_") }
     ?.joinToString("+") { it.uppercase().removePrefix("VK_") }.orEmpty()
-private fun keyLine(k: ModelManifest.Key, what: String) = (bindLabel(k).takeIf { it.isNotEmpty() }?.let { "PC 按键 $it · " } ?: "") + what
+private fun keyLine(k: ModelManifest.Key, what: String) = listOfNotNull(bindLabel(k).takeIf { it.isNotEmpty() }?.let { "按键 $it" }, what.takeIf { it.isNotEmpty() }).joinToString(" · ")
 
 /**
  * The MOD's own [Key] sections as a switch panel, the way 3DMigoto runs them on PC (the logic core in the game executes
  * each key: its conditions, run lists, transitions):
- * - a cycle: its presets as chips, chosen directly ("select", activated exactly as stepping to that preset would), plus
- *   下一个 / 上一个; a cycle whose presets carry a condition or a run (choosing one directly could differ from reaching
- *   it on PC) only steps, as on PC;
+ * - a cycle: its presets as chips, chosen directly ("select", activated exactly as stepping to that preset would);
+ *   上一个 / 下一个 as on PC only with the debug switch 逐个切换按钮 (steps); a cycle whose presets carry a condition or a
+ *   run (choosing one directly could differ from reaching it on PC) only steps, so it always has them;
  * - activate keys that set the same variables (a MOD's own 1 2 3 keys): one row of choices; any other activate key: a press;
  * - toggle and hold: switches.
  * Which preset / choice / switch is on comes from the game (status.json "keys", 3DMigoto's smart cycle resync).
  */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-fun KeyPanel(state: AppState, mod: Importer.Mod, keys: List<ModelManifest.Key>, driven: Boolean, logicCore: Boolean) {
+fun KeyPanel(state: AppState, mod: Importer.Mod, keys: List<ModelManifest.Key>, driven: Boolean, logicCore: Boolean, steps: Boolean) {
     val states = state.status.keys[mod.name]
     fun stateOf(i: Int, k: ModelManifest.Key) = states?.getOrNull(i)?.takeIf { it.section == k.section }
     val rows = if (logicCore) keyRows(keys) else emptyList()
@@ -64,10 +64,10 @@ fun KeyPanel(state: AppState, mod: Importer.Mod, keys: List<ModelManifest.Key>, 
         SegmentedListItem(shapes = ListItemDefaults.segmentedShapes(0, count)) {
             Text(
                 when {
-                    !logicCore -> "需在 设置 → 调试 打开“使用 3DMigoto 进行转换”"
-                    states == null -> "游戏里显示这个模型时生效（现在没有运行）"
-                    else -> "和 PC 上按键一样，按 MOD 自己的规则切换"
-                } + if (driven && logicCore) "。款式由 MOD 自己决定，上面的款式表不起作用" else "",
+                    !logicCore -> "需在调试里打开 3DMigoto 转换"
+                    states == null -> "游戏里显示模型时生效"
+                    else -> "按 MOD 自带规则切换"
+                } + if (driven && logicCore) "；款式表不起作用" else "",
                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
@@ -94,24 +94,20 @@ fun KeyPanel(state: AppState, mod: Importer.Mod, keys: List<ModelManifest.Key>, 
                             shapes = shapes, onCheckedChange = { state.pressKey(mod, k) },
                         )
                         "hold" -> SettingsSwitch(
-                            state = st?.active == true, title = { Text(keyName(k)) }, subtitle = { Text(keyLine(k, "打开即按住，关掉即松开")) },
+                            state = st?.active == true, title = { Text(keyName(k)) }, subtitle = { Text(keyLine(k, "按住")) },
                             shapes = shapes, onCheckedChange = { state.holdKey(mod, k, it) },
                         )
                         "cycle" -> SegmentedListItem(shapes = shapes) {
                             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Text(keyName(k), style = MaterialTheme.typography.titleSmall)
-                                val special = k.presets.any { it.special }
-                                Text(
-                                    keyLine(k, if (k.selectable()) "共 ${k.presets.size} 个，点哪个切到哪个" else (if (special) "带条件或附加命令，只能按顺序切换" else "按顺序切换") +
-                                        if (st != null && st.current >= 0) "，现在第 ${st.current + 1} 个" else ""),
-                                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
+                                val line = keyLine(k, if (k.selectable()) "" else "只能逐个切" + if (st != null && st.current >= 0) "，第 ${st.current + 1} 个" else "")
+                                if (line.isNotEmpty()) Text(line, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 if (k.selectable()) FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     k.presets.indices.forEach { i ->
                                         FilterChip(selected = st?.current == i, onClick = { state.selectKey(mod, k, i) }, label = { Text("${i + 1}") })
                                     }
                                 }
-                                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                if (steps || !k.selectable()) FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     if (k.back) AssistChip(onClick = { state.pressKey(mod, k, true) }, label = { Text("上一个") })
                                     AssistChip(onClick = { state.pressKey(mod, k) }, label = { Text("下一个") })
                                 }
@@ -119,7 +115,7 @@ fun KeyPanel(state: AppState, mod: Importer.Mod, keys: List<ModelManifest.Key>, 
                         }
                         else -> SettingsMenuLink(
                             title = { Text(keyName(k)) },
-                            subtitle = { Text(keyLine(k, if (st?.matches == true) "按一下 · 已生效" else "按一下")) },
+                            subtitle = keyLine(k, if (st?.matches == true) "已生效" else "").takeIf { it.isNotEmpty() }?.let { s -> { Text(s) } },
                             shapes = shapes, onClick = { state.pressKey(mod, k) },
                         )
                     }

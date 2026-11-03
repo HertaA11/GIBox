@@ -9,6 +9,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -139,8 +140,9 @@ fun DebugScreen(state: AppState) {
                 val rev = state.revision
                 val animation = remember(rev) { state.experimentInt("animationMode") }
                 val logic = remember(rev) { state.experiment("logicCore") }
+                val steps = remember(rev) { state.experiment("keySteps") }
                 SettingsGroup(title = { SectionTitle("模型动画实验") }, verticalArrangement = gap) {
-                    SegmentedListItem(shapes = ListItemDefaults.segmentedShapes(0, 2)) {
+                    SegmentedListItem(shapes = ListItemDefaults.segmentedShapes(0, 3)) {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text("动画播放方式", style = MaterialTheme.typography.titleSmall)
                             Text("切换后自动重建动画模型，预热完成后开始播放，只影响带动画的 MOD", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -155,25 +157,39 @@ fun DebugScreen(state: AppState) {
                         state = logic,
                         title = { Text("使用 3DMigoto 进行转换") },
                         subtitle = { Text("按 MOD 自带的 INI 规则切换动画、款式和按键；旧版转换的 MOD 需重新转换") },
-                        shapes = ListItemDefaults.segmentedShapes(1, 2),
+                        shapes = ListItemDefaults.segmentedShapes(1, 3),
                         onCheckedChange = { state.setExperiment("logicCore", it) },
+                    )
+                    SettingsSwitch(
+                        state = steps,
+                        title = { Text("逐个切换按钮") },
+                        subtitle = { Text("按键切换里显示上一个、下一个") },
+                        shapes = ListItemDefaults.segmentedShapes(2, 3),
+                        onCheckedChange = { state.setExperiment("keySteps", it) },
                     )
                 }
             }
             item {
-                SettingsGroup(title = { SectionTitle("骨骼和旧流程") }, verticalArrangement = gap) {
+                SettingsGroup(title = { SectionTitle("转换和骨骼") }, verticalArrangement = gap) {
+                    SettingsMenuLink(
+                        title = { Text("一键重新转换") },
+                        subtitle = { Text("所有 MOD 按各自角色重新转换") },
+                        icon = { Icon(Icons.Filled.Refresh, contentDescription = null) },
+                        shapes = ListItemDefaults.segmentedShapes(0, 3),
+                        onClick = { state.reconvertAll() },
+                    )
                     SettingsMenuLink(
                         title = { Text("导出当前角色骨骼") },
                         subtitle = { Text("导出当前角色的骨骼目录，供手动转换用") },
                         icon = { Icon(Icons.Filled.Person, contentDescription = null) },
-                        shapes = ListItemDefaults.segmentedShapes(0, 2),
+                        shapes = ListItemDefaults.segmentedShapes(1, 3),
                         onClick = { state.exportBones() },
                     )
                     SettingsMenuLink(
                         title = { Text("手动转换（旧流程）") },
                         subtitle = { Text("手动指定骨骼、角色 ID 和部件映射") },
                         icon = { Icon(Icons.Filled.Build, contentDescription = null) },
-                        shapes = ListItemDefaults.segmentedShapes(1, 2),
+                        shapes = ListItemDefaults.segmentedShapes(2, 3),
                         onClick = { state.open(Screen.Manual) },
                     )
                 }

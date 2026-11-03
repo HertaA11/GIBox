@@ -391,6 +391,33 @@ class AppState(private val activity: Activity) {
             }
         }
     }
+    /** Debug: every converted mod converted again from its Mods folder, for the character it has (as 重新转换 on its
+     *  page), one after another; which mods are on is not changed. A failure is listed and the rest go on. */
+    fun reconvertAll() {
+        val list = mods.filter { it.source != null && it.converted && it.id != 0 }
+        if (list.isEmpty()) { prompt = Prompt("一键重新转换", "没有可重新转换的 MOD。"); return }
+        prompt = Prompt(
+            title = "一键重新转换", text = "按各自的角色重新转换 ${list.size} 个 MOD，可能要几分钟。", confirm = "开始", dismiss = "取消",
+            onConfirm = {
+                AppLog.info(game, LOGGER, "一键重新转换 ${list.size} 个 MOD")
+                work("重新转换", "正在重新转换 ${list.size} 个 MOD…", { _ ->
+                    val failed = ArrayList<String>()
+                    list.forEachIndexed { i, mod ->
+                        val name = label(mod.name)
+                        activity.runOnUiThread { busy = Busy("重新转换", "${i + 1} / ${list.size}：$name") }
+                        val log = StringBuilder()
+                        try { Importer.convert(mod.source, mod.id, modelsRoot, boneRoot, decoder, log); AppLog.debug(game, "converter", log.toString().trim()) }
+                        catch (e: Throwable) { AppLog.debug(game, "converter", log.toString().trim()); AppLog.warning(game, LOGGER, "重新转换 ${mod.name} 失败：$e"); failed.add("$name：${e.message ?: e}") }
+                    }
+                    failed
+                }) { failed ->
+                    refresh()
+                    AppLog.info(game, LOGGER, "一键重新转换完成：成功 ${list.size - failed.size}，失败 ${failed.size}")
+                    prompt = Prompt("重新转换完成", "成功 ${list.size - failed.size} 个" + if (failed.isEmpty()) "。" else "，失败 ${failed.size} 个：\n" + failed.joinToString("\n"))
+                }
+            },
+        )
+    }
     fun guess(pick: Screen.Pick): Characters.Guess =
         Importer.guess(pick.pending ?: pick.source ?: File(modsRoot, pick.modName), pick.importedAs, boneRoot)
     fun recorded(): Set<Int> = ModLibrary.library(boneRoot).map { it.id }.toSet()
