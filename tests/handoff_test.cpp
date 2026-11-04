@@ -47,7 +47,8 @@ Ptr resolve(abi::Offset o){switch(o){
  if(o==hd::enabled)return reinterpret_cast<Ptr>(getEnabled);
  if(o==hd::frameCount)return reinterpret_cast<Ptr>(getFrame);
  throw std::runtime_error("unexpected Engine call");}
-void setup(){image=reinterpret_cast<Ptr>(mmap(nullptr,0xd000000,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0));assert(image!=Ptr(MAP_FAILED));
+void setup(){abi::liveRoot.store(0x278);abi::liveConfig.store(0x3a4);abi::liveRuntime.store(0x430);   // the fake entity's layout
+ image=reinterpret_cast<Ptr>(mmap(nullptr,0x16000000,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0));assert(image!=Ptr(MAP_FAILED));
  for(auto& f:hd::fingerprints())for(size_t i=0;i<16;++i){std::string byte(f.bytes+i*2,2);store<uint8_t>(image+f.rva+i,uint8_t(std::stoul(byte,nullptr,16)));}
  originals[hd::ready]=reinterpret_cast<void*>(originalReady);originals[hd::activate]=reinterpret_cast<void*>(originalActivate);originals[hd::meshBody]=reinterpret_cast<void*>(originalMesh);originals[hd::instantiate]=reinterpret_cast<void*>(originalInstantiate);originals[hd::receive]=reinterpret_cast<void*>(originalReceive);
  goClass=alloc(0x40);foreign=object();store<Ptr>(foreign,alloc(0x40));bare=object();store<Ptr>(bare,goClass);

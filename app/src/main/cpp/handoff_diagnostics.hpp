@@ -21,13 +21,14 @@
 namespace ms::handoff {
 // All offsets and fingerprints belong ONLY to abi::buildId. This is an
 // in-process probe: C++ exceptions cannot recover from a native access fault.
-inline constexpr abi::Offset components=static_cast<abi::Offset>(0x875c09c),
- transform=static_cast<abi::Offset>(0x875c150), activeSelf=static_cast<abi::Offset>(0x875c360),
- activeHierarchy=static_cast<abi::Offset>(0x875c364), enabled=static_cast<abi::Offset>(0x8dc2984),
- frameCount=static_cast<abi::Offset>(0x875eb9c), gameObject=static_cast<abi::Offset>(0xc2c4744),
- ready=static_cast<abi::Offset>(0x8721e24), activate=static_cast<abi::Offset>(0x8713ec4),
- meshBody=static_cast<abi::Offset>(0x49fc24c), instantiate=static_cast<abi::Offset>(0x8f95b18),
- receive=static_cast<abi::Offset>(0x88770e0);
+inline constexpr abi::Offset components=static_cast<abi::Offset>(0x9577734),
+ transform=static_cast<abi::Offset>(0x95777e8), activeSelf=static_cast<abi::Offset>(0x95779fc),
+ activeHierarchy=static_cast<abi::Offset>(0x9577a00), enabled=static_cast<abi::Offset>(0x8f03330),
+ frameCount=static_cast<abi::Offset>(0x957a238), gameObject=static_cast<abi::Offset>(0x80e5b50),
+ ready=static_cast<abi::Offset>(abi::notFound+0x810), activate=static_cast<abi::Offset>(abi::notFound+0x820),   // 7.2: not found yet (7.1 0x8721e24 / 0x8713ec4)
+ meshBody=static_cast<abi::Offset>(abi::notFound+0x830),   // 7.2: not found yet (7.1 0x49fc24c)
+ instantiate=static_cast<abi::Offset>(0x913a648),
+ receive=static_cast<abi::Offset>(0x9564b4c);
 inline uint64_t ns(){return uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());}
 inline int tid(){return int(::syscall(SYS_gettid));}
 inline std::string address(Ptr p){std::ostringstream s;s<<"0x"<<std::hex<<p;return s.str();}
@@ -129,8 +130,9 @@ class Diagnostics {
   if(!eligible(phase))return;
   const bool spawn=std::strncmp(phase,"instantiate",11)==0||std::strncmp(phase,"resource",8)==0;
   ProbeScope guard;
-  try{Roots roots(e);roots.add(entity);Ptr go=useExplicitRoot?explicitRoot:(explicitRoot?explicitRoot:(entity?load<Ptr>(entity+0x278):0));roots.add(go);
-   // The receiver's asset (and in principle entity+0x278) is not guaranteed to be a GameObject; GameObject icalls on
+  try{Roots roots(e);roots.add(entity);Ptr go=useExplicitRoot?explicitRoot:(explicitRoot?explicitRoot:(entity&&abi::liveRoot.load()?load<Ptr>(entity+abi::liveRoot.load()):0));roots.add(go);
+   // 7.2: the entity's root GameObject field (abi::liveRoot) is not identified yet (0): then only the explicit root is
+   // snapshot. The receiver's asset is not guaranteed to be a GameObject; GameObject icalls on
    // another type read the wrong native object. Only an exact class match gets those calls.
    Ptr goClass=Ptr(gameObjectClass.load(std::memory_order_acquire));const bool isGo=native(go)&&goClass&&load<Ptr>(go)==goClass;
    Ptr arr=0;size_t count=0;
@@ -138,7 +140,7 @@ class Diagnostics {
    if(spawn&&count==0){if(native(go)&&!isGo)foreignRoots.fetch_add(1);else emptySpawns.fetch_add(1);return;}
    auto& counter=spawn?spawnCount:cycleCount;uint64_t sample=counter.fetch_add(1)+1;
    if(sample>256){if(sample==257)notice(spawn?"spawn_budget_exhausted":"cycle_budget_exhausted","256 snapshots of this kind; restart process for another capture");return;}
-   auto j=event("snapshot");j.str("phase",phase);j.num("sample",sample);j.ptr("entity",entity);j.num("config_id",entity?load<uint32_t>(entity+0x3a4):0);j.num("runtime_id",entity?load<uint32_t>(entity+0x430):0);j.ptr("resource_key",key);j.num("handle",handle);j.boolean("success",success);
+   auto j=event("snapshot");j.str("phase",phase);j.num("sample",sample);j.ptr("entity",entity);{auto c=abi::liveConfig.load(),r=abi::liveRuntime.load();j.num("config_id",entity&&c?load<uint32_t>(entity+c):0);j.num("runtime_id",entity&&r?load<uint32_t>(entity+r):0);}j.ptr("resource_key",key);j.num("handle",handle);j.boolean("success",success);
    j.num("frame",uint32_t(e.call<int32_t>(frameCount,Ptr(0))));identity(j,"root",go);
    if(native(go)&&!isGo){foreignRoots.fetch_add(1);j.boolean("root_is_game_object",false);j.ptr("root_class",load<Ptr>(go));j.raw("renderers","[]");enqueue(j.finish());return;}
    flags(j,go);
@@ -175,6 +177,7 @@ public:
  ~Diagnostics(){if(writer.joinable()){{std::lock_guard<std::mutex> l(qm);stopping=true;}cv.notify_one();writer.join();}}
  Diagnostics(const Diagnostics&)=delete;
  std::string preflight()const{
+  for(const auto& f:fingerprints())if(!abi::found(f.rva))return std::string(f.name)+": offset not found yet for this build";
   for(const auto& f:fingerprints()){auto* p=reinterpret_cast<const unsigned char*>(e.base+f.rva);for(size_t i=0;i<16;++i){auto digit=[](char c){return c<='9'?c-'0':c-'a'+10;};if(p[i]!=unsigned(digit(f.bytes[i*2])*16+digit(f.bytes[i*2+1])))return std::string(f.name)+" @ "+address(f.rva)+" fingerprint mismatch";}}
   return {};
  }

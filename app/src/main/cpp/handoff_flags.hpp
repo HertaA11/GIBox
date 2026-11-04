@@ -15,7 +15,7 @@ inline std::atomic<uintptr_t> rendererType{0};
 // GameObject getters are only called on objects of exactly this class.
 inline std::atomic<uintptr_t> gameObjectClass{0};
 // Component.get_gameObject; Diagnostics::preflight checks its fingerprint before armed, and canSeed() needs armed.
-inline constexpr uintptr_t componentGameObjectRva=0xc2c4744;
+inline constexpr uintptr_t componentGameObjectRva=0x80e5b50;
 inline std::atomic<uint64_t> ownAssignments{0};
 inline thread_local unsigned ownWriteDepth=0, probeDepth=0;
 struct OwnWriteScope {

@@ -50,8 +50,8 @@ int main(){
  auto& t=trace();assert(!t.everything);auto report=install(e);for(size_t i=0;i<kCount;i++)assert(t.done[i]);
  assert(t.everything&&install(e).find("0 of 0 entries hooked")==0);
  assert(hooked.count(0xc000000)&&hooked.count(kHooks[at("Material.SetFloatImpl(int,float)")].rva)&&!hooked.count(kHooks[at("Renderer.set_enabled(bool)")].rva));
- assert(report.find("Material.EnableKeyword(string) 0xc2c63e4: B 0xc000000, same code as Material.EnableKeywordImpl(string)")!=std::string::npos);
- assert(report.find("Renderer.set_enabled(bool) 0x8dc2988: skipped, 4-byte entry is not a branch")!=std::string::npos&&report.find(" entries hooked, 1 share code")!=std::string::npos);
+ assert(report.find("Material.EnableKeyword(string) 0x80e77f0: B 0xc000000, same code as Material.EnableKeywordImpl(string)")!=std::string::npos);
+ assert(report.find("Renderer.set_enabled(bool) 0x8f03334: skipped, 4-byte entry is not a branch")!=std::string::npos&&report.find(" entries hooked, 1 share code")!=std::string::npos);
  assert(t.frameFn.load()==&frame);
  setOriginal("Material.INTERNAL_CALL_SetColorImpl(Material,int,Color*)",reinterpret_cast<void*>(&colorImpl));setOriginal("Material.SetColor(int,Color)",reinterpret_cast<void*>(&colorPublic));
  setOriginal("Material.SetFloatImpl(int,float)",reinterpret_cast<void*>(&floatImpl));setOriginal("Shader.PropertyToID(string)",reinterpret_cast<void*>(&propertyToId));

@@ -14,7 +14,7 @@ with tempfile.TemporaryDirectory(prefix="gibox-handoff-") as tmp:
     tmp = Path(tmp)
     (tmp / "dobby.h").write_text('extern "C" int DobbyHook(void*, void*, void**);\n')
     exe = tmp / "handoff_test"
-    subprocess.run(["g++", "-std=c++17", "-Wall", "-Wextra", "-Werror", "-pthread", "-DGIBOX_HANDOFF_DIAGNOSTICS=1",
+    subprocess.run(["g++", "-std=c++17", "-Wall", "-Wextra", "-Werror", "-pthread", "-DGIBOX_HANDOFF_DIAGNOSTICS=1", "-DGIBOX_HOST_TEST",
                     "-I" + str(tmp), "-I" + str(root / "app/src/main/cpp"),
                     str(root / "tests/handoff_test.cpp"), "-o", str(exe)], check=True)
     for mode in ("mismatch", "partial", "badlog", "normal"):

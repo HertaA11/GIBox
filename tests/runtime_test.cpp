@@ -14,6 +14,9 @@ using namespace ms;
 using fixture::Spec;using fixture::writeModel;using fixture::learnedAt;
 namespace {
 struct Obj {std::string kind,name;Ptr mesh=0,materials=0,bones=0,native=0,shared=0,parent=0;std::map<abi::Offset,Ptr> arrays;};
+// Game 7.2: the manager's entity list and current ID and the entity's runtime and config ID are found by the runtime among
+// candidates (offsets.hpp); the fake puts them at one candidate each, the other candidates stay 0.
+constexpr unsigned kList=0x160,kCurrent=0x2a8,kRuntime=0x464,kConfig=0x45c;
 struct Fake {
  Ptr stringBase=0x7020000000ull,base=0,manager=0,owner=0,klass=0,typeObj=0;std::map<Ptr,Obj> obj;std::vector<void*> allocated;std::map<unsigned,Ptr> handles;unsigned nextHandle=1,nextId=1;
  // Each built part now clones one restoration snapshot and one mod mesh; count both engine allocations.
@@ -50,8 +53,8 @@ struct Fake {
  // A model GameObject as the game hands it over: inactive, renderers already set up.
  Ptr gameObjectOf(std::vector<Ptr> renderers){Ptr g=object("gameobject","Avatar_Girl_Catalyst_Citlali_Manekin");for(Ptr r:renderers)goOfRenderer[r]=g;goChildren[g]=renderers;return g;}
  void world(Ptr r){store<Ptr>(owner+0x68,r?array(8,1,&r):array(8,0));}
- Fake(){void* p=mmap(nullptr,0x16000000,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS|MAP_NORESERVE,-1,0);assert(p!=MAP_FAILED);base=reinterpret_cast<Ptr>(p);Ptr root=alloc(0x8c10);manager=alloc(0x300);store<Ptr>(base+abi::manager,root);store<Ptr>(root+0x8c00,manager);store<uint32_t>(manager+0x288,7);
-  Ptr entity=alloc(0x440),list=alloc(0x20);store<Ptr>(manager+0x10,list);store<Ptr>(list+0x10,array(8,1,&entity));store<uint32_t>(list+0x18,1);store<uint32_t>(entity+0x430,7);store<uint32_t>(entity+0x3a4,10000107);owner=alloc(0x70);store<Ptr>(entity+0xf8,owner);
+ Fake(){void* p=mmap(nullptr,0x16000000,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS|MAP_NORESERVE,-1,0);assert(p!=MAP_FAILED);base=reinterpret_cast<Ptr>(p);Ptr root=alloc(0x8c10);manager=alloc(0x300);store<Ptr>(base+abi::manager,root);store<Ptr>(root+abi::managerSlot,manager);store<uint32_t>(manager+kCurrent,7);
+  Ptr entity=alloc(0x500),list=alloc(0x20);store<Ptr>(manager+kList,list);store<Ptr>(list+0x10,array(8,1,&entity));store<uint32_t>(list+0x18,1);store<uint32_t>(entity+kRuntime,7);store<uint32_t>(entity+kConfig,10000107);owner=alloc(0x70);store<Ptr>(entity+abi::entityVisual,owner);
   klass=kindClass("renderer");Ptr scenes=object("transform","Scene");skeletonRoot=object("transform","Avatar_Girl_Catalyst_Citlali");obj[skeletonRoot].parent=scenes;kavehRoot=object("transform","Avatar_Boy_Sword_Kaveh");obj[kavehRoot].parent=scenes;}
  ~Fake(){for(void* p:allocated)std::free(p);munmap(reinterpret_cast<void*>(base),0x16000000);}
 }*f=nullptr;
@@ -157,7 +160,7 @@ int main(int argc,char** argv){Fake fake;f=&fake;char temp[]="/tmp/model-runtime
  // Optional, local-only integration input: a real exported index-only model, never bundled into the test suite.
  if(argc>=2){bool expectWait=argc==3&&std::string(argv[2])=="--expect-wait";assert(argc==2||expectWait);runtime.shutdown();std::string dest=models+"/Actual";std::filesystem::copy(argv[1],dest,std::filesystem::copy_options::recursive);auto data=loadModelFile(dest,false,true);assert(data->id==10000007&&data->parts.size()==1&&data->parts[0].sourceBones.empty());auto& part=data->parts[0];auto old=readLearned(dest).targets.at(part.spec.name);auto names=readLegacyBoneNames(dest+"/bonemap-"+part.spec.name+".tsv",part.spec.bones);
   assert(part.geo.n==20757&&part.used.size()==101&&old.bones==114);f->expectedVertices=part.geo.n;f->obj[f->skeletonRoot].name="Avatar_Girl_Sword_PlayerGirl";
-  Ptr entity=load<Ptr>(load<Ptr>(load<Ptr>(f->manager+0x10)+0x10)+0x20);store<uint32_t>(entity+0x3a4,10000007);
+  Ptr entity=load<Ptr>(load<Ptr>(load<Ptr>(f->manager+kList)+0x10)+0x20);store<uint32_t>(entity+kConfig,10000007);
   Ptr low=f->mesh("Body_LOD1",6594),r=f->renderer(low);store<uint32_t>(f->obj[low].shared+0xc0,3);store<uint64_t>(f->obj[low].shared+0xe0,114);std::vector<Ptr> bones;Bytes binds(114*64);
   for(unsigned i=0;i<114;i++){Ptr bone=f->object("bone",names[i].empty()?"Unused"+std::to_string(i):names[i]);f->obj[bone].parent=f->skeletonRoot;bones.push_back(bone);for(unsigned n=0;n<4;n++)store<float>(reinterpret_cast<Ptr>(binds.data())+i*64+n*20,1.f);}
   f->obj[r].bones=f->array(8,114,bones.data());f->obj[low].arrays[abi::getBindposes]=f->array(64,114,binds.data());f->world(r);f->scene={r};write(shared+"/control.json","{\"enabled\":true,\"selected\":[\"Actual\"],\"logLevel\":\"debug\"}");
@@ -201,8 +204,8 @@ int main(int argc,char** argv){Fake fake;f=&fake;char temp[]="/tmp/model-runtime
  assert(status().at("models").array.size()==1&&status().at("models").array[0].string=="B");
  control(true,2,0,{"A","B"});runtime.tick(10700);assert(meshOf(world)==a1&&meshOf(ui)==a1&&meshOf(ui2)==a1&&f->meshClones==4&&text(shared+"/GIBox Log.txt").find("outranked B/Part0 on Body")!=std::string::npos);
  // 4. Character leaves (renderers destroyed) and returns as new objects: no rebuild.
- for(Ptr r:{world,ui,ui2}){store<Ptr>(r+0x10,0);}f->scene={npc,odd,other};f->world(0);store<uint32_t>(f->manager+0x288,0);runtime.tick(11200);assert(state()=="waiting");
- Ptr world2=f->renderer(original);f->world(world2);f->scene={world2,npc,odd,other};store<uint32_t>(f->manager+0x288,7);runtime.tick(11700);assert(state()=="active"&&meshOf(world2)==a1&&f->meshClones==4);
+ for(Ptr r:{world,ui,ui2}){store<Ptr>(r+0x10,0);}f->scene={npc,odd,other};f->world(0);store<uint32_t>(f->manager+kCurrent,0);runtime.tick(11200);assert(state()=="waiting");
+ Ptr world2=f->renderer(original);f->world(world2);f->scene={world2,npc,odd,other};store<uint32_t>(f->manager+kCurrent,7);runtime.tick(11700);assert(state()=="active"&&meshOf(world2)==a1&&f->meshClones==4);
  // 5. Manual bone export keeps working; renderer names are filtered.
  f->obj[world2].name="Body (1)";control(true,2,1,{"A","B"});runtime.tick(11800);runtime.tick(12300);{bool found=false;for(auto& d:std::filesystem::directory_iterator(boneRoot))if(d.path().filename().string().rfind("10000107-",0)==0&&text(d.path().string()+"/skeleton.json").find("\"name\":\"Body1\"")!=std::string::npos)found=true;assert(found&&state()=="active");}f->obj[world2].name="Body";
  // 6. Hot reload: a new generation is built and takes over in one tick; the old mesh is destroyed.
@@ -352,10 +355,10 @@ int main(int argc,char** argv){Fake fake;f=&fake;char temp[]="/tmp/model-runtime
  //     detail is named with the number that differs (status and log); once LOD0 shows, it attaches.
  {std::string media7=root+"/media7",shared7=media7+"/"+pkg+"/GIBox",models7=shared7+"/models",logFile=shared7+"/GIBox Log.txt";writeModel(models7+"/A",Spec().noSkeleton().withTarget(fixture::target("Body")));
   std::filesystem::create_directories(shared7);write(shared7+"/control.json","{\"enabled\":true,\"selected\":[\"A\"]}");
-  Ptr lod=f->renderer(f->mesh("Body_LOD1",2));f->world(lod);f->scene={lod};store<uint32_t>(f->manager+0x288,0);
+  Ptr lod=f->renderer(f->mesh("Body_LOD1",2));f->world(lod);f->scene={lod};store<uint32_t>(f->manager+kCurrent,0);
   Runtime why(e,pkg,root+"/private7",media7,false);why.tick(700000);auto st=JsonParser(text(shared7+"/status.json")).parse();
   assert(st.at("state").string=="waiting"&&st.at("detail").string.find("还没认出当前操控的角色")!=std::string::npos&&st.at("detail").string.find("任一处")==std::string::npos);
-  store<uint32_t>(f->manager+0x288,7);why.tick(700600);st=JsonParser(text(shared7+"/status.json")).parse();auto log=text(logFile);
+  store<uint32_t>(f->manager+kCurrent,7);why.tick(700600);st=JsonParser(text(shared7+"/status.json")).parse();auto log=text(logFile);
   assert(st.at("state").string=="waiting"&&st.at("detail").string.find("和导入时不同（顶点 3→2）")!=std::string::npos&&meshOf(lod)==f->obj[lod].mesh);
   assert(log.find("runtime INFO character none")!=std::string::npos&&log.find("runtime INFO character 10000107")!=std::string::npos);
   assert(log.find("wait-reason A: 当前角色 10000107，它的渲染器 1 个，全场景 1 个")!=std::string::npos&&log.find("Part0 要 Body / Body（顶点 3，子网格 1，骨骼 1）：同名 Mesh 数字不同 Body / Body_LOD1（顶点 2，子网格 1，骨骼 1）")!=std::string::npos);
@@ -620,14 +623,14 @@ int main(int argc,char** argv){Fake fake;f=&fake;char temp[]="/tmp/model-runtime
  // 36. A character-scoped request survives waiting, retries incomplete captures without overwriting the last good
  //     record, completes only after worker read-back, rejects stale completions and is acknowledged across restart.
  {std::string mediaRefresh=root+"/mediaRefresh",sharedRefresh=mediaRefresh+"/"+pkg+"/GIBox",bonesRefresh=sharedRefresh+"/skeletons";Ptr originalMesh=f->mesh(),w=f->renderer(originalMesh),completeBones=f->obj[w].bones;f->world(w);f->scene={w};
-  Ptr entity=load<Ptr>(load<Ptr>(load<Ptr>(f->manager+0x10)+0x10)+0x20);store<uint32_t>(entity+0x3a4,10000200);
+  Ptr entity=load<Ptr>(load<Ptr>(load<Ptr>(f->manager+kList)+0x10)+0x20);store<uint32_t>(entity+kConfig,10000200);
   SkeletonRenderer rec;rec.name="Body";rec.target={"Body","Body",3,1,1};rec.bones={"BoneA"};rec.parents={-1};rec.bindposes.resize(64);for(int i=0;i<4;i++){float one=1;std::memcpy(rec.bindposes.data()+i*20,&one,4);}
   auto old=skeletonJson(10000107,"OldCapture",{rec});std::string file=bonesRefresh+"/10000107/skeleton.json";std::filesystem::create_directories(bonesRefresh+"/10000107");write(file,old);
   auto request=[&](long long n){write(sharedRefresh+"/control.json","{\"enabled\":false,\"selected\":[],\"refreshBones\":"+std::to_string(n)+",\"refreshBonesCharacter\":10000107}");};
   request(901);
   {Runtime refresh(e,pkg,root+"/privateRefresh",mediaRefresh,false);auto st=[&]{return JsonParser(text(sharedRefresh+"/status.json")).parse();};
    refresh.tick(2500000);assert(st().at("boneRefreshState").string=="waiting-character"&&text(file)==old);
-   store<uint32_t>(entity+0x3a4,10000107);f->obj[w].bones=f->array(8,0);refresh.tick(2500600);refresh.tick(2501200);assert(st().at("boneRefreshState").string!="complete"&&text(file)==old);
+   store<uint32_t>(entity+kConfig,10000107);f->obj[w].bones=f->array(8,0);refresh.tick(2500600);refresh.tick(2501200);assert(st().at("boneRefreshState").string!="complete"&&text(file)==old);
    f->obj[w].bones=completeBones;refresh.tick(2501800);refresh.tick(2502400);assert(st().at("boneRefreshState").string=="saving");refresh.tick(2502500);assert(st().at("boneRefreshState").string=="complete"&&text(file)!=old);
    auto reads=f->bindposeReads;refresh.tick(2503100);assert(f->bindposeReads==reads);
    request(902);refresh.tick(2503700);refresh.tick(2504300);request(903);refresh.tick(2504400);assert(st().at("boneRefreshRequest").number==903&&st().at("boneRefreshState").string!="complete");
@@ -771,7 +774,7 @@ int main(int argc,char** argv){Fake fake;f=&fake;char temp[]="/tmp/model-runtime
  //     from the bone library's avatar before any set of the model exists, so it is built and taken over while hidden.
  //     Without a library record it still waits, as before.
  {std::string mediaParty=root+"/mediaParty",sharedParty=mediaParty+"/"+pkg+"/GIBox";Spec s;s.textures=true;s.withTarget(fixture::target("Body"));writeModel(sharedParty+"/models/Party",s);
-  Ptr entity=load<Ptr>(load<Ptr>(load<Ptr>(f->manager+0x10)+0x10)+0x20);store<uint32_t>(entity+0x3a4,10000200);
+  Ptr entity=load<Ptr>(load<Ptr>(load<Ptr>(f->manager+kList)+0x10)+0x20);store<uint32_t>(entity+kConfig,10000200);
   Ptr kaveh=f->renderer(f->mesh("KavehBody"),"BoneA","Body",f->kavehRoot);f->world(kaveh);f->scene={kaveh};
   write(sharedParty+"/control.json","{\"enabled\":true,\"selected\":[\"Party\"]}");
   Ptr original=f->mesh(),hidden=f->renderer(original);
@@ -784,7 +787,7 @@ int main(int argc,char** argv){Fake fake;f=&fake;char temp[]="/tmp/model-runtime
    party.meshBound(load<Ptr>(foreignHidden+0x10));assert(meshOf(foreignHidden)==foreignMesh);   // same mesh, another avatar
    party.meshBound(load<Ptr>(hidden+0x10));assert(meshOf(hidden)!=original&&text(sharedParty+"/GIBox Log.txt").find("bind-attached Party")!=std::string::npos);
    party.shutdown();assert(meshOf(hidden)==original&&f->handles.empty());}
-  store<uint32_t>(entity+0x3a4,10000107);}
+  store<uint32_t>(entity+kConfig,10000107);}
  // 44. model.bin is checked whole once; the stamp is remembered, and a file changed afterwards is checked again.
  {std::string mediaCrc=root+"/mediaCrc",sharedCrc=mediaCrc+"/"+pkg+"/GIBox",dir=sharedCrc+"/models/Crc";Spec s;s.textures=true;s.withTarget(fixture::target("Body"));writeModel(dir,s);
   Ptr original=f->mesh(),w=f->renderer(original);f->world(w);f->scene={w};write(sharedCrc+"/control.json","{\"enabled\":true,\"selected\":[\"Crc\"]}");
@@ -847,8 +850,8 @@ int main(int argc,char** argv){Fake fake;f=&fake;char temp[]="/tmp/model-runtime
   Ptr clone=load<Ptr>(f->obj[w].materials+0x20);assert(clone!=gameMat);
   {Ptr name=f->alloc(0x40);std::string n="_ElementRimColor";store<int32_t>(name+0x10,int32_t(n.size()));for(size_t i=0;i<n.size();i++)store<uint16_t>(name+0x14+2*i,uint16_t(n[i]));
    assert(reinterpret_cast<int32_t(*)(Ptr,Ptr)>(hooked.at(rvaOf("Shader.PropertyToID(string)")))(name,0)==7);}
-  Ptr entity=load<Ptr>(load<Ptr>(load<Ptr>(f->manager+0x10)+0x10)+0x20);store<uint32_t>(entity+0x3a4,10000200);f->world(0);gr.tick(3806600);
-  store<uint32_t>(entity+0x3a4,10000107);f->world(w);gr.tick(3807200);       // switch back: window opens
+  Ptr entity=load<Ptr>(load<Ptr>(load<Ptr>(f->manager+kList)+0x10)+0x20);store<uint32_t>(entity+kConfig,10000200);f->world(0);gr.tick(3806600);
+  store<uint32_t>(entity+kConfig,10000107);f->world(w);gr.tick(3807200);       // switch back: window opens
   setColor(clone,{0.2f,0.9f,1,1});setColor(gameMat,{0.2f,0.9f,1,1});gr.tick(3807800);setColor(gameMat,{0,0,0,0});
   for(uint64_t t=3808400;t<=3811800;t+=600)gr.tick(t);
   auto log=text(sharedGlow+"/GIBox Log.txt");
@@ -1183,7 +1186,7 @@ int main(int argc,char** argv){Fake fake;f=&fake;char temp[]="/tmp/model-runtime
  //     changes; another material array is read and logged again; a file for another character only waits.
  {std::string mediaDiag=root+"/mediaDiag",sharedDiag=mediaDiag+"/"+pkg+"/GIBox",logFile=sharedDiag+"/GIBox Log.txt";std::filesystem::create_directories(sharedDiag+"/texture-diag");
   write(sharedDiag+"/control.json","{\"enabled\":true,\"selected\":[]}");
-  Ptr diagEntity=load<Ptr>(load<Ptr>(load<Ptr>(f->manager+0x10)+0x10)+0x20);store<uint32_t>(diagEntity+0x3a4,10000107);
+  Ptr diagEntity=load<Ptr>(load<Ptr>(load<Ptr>(f->manager+kList)+0x10)+0x20);store<uint32_t>(diagEntity+kConfig,10000107);
   Ptr body=f->renderer(f->mesh("Body",3)),mat=load<Ptr>(f->obj[body].materials+0x20),tex=f->object("texture","Avatar_Tex_Body_Diffuse");f->diffuse[mat]=tex;f->world(body);
   write(sharedDiag+"/texture-diag/Mod.json",R"J({"format":"gibox-texture-diag","version":1,"name":"Mod","ini":"Mod.ini","character":10000107,"rules":[
    {"section":"TextureOverrideModBodyA","part":"ModBodyA","hint":"body","slotLetter":0,"hash":"d5ae71a3","first":0,"kind":"segment","textures":[{"slot":"resource\\gimi\\diffuse","resource":"rbody","role":"diffuse","condition":"","via":""}]},
@@ -1215,16 +1218,16 @@ int main(int argc,char** argv){Fake fake;f=&fake;char temp[]="/tmp/model-runtime
   assert(count("mesh=Body_LOD1#")==1&&count("lod=lower (by name) vertices=2")==1&&count("full-LOD twin of Body#"+texdiag::hexOf(load<Ptr>(lodBody+0x10))+" (elsewhere in the scene), matched in its place")==1);
   assert(count("texture-diag-match Mod: TextureOverrideModBodyA hash=d5ae71a3 match_first_index=0 -> 确定匹配 renderer=Body#"+texdiag::hexOf(load<Ptr>(fullBody+0x10))+" mesh=Body ")==1&&gameWrites==writes);
   f->scene.clear();f->world(body);
-  store<uint32_t>(diagEntity+0x3a4,10000200);td.tick(5017000);td.tick(5018000);log=text(logFile);
+  store<uint32_t>(diagEntity+kConfig,10000200);td.tick(5017000);td.tick(5018000);log=text(logFile);
   assert(count("texture-diag-match Other: 1 renderers of 10000200: 0 确定匹配")==1&&count("texture-diag-match Mod: TextureOverrideModBodyA")==3&&count("mesh=Body_LOD1 submesh")==0);
-  store<uint32_t>(diagEntity+0x3a4,10000107);td.shutdown();assert(f->handles.empty());f->world(0);}
+  store<uint32_t>(diagEntity+kConfig,10000107);td.shutdown();assert(f->handles.empty());f->world(0);}
  // 41. Texture-only mods (texture.json): with the strategy "direct" the confirmed slot's game material gets our texture,
  //     read back; the game overwriting it is logged and written again; a variant change writes the other texture; the
  //     strategy "clone" first puts the original back (verified), then a copy takes the slot; switching the mod off puts
  //     the material back and destroys the copy; "diagnose" writes nothing; the test rounds save, apply, read back,
  //     observe, restore and verify each strategy, and stop when a restore fails.
  {std::string mediaTex=root+"/mediaTex",sharedTex=mediaTex+"/"+pkg+"/GIBox",modDir=sharedTex+"/models/TexMod",logFile=sharedTex+"/GIBox Log.txt";std::filesystem::create_directories(modDir+"/textures");
-  Ptr entity=load<Ptr>(load<Ptr>(load<Ptr>(f->manager+0x10)+0x10)+0x20);store<uint32_t>(entity+0x3a4,10000107);
+  Ptr entity=load<Ptr>(load<Ptr>(load<Ptr>(f->manager+kList)+0x10)+0x20);store<uint32_t>(entity+kConfig,10000107);
   Ptr body=f->renderer(f->mesh("Body",3)),mat=load<Ptr>(f->obj[body].materials+0x20),gameTex=f->object("texture","Avatar_Tex_Body_Diffuse");f->diffuse[mat]=gameTex;f->world(body);f->scene={};
   store<uint32_t>(load<Ptr>(mat+0x10)+8,uint32_t(-3));   // the field's materials are the game's instances ("direct" leaves a loaded asset alone)
   Bytes px(16,0x7f);write(modDir+"/textures/0.rgba",px.data(),px.size());write(modDir+"/textures/1.rgba",px.data(),px.size());
@@ -1252,8 +1255,8 @@ int main(int argc,char** argv){Fake fake;f=&fake;char temp[]="/tmp/model-runtime
   ours=again;
   // Another character in control: the slot stays (this character's own renderer, hidden meanwhile); back again, the
   // texture is already there and nothing is written again.
-  size_t restores=count("texture-restore");store<uint32_t>(entity+0x3a4,10000126);run(1000);size_t applies=count("texture-apply");assert(f->diffuse[mat]==ours&&count("(another character)")==0&&count("texture-restore")==restores);
-  store<uint32_t>(entity+0x3a4,10000107);run(1000);assert(f->diffuse[mat]==ours&&count("texture-apply")==applies&&count("texture-restore")==restores);
+  size_t restores=count("texture-restore");store<uint32_t>(entity+kConfig,10000126);run(1000);size_t applies=count("texture-apply");assert(f->diffuse[mat]==ours&&count("(another character)")==0&&count("texture-restore")==restores);
+  store<uint32_t>(entity+kConfig,10000107);run(1000);assert(f->diffuse[mat]==ours&&count("texture-apply")==applies&&count("texture-restore")==restores);
   // $colour = 1: the other texture on the same slot.
   write(sharedTex+"/control.json","{\"enabled\":true,\"selected\":[\"TexMod\"],\"variables\":{\"TexMod\":{\"$colour\":1}},\"textureMods\":{\"strategy\":\"direct\"}}");run(1500);
   Ptr ours2=f->diffuse[mat];assert(ours2&&ours2!=ours&&ours2!=gameTex&&count("(variant changed)")==1&&count("_MainTex (resource\\gimi\\diffuse rbody2, sRGB)")>=1);
@@ -1318,7 +1321,7 @@ int main(int argc,char** argv){Fake fake;f=&fake;char temp[]="/tmp/model-runtime
  //     diagnostics reading it again; at the game's hand-off even before it is shown, except that "direct" leaves a
  //     loaded asset material alone there (writing it would reach every copy made from it).
  {std::string mediaQ=root+"/mediaQuick",sharedQ=mediaQ+"/"+pkg+"/GIBox",modQ=sharedQ+"/models/TexMod",logQ=sharedQ+"/GIBox Log.txt";std::filesystem::create_directories(modQ+"/textures");
-  Ptr entity=load<Ptr>(load<Ptr>(load<Ptr>(f->manager+0x10)+0x10)+0x20);store<uint32_t>(entity+0x3a4,10000107);
+  Ptr entity=load<Ptr>(load<Ptr>(load<Ptr>(f->manager+kList)+0x10)+0x20);store<uint32_t>(entity+kConfig,10000107);
   Ptr body=f->renderer(f->mesh("Body",3)),mat=load<Ptr>(f->obj[body].materials+0x20),gameTex=f->object("texture","Avatar_Tex_Body_Diffuse");f->diffuse[mat]=gameTex;f->world(body);f->scene={body};store<uint32_t>(load<Ptr>(mat+0x10)+8,uint32_t(-5));
   Bytes px(16,0x7f);write(modQ+"/textures/0.rgba",px.data(),px.size());
   write(modQ+"/texture.json",R"J({"format":"gibox-texture-mod","version":1,"name":"TexMod","generation":"q1","character":{"id":10000107},"variants":{"vars":[],"default":{}},
@@ -1353,7 +1356,7 @@ int main(int argc,char** argv){Fake fake;f=&fake;char temp[]="/tmp/model-runtime
  //     used for this build and these rules only; a lower LOD without migration waits and says why; a material the game
  //     swaps at its mesh binding is written again right there.
  {std::string mediaH=root+"/mediaHand",sharedH=mediaH+"/"+pkg+"/GIBox",modH=sharedH+"/models/TexMod",logH=sharedH+"/GIBox Log.txt";std::filesystem::create_directories(modH+"/textures");
-  Ptr entity=load<Ptr>(load<Ptr>(load<Ptr>(f->manager+0x10)+0x10)+0x20);store<uint32_t>(entity+0x3a4,10000107);
+  Ptr entity=load<Ptr>(load<Ptr>(load<Ptr>(f->manager+kList)+0x10)+0x20);store<uint32_t>(entity+kConfig,10000107);
   Ptr seed=f->renderer(f->mesh("Seed",3));f->world(seed);f->scene={seed};   // learns the renderer type / GameObject class; not the mod's mesh
   texRanges[f->obj[seed].mesh]={{9,3}};
   Bytes px(16,0x7f);write(modH+"/textures/0.rgba",px.data(),px.size());
@@ -1380,7 +1383,7 @@ int main(int argc,char** argv){Fake fake;f=&fake;char temp[]="/tmp/model-runtime
    h.shutdown();}
   // A restart: the saved mapping is checked and used; a new hand-off is written before any diagnostics ran.
   {Runtime h(e,pkg,root+"/privateHand",mediaH,false);uint64_t t=9000000;auto run=[&](uint64_t ms){for(uint64_t end=t+ms;t<end;t+=100)h.tick(t);};run(1500);
-   assert(count("texture-map TexMod: saved mapping in use: 1 mesh(es) for build 2b4dd731")==1);
+   assert(count("texture-map TexMod: saved mapping in use: 1 mesh(es) for build 6d85e314")==1);
    Ptr body=f->renderer(fullMesh),mat=load<Ptr>(f->obj[body].materials+0x20);f->diffuse[mat]=gameTex;h.spawned(f->gameObjectOf({body}));
    Ptr slot=load<Ptr>(f->obj[body].materials+0x20);assert(slot!=mat&&f->diffuse[slot]!=gameTex);h.shutdown();}
   // Another game build: the saved mapping is not used.
@@ -1395,7 +1398,7 @@ int main(int argc,char** argv){Fake fake;f=&fake;char temp[]="/tmp/model-runtime
  //     that index and vertex count. The record carries the hash, is written and saved, and is used after a restart with
  //     no capture; an upload two meshes could be waits.
  {std::string mediaI=root+"/mediaIbc",sharedI=mediaI+"/"+pkg+"/GIBox",modI=sharedI+"/models/TexMod",logI=sharedI+"/GIBox Log.txt";std::filesystem::create_directories(modI+"/textures");
-  Ptr entity=load<Ptr>(load<Ptr>(load<Ptr>(f->manager+0x10)+0x10)+0x20);store<uint32_t>(entity+0x3a4,10000107);
+  Ptr entity=load<Ptr>(load<Ptr>(load<Ptr>(f->manager+kList)+0x10)+0x20);store<uint32_t>(entity+kConfig,10000107);
   Ptr gameTex=f->object("texture","Avatar_Tex_Hair_Diffuse");Ptr body=f->renderer(f->mesh("Body",3)),bmat=load<Ptr>(f->obj[body].materials+0x20);
   Ptr bangMesh=f->mesh("Bang",4);texRanges[bangMesh]={{0,6}};Ptr bang=f->renderer(bangMesh,"BoneA","Bang"),gmat=load<Ptr>(f->obj[bang].materials+0x20);
   for(Ptr m:{bmat,gmat}){f->diffuse[m]=gameTex;store<uint32_t>(load<Ptr>(m+0x10)+8,uint32_t(-21));}
@@ -1429,5 +1432,17 @@ int main(int argc,char** argv){Fake fake;f=&fake;char temp[]="/tmp/model-runtime
    T.installed(true,"");uint8_t host[12];std::memcpy(host,idx,12);T.created(0x700,12,0x40);T.bound(0x700,0x800,0);T.mapped(0x800,0,12,host);T.indexBound(0x700,0);run(3000);
    assert(count("meshes Bang, Bang2 all have its index and vertex counts; not tied")==1&&f->diffuse[gmat]==gameTex);T.installed(false,"");q.shutdown();}
   f->world(0);}
- std::cout<<"Native runtime: PASS (texture-only diagnostics read-only and cached; logic core: outfits by what the logic selects, App value as input, off, not finite and missing variable refused; App key presses as core key events (cycle, toggle, back, taken once, not replayed at start, refused when not a cycle/toggle key or the core is off), persist saved atomically per model and restored over the App table, not for another INI; driven outfit models (the program picks by clock and keys, the App table not pushed); frames by what the draws select, as FrameLoop, a selection no frame has keeps the frame, no match at the start keeps FrameLoop, switch off; face texture swaps: written, copies tracked, fresh materials, restored, assets copied; direct textures: written, put back, game copies tracked, assets and shared materials copied; merged draws: hidden and non-contiguous ranges, variant switches, separateDraws rebuild; slot textures by property block and custom texture, glow trace windows and read-back, structural capture exit after 30 s preserved, replacement-off restores originals and says so, missing renderer logged once, preload and per-variant textures, glow experiments, appearance timeline, hidden party members by library identity, model.bin checked once per file, extra material slots borrow a shader, paired restoration after game material copies, clean palette backups, inherited refresh schedule, temporary material readiness, clones retaken after switch-in, lower-LOD world mesh with the same bones (attach, and build checked against the bone library), indexed skeleton bounds and retry, idle sets released after a minute, version 2 conditional draws switched in place, unverified lower LODs never recorded or built against, bone export only on request, wait reasons in status and log, GIBox model folders and learned.json, skeleton.json library (quiet while loading, reasons once), first-switched-on precedence for two mods of one character, manual import by ID + model name, re-import for another character, XXMI log lines and levels,fingerprint matching, detail-page/asset-reload followers, NPC/skeleton guards, multi-model, idle cache, hot reload, broken-edit fallback, variants, name-matched models, async hand-off attach/build, game mesh put back (hand-off, LOD), game rebinding answered with ours, no magenta after drops, adoption, clone hand-over, update retargeting, bone library, Type from this_arg pairs or array classes, scan-off fallback, failure latch, rollback, GC release, threaded worker)\n";
+ // Game 7.2: the manager's and the entity's ID fields are found by what they hold (offsets.hpp candidates). Two entity
+ // fields in the config range with different values: nothing is taken and the candidates are logged; once one of them
+ // leaves the range, the other is taken.
+ {Ptr ent=load<Ptr>(load<Ptr>(load<Ptr>(f->manager+kList)+0x10)+0x20);uint32_t was=load<uint32_t>(ent+kConfig);store<uint32_t>(ent+kConfig,10000107);store<uint32_t>(ent+0x3cc,10000002);
+  std::string lm=root+"/layout-media",ll=lm+"/"+pkg+"/GIBox/GIBox Log.txt";Runtime lr(e,pkg,root+"/layout-private",lm,false);
+  for(uint64_t now=9000000;now<9001000;now+=200){lr.tick(now);}
+  auto l=text(ll);
+  assert(l.find("layout-wait 2 field combinations still fit, waiting for one: ")!=std::string::npos&&l.find("config id 0x3cc (list 0x160, config 10000002)")!=std::string::npos&&l.find("layout entity fields")==std::string::npos);
+  store<uint32_t>(ent+0x3cc,0);for(uint64_t now=9001000;now<9002000;now+=200){lr.tick(now);}
+  l=text(ll);
+  assert(l.find("layout entity fields of this build found by what they hold: manager id 0x2a8, runtime id 0x464, config id 0x45c (list 0x160, config 10000107)")!=std::string::npos);
+  lr.shutdown();store<uint32_t>(ent+kConfig,was);}
+ std::cout<<"Native runtime: PASS (7.2 entity fields found by what they hold, waiting while two fit; texture-only diagnostics read-only and cached; logic core: outfits by what the logic selects, App value as input, off, not finite and missing variable refused; App key presses as core key events (cycle, toggle, back, taken once, not replayed at start, refused when not a cycle/toggle key or the core is off), persist saved atomically per model and restored over the App table, not for another INI; driven outfit models (the program picks by clock and keys, the App table not pushed); frames by what the draws select, as FrameLoop, a selection no frame has keeps the frame, no match at the start keeps FrameLoop, switch off; face texture swaps: written, copies tracked, fresh materials, restored, assets copied; direct textures: written, put back, game copies tracked, assets and shared materials copied; merged draws: hidden and non-contiguous ranges, variant switches, separateDraws rebuild; slot textures by property block and custom texture, glow trace windows and read-back, structural capture exit after 30 s preserved, replacement-off restores originals and says so, missing renderer logged once, preload and per-variant textures, glow experiments, appearance timeline, hidden party members by library identity, model.bin checked once per file, extra material slots borrow a shader, paired restoration after game material copies, clean palette backups, inherited refresh schedule, temporary material readiness, clones retaken after switch-in, lower-LOD world mesh with the same bones (attach, and build checked against the bone library), indexed skeleton bounds and retry, idle sets released after a minute, version 2 conditional draws switched in place, unverified lower LODs never recorded or built against, bone export only on request, wait reasons in status and log, GIBox model folders and learned.json, skeleton.json library (quiet while loading, reasons once), first-switched-on precedence for two mods of one character, manual import by ID + model name, re-import for another character, XXMI log lines and levels,fingerprint matching, detail-page/asset-reload followers, NPC/skeleton guards, multi-model, idle cache, hot reload, broken-edit fallback, variants, name-matched models, async hand-off attach/build, game mesh put back (hand-off, LOD), game rebinding answered with ours, no magenta after drops, adoption, clone hand-over, update retargeting, bone library, Type from this_arg pairs or array classes, scan-off fallback, failure latch, rollback, GC release, threaded worker)\n";
 }

@@ -7,7 +7,7 @@ out=root/'build'/'host'
 out.mkdir(parents=True,exist_ok=True)
 def run(cmd):
     subprocess.run([str(x) for x in cmd],cwd=root,check=True)
-flags=['-std=c++17','-Wall','-Wextra','-Werror','-Iapp/src/main/cpp','-Ithird_party/bcdec']
+flags=['-std=c++17','-Wall','-Wextra','-Werror','-DGIBOX_HOST_TEST','-Iapp/src/main/cpp','-Ithird_party/bcdec']
 run(['g++',*flags,'tests/core_test.cpp','app/src/main/cpp/runtime.cpp','app/src/main/cpp/dds.cpp','-o',out/'core_test'])
 run([out/'core_test'])
 run(['g++',*flags,'-pthread','tests/glow_test.cpp','-o',out/'glow_test'])

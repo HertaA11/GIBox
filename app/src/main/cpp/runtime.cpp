@@ -1,3 +1,4 @@
+#include <array>
 #include "runtime.hpp"
 #include "model.hpp"
 #include "logfmt.hpp"
@@ -1317,9 +1318,40 @@ struct Runtime::Impl {
   if(kept){e.call<void>(abi::setHideFlags,x,int(32),Ptr(0));*kept=(e.call<int>(abi::getHideFlags,x,Ptr(0))&32)!=0;}
   return x;}
  void extraTexture(Ptr mat,Ptr tx,std::initializer_list<const char*> properties){if(auto* prop=firstProperty(mat,properties))e.call<void>(abi::setTexture,mat,managedName(prop),tx,Ptr(0));}
- Character current(){Ptr root=load<Ptr>(e.base+abi::manager);if(!root)return {};Ptr m=load<Ptr>(root+0x8c00);if(!m)return {};unsigned id=load<uint32_t>(m+0x288);Ptr list=load<Ptr>(m+0x10);if(!id||!list)return {};Ptr a=load<Ptr>(list+0x10);unsigned n=load<uint32_t>(list+0x18);if(!a||n>1024||length(a,1024)<n)return {};for(unsigned i=0;i<n;i++){Ptr ent=load<Ptr>(a+0x20+i*8);if(ent&&load<uint32_t>(ent+0x430)==id){unsigned config=load<uint32_t>(ent+0x3a4);if(config>=10000000&&config<=10001999)return {ent,id,config};}}return {};}
+ // The entities of a List<entity> field of the manager (empty when it is null or does not read as a list).
+ std::vector<Ptr> managerEntities(Ptr m,unsigned field){std::vector<Ptr> out;Ptr list=load<Ptr>(m+field);if(!list)return out;Ptr a=load<Ptr>(list+0x10);unsigned n=load<uint32_t>(list+0x18);
+  if(!a||n>1024||length(a,1024)<n){return out;}
+  for(unsigned i=0;i<n;i++){if(Ptr x=load<Ptr>(a+0x20+i*8))out.push_back(x);}
+  return out;}
+ // Game 7.2 reshuffled the manager's and the entity's fields among others of the same type (offsets.hpp managerLists,
+ // managerIds, entityIds). Each tick before they are known, every combination is tried: a manager ID that is nonzero, an
+ // entity field whose values are nonzero and distinct over a manager list and equal that ID for exactly one entity (the
+ // runtime ID), and another entity field of that entity holding a character config ID (10000000..10001999). What fits is
+ // kept across ticks (and character switches) and taken only once a single (manager ID, runtime ID, config ID) is left;
+ // until then there is no current character, and the candidates left are logged whenever they change.
+ struct Layout {bool known=false;uint16_t list=0,current=0,config=0,runtime=0;std::set<std::array<uint16_t,3>> left;std::map<std::array<uint16_t,3>,uint16_t> lists;bool seeded=false;std::string said;} lay;
+ void calibrate(Ptr m){std::set<std::array<uint16_t,3>> fit;std::map<std::array<uint16_t,3>,uint16_t> lists;std::map<std::array<uint16_t,3>,unsigned> config;
+  for(uint16_t L:abi::managerLists){auto ents=managerEntities(m,L);if(ents.empty())continue;
+   for(uint16_t M:abi::managerIds){unsigned cur=load<uint32_t>(m+M);if(!cur)continue;
+    for(uint16_t R:abi::entityIds){std::set<unsigned> seen;bool distinct=true;Ptr hit=0;unsigned hits=0;
+     for(Ptr x:ents){unsigned v=load<uint32_t>(x+R);if(!v||!seen.insert(v).second){distinct=false;break;}if(v==cur){hit=x;hits++;}}
+     if(!distinct||hits!=1)continue;
+     for(uint16_t C:abi::entityIds){if(C==R)continue;unsigned c=load<uint32_t>(hit+C);if(c<10000000||c>10001999)continue;std::array<uint16_t,3> k{M,R,C};fit.insert(k);lists.emplace(k,L);config.emplace(k,c);}}}}
+  if(fit.empty())return;   // not in the world yet (no current ID), or nothing reads as it should: wait
+  if(!lay.seeded){lay.left=fit;lay.seeded=true;}else{std::set<std::array<uint16_t,3>> both;for(auto& k:lay.left)if(fit.count(k))both.insert(k);lay.left=both;}
+  for(auto& k:lay.left)if(lists.count(k))lay.lists[k]=lists[k];
+  auto hx=[](unsigned v){char b[8];std::snprintf(b,sizeof b,"0x%x",v);return std::string(b);};
+  std::string s;for(auto& k:lay.left){s+=(s.empty()?"":"; ")+std::string("manager id ")+hx(k[0])+", runtime id "+hx(k[1])+", config id "+hx(k[2])+" (list "+hx(lay.lists[k])+(config.count(k)?", config "+std::to_string(config[k]):"")+")";}
+  if(lay.left.size()==1){auto k=*lay.left.begin();lay.known=true;lay.current=k[0];lay.runtime=k[1];lay.config=k[2];lay.list=lay.lists[k];
+   abi::liveConfig.store(lay.config);abi::liveRuntime.store(lay.runtime);
+   log("layout","entity fields of this build found by what they hold: "+s);return;}
+  if(lay.left.empty()){lay.seeded=false;s="none left (what fitted before no longer does); starting over";}
+  if(s!=lay.said){lay.said=s;log("layout-wait",std::to_string(lay.left.size())+" field combinations still fit, waiting for one: "+s);}}
+ Character current(){Ptr root=load<Ptr>(e.base+abi::manager);if(!root)return {};Ptr m=load<Ptr>(root+abi::managerSlot);if(!m)return {};
+  if(!lay.known){calibrate(m);if(!lay.known)return {};}
+  unsigned id=load<uint32_t>(m+lay.current);if(!id)return {};for(Ptr ent:managerEntities(m,lay.list)){if(load<uint32_t>(ent+lay.runtime)==id){unsigned config=load<uint32_t>(ent+lay.config);if(config>=10000000&&config<=10001999)return {ent,id,config};}}return {};}
  // The renderer owner is null while the character is still loading: no renderers yet, not an error.
- std::vector<Ptr> worldRenderers(){if(!ch.entity)return {};Ptr o=load<Ptr>(ch.entity+0xf8);if(!o)return {};Ptr list=load<Ptr>(o+0x68);if(!list)return {};return pointers(list,64);}
+ std::vector<Ptr> worldRenderers(){if(!ch.entity)return {};Ptr o=load<Ptr>(ch.entity+abi::entityVisual);if(!o)return {};Ptr list=load<Ptr>(o+abi::visualRenderers);if(!list)return {};return pointers(list,64);}
  // Original mesh asset under a renderer, even while one of our meshes is attached to it.
  Ptr originalMesh(Ptr r){auto a=attachments.find(r);if(a!=attachments.end()&&a->second->native==load<Ptr>(r+0x10))return a->second->original;return e.get(abi::getMesh,r);}
  Fingerprint fingerprint(Ptr mesh,bool fresh=false){Ptr native=load<Ptr>(mesh+0x10);auto key=std::make_pair(native,load<uint32_t>(native+8));if(!fresh)if(auto* hit=fpCache.find(key))return *hit;

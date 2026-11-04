@@ -18,7 +18,7 @@ import androidx.compose.runtime.setValue
 import java.io.File
 import kotlin.concurrent.thread
 
-const val BUILD_ID = "2b4dd73155e845a2ef698ec500509baa4eb3bfa8"
+const val BUILD_ID = "6d85e3141bcd6b508f3e853bab508cc407278eac"
 private const val LOGGER = "importer"
 
 /** Pages; the app keeps a back stack of them (system back pops it). */

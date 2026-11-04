@@ -7,6 +7,7 @@
 #include <jni.h>
 #include <link.h>
 #include <dlfcn.h>
+#include <iterator>
 #include <thread>
 #include "dobby.h"
 #include "handoff_diagnostics.hpp"
@@ -68,6 +69,8 @@ extern "C" JNIEXPORT void JNICALL Java_com_gibox_tool_NativeBridge_start(JNIEnv*
   if(on){std::string detail;bool ok=false;try{ok=ms::vkhook::install(detail);}catch(const std::exception& e){detail=e.what();}bootLog(pkg,ok?"vulkan-capture":"vulkan-capture-disabled",ok?"installed: "+detail+" (read-only index-buffer hashes)":detail);}}
  std::thread([pkg,priv]{try{bootStatus(pkg,"waiting","等待 libyuanshen.so");Image image;for(unsigned n=0;n<480&&!image.base;n++){dl_iterate_phdr(findImage,&image);if(!image.base)std::this_thread::sleep_for(std::chrono::milliseconds(500));}ms::require(image.base!=0,"libyuanshen.so load timeout");
  auto actual=ms::loadedBuildId(image.base,image.ph,image.count,sizeof(ElfW(Phdr)));if(actual!=ms::abi::buildId){bootStatus(pkg,"buildid-mismatch","实际 Build ID："+actual);return;}
+ // Offsets of this build not found yet (offsets.hpp pendingRequired): nothing is hooked or called.
+ if(*ms::abi::pendingRequired){bootStatus(pkg,"offsets-pending",std::string("此版本还缺偏移：")+ms::abi::pendingRequired);return;}
  ms::Engine engine(image.base);
  // Debug glow trace only (glow_trace.hpp): the image's extent, and Dobby as the inline hook installer.
  for(size_t i=0;i<image.count;i++)if(image.ph[i].p_type==PT_LOAD)engine.size=std::max<uintptr_t>(engine.size,image.ph[i].p_vaddr+image.ph[i].p_memsz);
@@ -99,7 +102,8 @@ extern "C" JNIEXPORT void JNICALL Java_com_gibox_tool_NativeBridge_start(JNIEnv*
   else if(DobbyHook(reinterpret_cast<void*>(image.base+ms::abi::receive),reinterpret_cast<dobby_dummy_func_t>(onReceive),reinterpret_cast<dobby_dummy_func_t*>(&receiveOriginal))!=0||!receiveOriginal)bootLog(pkg,"spawn-hook-disabled","DobbyHook failed");
   else bootLog(pkg,"spawn-hook","installed");}
  // Mesh + bone binding: each entry is hooked only when its own code bytes match.
- for(auto& c:ms::abi::bindChecks){const bool lod=c.rva==ms::abi::lodBind;const char* what=lod?"lod-bind-hook":"mesh-bones-hook";
+ for(size_t i=0;i<std::size(ms::abi::bindChecks);i++){auto& c=ms::abi::bindChecks[i];const bool lod=i==0;const char* what=lod?"lod-bind-hook":"mesh-bones-hook";
+  if(!ms::abi::found(c.rva)){bootLog(pkg,std::string(what)+"-disabled","offset not found yet for this build");continue;}
   if(!codeMatches(image.base,c)){bootLog(pkg,std::string(what)+"-disabled","code mismatch");continue;}
   auto replacement=lod?reinterpret_cast<dobby_dummy_func_t>(onLodBind):reinterpret_cast<dobby_dummy_func_t>(onMeshBones);auto* original=reinterpret_cast<dobby_dummy_func_t*>(lod?&lodBindOriginal:&meshBonesOriginal);
   if(DobbyHook(reinterpret_cast<void*>(image.base+c.rva),replacement,original)!=0||!*original)bootLog(pkg,std::string(what)+"-disabled","DobbyHook failed");else bootLog(pkg,what,"installed");}
