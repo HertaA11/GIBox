@@ -26,7 +26,7 @@ inline constexpr abi::Offset components=static_cast<abi::Offset>(0x9577734),
  activeHierarchy=static_cast<abi::Offset>(0x9577a00), enabled=static_cast<abi::Offset>(0x8f03330),
  frameCount=static_cast<abi::Offset>(0x957a238), gameObject=static_cast<abi::Offset>(0x80e5b50),
  ready=static_cast<abi::Offset>(abi::notFound+0x810), activate=static_cast<abi::Offset>(abi::notFound+0x820),   // 7.2: not found yet (7.1 0x8721e24 / 0x8713ec4)
- meshBody=static_cast<abi::Offset>(abi::notFound+0x830),   // 7.2: not found yet (7.1 0x49fc24c)
+ meshBody=static_cast<abi::Offset>(0x4aaa750),   // 7.2: SkinnedMeshRenderer.set_sharedMesh's B target, with the 7.1 entry bytes (7.1 0x49fc24c)
  instantiate=static_cast<abi::Offset>(0x913a648),
  receive=static_cast<abi::Offset>(0x9564b4c);
 inline uint64_t ns(){return uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());}

@@ -9,12 +9,20 @@ inline constexpr const char* buildId="6d85e3141bcd6b508f3e853bab508cc407278eac";
 // (ulong, bool, uint, GameObject) method, blockShared and the material proxy DCCKGJFKIID at shape score 1.0). Native code
 // and data that no dump declares are notFound+n here until found in this build's libyuanshen.so (pendingRequired):
 // distinct values no RVA of this image reaches, never called (the runtime does not start, an optional hook is skipped).
-inline constexpr const char* pendingRequired="manager managerSlot nativeAllocator nativeAlloc objectNew arrayNew typeObject classFromType wrapperFor";
+inline constexpr const char* pendingRequired="nativeAllocator nativeAlloc arrayNew";
 // Missing ones that only switch a feature off: the bind hooks, the old template scan, the hand-off diagnostics.
-inline constexpr const char* pendingOptional="lodBind meshBones findObjectsNative meshBody ready activate";
-// The entity manager: *(base + manager) + managerSlot (7.1: 0x8c00). The 7.2 accessor that returns it,
-// NKIIBJKODNH.POKJNBEFKHA() at 0xc887d04 (7.1: AHJIDBJFIJE.MKFJCCPNOAC() at 0xd153388), shows both in its code.
-inline constexpr uintptr_t managerSlot=0;
+inline constexpr const char* pendingOptional="lodBind meshBones ready activate";
+// The entity manager: *(base + manager) + managerSlot (7.1: 0x159c1638, 0x8c00). Read from the 7.2 accessor that
+// returns it, NKIIBJKODNH.POKJNBEFKHA() at 0xc887d04 (7.1: AHJIDBJFIJE.MKFJCCPNOAC()):
+// ADRP X8, 0x15809000; MOV W9, #0x9070; LDR X8, [X8, #0x5a0]; LDR X0, [X8, X9]; RET.
+inline constexpr uintptr_t managerSlot=0x9070;
+// Found in the 7.2 libyuanshen.so (gibox_find_72 over the user's copy), each checked two ways:
+//  typeObject 0x43b1824: the 7.1 entry bytes, and the call right before FindObjectsOfType / GetComponentsInChildren.
+//  classFromType 0x43b24b4: the 7.1 entry bytes, at one place only.
+//  wrapperFor 0x5b4dd98: Texture2D.get_whiteTexture loads a native texture and tail-calls it, as in 7.1; +0xbbe34 from
+//   7.1 like findObjectsNative next to it (+0xbbe30), FindObjectsOfType's MOV W1,#1; B target.
+//  objectNew 0x43cdaf8: the call right before 4155 of 8290 constructor calls (the next one 246), every
+//   MaterialPropertyBlock..ctor call among them: the game's own `new` (7.1 used 0xfa5e86c, another entry).
 // GCGEJOPPGAE (7.1 JDIIHHFJKBM, the entity): its MonoVisualEntityTool backing field (the only field of that type; 7.1:
 // 0xf8); MonoVisualEntityTool's SkinnedMeshRenderer[] (the only one; 0x68 in both builds).
 inline constexpr uintptr_t entityVisual=0x320,visualRenderers=0x68;
@@ -37,10 +45,10 @@ inline constexpr uintptr_t notFound=0xfffff000;
 inline constexpr bool found(uintptr_t rva){return rva!=0&&rva<notFound;}
 #endif
 enum Offset:uintptr_t {
- tick=0x7e8cb08,manager=notFound+0x10,
+ tick=0x7e8cb08,manager=0x158095a0,
  getMesh=0x8f4217c,setMesh=0x8f4235c,getBones=0x8f420b4,getMaterials=0x8f03940,setMaterials=0x8f0399c,
  clone=0x8ffeb20,destroy=0x8ffe3a0,getName=0x8ffe494,getParent=0x8fffc18,
- arrayNew=notFound+0x20,objectNew=notFound+0x30,pin=0xed0741c,unpin=0xed07434,
+ arrayNew=notFound+0x20,objectNew=0x43cdaf8,pin=0xed0741c,unpin=0xed07434,
  // Historical enum name: 0xc53a98c is Mesh.set_isReadable(bool), not Mesh.Clear.
  clear=0xc53a98c,setIndexFormat=0xc53a828,getBindposes=0xc53a984,
  getPositions=0xc53adcc,setPositions=0xc53addc,getNormals=0xc53adec,setNormals=0xc53adfc,
@@ -64,7 +72,7 @@ enum Offset:uintptr_t {
  // The native body itself: (Type, mode). The object flag word (+0xC) filters by mode: 1 skips persistent objects (bit 20,
  // assets) and inactive ones; 2 skips nothing (the "MOV W1,#2" thunk at 0x49ea170, Resources.FindObjectsOfTypeAll).
  // Used by 0.3.4's template scan; unused since 0.3.5 (the async hand-off below replaced it).
- findObjectsNative=notFound+0x60,
+ findObjectsNative=0x5b540f0,
  // GameObject.GetComponentsInChildren(Type, bool includeInactive) -> Component[]; Component.get_gameObject.
  componentsInChildren=0x9577734,gameObject=0x80e5b50,
  // JDIIHHFJKBM.AAKKKEMMMCA(this, ulong key, bool success, uint handle, GameObject asset, MethodInfo*): the game's async
@@ -79,11 +87,11 @@ enum Offset:uintptr_t {
  //   meshBones(renderer native, Mesh native, hash container, bone container) - SkinnedMeshRenderer.BindMeshBones
  lodBind=notFound+0x70,meshBones=notFound+0x80,
  // Scripting::ScriptingWrapperFor(Object*) -> managed object (Texture2D.whiteTexture tail-calls it).
- wrapperFor=notFound+0x90,
+ wrapperFor=0x5b4dd98,
  // il2cpp Reflection::GetTypeObject(const Il2CppType*) -> System.Type; IL2CPP typeof code calls it right before 0x8ffe48c.
- typeObject=notFound+0xa0,
+ typeObject=0x43b1824,
  // il2cpp Class::FromIl2CppType(const Il2CppType*, bool) -> Il2CppClass*; reads the type enum at +0xA.
- classFromType=notFound+0xb0,
+ classFromType=0x43b24b4,
  // Debug experiment "slotTextures" (0.7.21, from dump.cs): mod textures per draw slot on the game's own materials.
  // EDCOENBDHKC.OMKNLIHGPJJ.IBKLJFNMENG(): the game's shared MaterialPropertyBlock; only its class is used (for our own).
  blockShared=0xee0ff98,

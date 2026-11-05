@@ -53,7 +53,7 @@ struct Fake {
  // A model GameObject as the game hands it over: inactive, renderers already set up.
  Ptr gameObjectOf(std::vector<Ptr> renderers){Ptr g=object("gameobject","Avatar_Girl_Catalyst_Citlali_Manekin");for(Ptr r:renderers)goOfRenderer[r]=g;goChildren[g]=renderers;return g;}
  void world(Ptr r){store<Ptr>(owner+0x68,r?array(8,1,&r):array(8,0));}
- Fake(){void* p=mmap(nullptr,0x16000000,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS|MAP_NORESERVE,-1,0);assert(p!=MAP_FAILED);base=reinterpret_cast<Ptr>(p);Ptr root=alloc(0x8c10);manager=alloc(0x300);store<Ptr>(base+abi::manager,root);store<Ptr>(root+abi::managerSlot,manager);store<uint32_t>(manager+kCurrent,7);
+ Fake(){void* p=mmap(nullptr,0x16000000,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS|MAP_NORESERVE,-1,0);assert(p!=MAP_FAILED);base=reinterpret_cast<Ptr>(p);Ptr root=alloc(abi::managerSlot+0x10);manager=alloc(0x300);store<Ptr>(base+abi::manager,root);store<Ptr>(root+abi::managerSlot,manager);store<uint32_t>(manager+kCurrent,7);
   Ptr entity=alloc(0x500),list=alloc(0x20);store<Ptr>(manager+kList,list);store<Ptr>(list+0x10,array(8,1,&entity));store<uint32_t>(list+0x18,1);store<uint32_t>(entity+kRuntime,7);store<uint32_t>(entity+kConfig,10000107);owner=alloc(0x70);store<Ptr>(entity+abi::entityVisual,owner);
   klass=kindClass("renderer");Ptr scenes=object("transform","Scene");skeletonRoot=object("transform","Avatar_Girl_Catalyst_Citlali");obj[skeletonRoot].parent=scenes;kavehRoot=object("transform","Avatar_Boy_Sword_Kaveh");obj[kavehRoot].parent=scenes;}
  ~Fake(){for(void* p:allocated)std::free(p);munmap(reinterpret_cast<void*>(base),0x16000000);}
