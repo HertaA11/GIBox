@@ -206,6 +206,10 @@ int main(int argc,char** argv){Fake fake;f=&fake;char temp[]="/tmp/model-runtime
  // 4. Character leaves (renderers destroyed) and returns as new objects: no rebuild.
  for(Ptr r:{world,ui,ui2}){store<Ptr>(r+0x10,0);}f->scene={npc,odd,other};f->world(0);store<uint32_t>(f->manager+kCurrent,0);runtime.tick(11200);assert(state()=="waiting");
  Ptr world2=f->renderer(original);f->world(world2);f->scene={world2,npc,odd,other};store<uint32_t>(f->manager+kCurrent,7);runtime.tick(11700);assert(state()=="active"&&meshOf(world2)==a1&&f->meshClones==4);
+ // Game 7.2: the element size is found at +0xba (the fake's 7.1 layout; 7.2's allocator reads +0xb4), and the skin
+ // weights get the mesh's own skin label (the fake's, like 7.1's, is 15).
+ {auto l=text(shared+"/GIBox Log.txt");assert(l.find("array-layout managed array element size at +0xba")!=std::string::npos&&l.find("array-layout-error")==std::string::npos);
+  assert(l.find("skin-label weights allocated with label 15 (the mesh's own skin array)")!=std::string::npos);}
  // 5. Manual bone export keeps working; renderer names are filtered.
  f->obj[world2].name="Body (1)";control(true,2,1,{"A","B"});runtime.tick(11800);runtime.tick(12300);{bool found=false;for(auto& d:std::filesystem::directory_iterator(boneRoot))if(d.path().filename().string().rfind("10000107-",0)==0&&text(d.path().string()+"/skeleton.json").find("\"name\":\"Body1\"")!=std::string::npos)found=true;assert(found&&state()=="active");}f->obj[world2].name="Body";
  // 6. Hot reload: a new generation is built and takes over in one tick; the old mesh is destroyed.

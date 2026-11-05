@@ -9,7 +9,7 @@ inline constexpr const char* buildId="6d85e3141bcd6b508f3e853bab508cc407278eac";
 // (ulong, bool, uint, GameObject) method, blockShared and the material proxy DCCKGJFKIID at shape score 1.0). Native code
 // and data that no dump declares are notFound+n here until found in this build's libyuanshen.so (pendingRequired):
 // distinct values no RVA of this image reaches, never called (the runtime does not start, an optional hook is skipped).
-inline constexpr const char* pendingRequired="nativeAllocator nativeAlloc arrayNew";
+inline constexpr const char* pendingRequired="";
 // Missing ones that only switch a feature off: the bind hooks, the old template scan, the hand-off diagnostics.
 inline constexpr const char* pendingOptional="ready activate";
 // The entity manager: *(base + manager) + managerSlot (7.1: 0x159c1638, 0x8c00). Read from the 7.2 accessor that
@@ -25,6 +25,15 @@ inline constexpr uintptr_t managerSlot=0x9070;
 //   MaterialPropertyBlock..ctor call among them: the game's own `new` (7.1 used 0xfa5e86c, another entry).
 //  lodBind 0x584ffc4, meshBones 0x579ca94: the 7.1 entry bytes, each the only hit near where the 7.1 address lands with
 //   the shift of the pairs above (19 and 34 hits in the whole image); 0xb3530 apart (7.1: 0xb3290).
+//  arrayNew 0x43beb7c: what Guid.ToByteArray, BitConverter.GetBytes (short/int/long/uint/ulong), MemoryStream(int),
+//   String.ToCharArray and Delegate.GetInvocationList call with X0 = the array type and W1 = the length their source
+//   gives (16, 2, 4, 8, 4, 8, 1); 34660 calls (7.1 used 0x43252b8, another entry). Reads the class's element size at +0xb4.
+//  nativeAlloc 0x517b2b4, nativeAllocator 0x156a0840: 2692 of its calls pass *(0x156a0840) as X0, an alignment in W3,
+//   a label in W4, a file name in X6 and a line in W7 (GIBox's call: allocator, 0, size, 16, label, 0, name, 1); it
+//   allocates when X1 is null.
+//  The native Mesh data offsets GIBox reads (+0x48, then +0x74 vertices, +0xc0 submeshes, +0xe0 bones) are what
+//   Mesh.get_vertexCount / get_subMeshCount / get_bindposes read in 7.2 (bindposes: data +0xd0, count +0xe0, so the
+//   next dynamic array, the skin, is +0xf0 / label +0xf8 / size +0x100 / capacity +0x108 as before).
 // GCGEJOPPGAE (7.1 JDIIHHFJKBM, the entity): its MonoVisualEntityTool backing field (the only field of that type; 7.1:
 // 0xf8); MonoVisualEntityTool's SkinnedMeshRenderer[] (the only one; 0x68 in both builds).
 inline constexpr uintptr_t entityVisual=0x320,visualRenderers=0x68;
@@ -50,7 +59,7 @@ enum Offset:uintptr_t {
  tick=0x7e8cb08,manager=0x158095a0,
  getMesh=0x8f4217c,setMesh=0x8f4235c,getBones=0x8f420b4,getMaterials=0x8f03940,setMaterials=0x8f0399c,
  clone=0x8ffeb20,destroy=0x8ffe3a0,getName=0x8ffe494,getParent=0x8fffc18,
- arrayNew=notFound+0x20,objectNew=0x43cdaf8,pin=0xed0741c,unpin=0xed07434,
+ arrayNew=0x43beb7c,objectNew=0x43cdaf8,pin=0xed0741c,unpin=0xed07434,
  // Historical enum name: 0xc53a98c is Mesh.set_isReadable(bool), not Mesh.Clear.
  clear=0xc53a98c,setIndexFormat=0xc53a828,getBindposes=0xc53a984,
  getPositions=0xc53adcc,setPositions=0xc53addc,getNormals=0xc53adec,setNormals=0xc53adfc,
@@ -67,7 +76,7 @@ enum Offset:uintptr_t {
  // newString(null, const char*) returns a managed System.String*; the two Material calls take that pointer (a property NAME), not an int ID.
  newString=0x8ed74ac,hasProperty=0x80e72c8,setTexture=0x80e7dbc,
  // Engine allocator: alloc(*(B+nativeAllocator), 0, bytes, 16, label 15, 0, name, 1); the skin-weight block of a built mesh.
- nativeAlloc=notFound+0x40,nativeAllocator=notFound+0x50,
+ nativeAlloc=0x517b2b4,nativeAllocator=0x156a0840,
  // Object.FindObjectsOfType(Type): managed entry is "MOV W1,#1 (active scene objects); B 0x5a982c0".
  // The native body reads [Type+0x10] (Il2CppType*), strings "FindAllObjectsOfType: ...". Returns Object[].
  findObjectsOfType=0x8ffe48c,

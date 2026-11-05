@@ -1297,14 +1297,23 @@ struct Runtime::Impl {
  void pin(Owned& o,Ptr p){if(!p)return;auto h=e.call<uint32_t>(abi::pin,p,2,Ptr(0));require(h!=0,"GC handle allocation failed");o.handles.push_back(h);}
  Ptr own(Owned& o,Ptr p){require(alive(p),"Unity allocation failed");o.objects.push_back(p);pin(o,p);return p;}
  Ptr clone(Owned& o,Ptr p){return own(o,e.get(abi::clone,p));}
- Ptr arrayOf(Owned& o,Ptr cls,const void* data,size_t n,unsigned stride){require(cls&&load<uint16_t>(cls+0xba)==stride,"Managed element size mismatch");Ptr p=e.call<Ptr>(abi::arrayNew,cls,uint64_t(n));require(p!=0,"Managed array allocation failed");pin(o,p);if(n)std::memcpy(reinterpret_cast<void*>(p+0x20),data,n*stride);return p;}
+ // A managed array class's element size: a uint16 at +0xba in 7.1; 7.2's array allocator (abi::arrayNew) reads one at
+ // +0xb4. The first class whose element size is known (a game array of a known element type) settles which: the one
+ // that holds it and the other does not (logged); until then either counts. Neither: the halfwords around are logged.
+ unsigned elemOff=0;bool elemSaid=false,skinLabelSaid=false;
+ bool elementSize(Ptr cls,unsigned stride){if(!cls)return false;if(elemOff)return load<uint16_t>(cls+elemOff)==stride;
+  bool a=load<uint16_t>(cls+0xb4)==stride,b=load<uint16_t>(cls+0xba)==stride;
+  if(a!=b){elemOff=a?0xb4:0xba;log("array-layout","managed array element size at +"+hex(elemOff)+" (a class with "+std::to_string(stride)+"-byte elements)");return true;}
+  if(!a&&!elemSaid){elemSaid=true;std::string s;for(unsigned off=0xa0;off<0xd0;off+=2)s+=hex(off)+"="+std::to_string(load<uint16_t>(cls+off))+" ";log("array-layout-error","no element size "+std::to_string(stride)+" at +0xb4 or +0xba: "+s);}
+  return a;}
+ Ptr arrayOf(Owned& o,Ptr cls,const void* data,size_t n,unsigned stride){require(elementSize(cls,stride),"Managed element size mismatch");Ptr p=e.call<Ptr>(abi::arrayNew,cls,uint64_t(n));require(p!=0,"Managed array allocation failed");pin(o,p);if(n)std::memcpy(reinterpret_cast<void*>(p+0x20),data,n*stride);return p;}
  Ptr array(Owned& o,Ptr templ,const void* data,size_t n,unsigned stride){require(templ!=0,"Missing managed array template");return arrayOf(o,load<Ptr>(templ),data,n,stride);}
  // Managed array classes for the mesh setters (Vector3[], Vector2[], int[], Color32[], Vector4[]), taken once from the
  // first template mesh and kept (il2cpp classes live as long as the process): later builds no longer make the engine copy
  // an original mesh's whole vertex and index data only to obtain an array of the right type.
  struct ArrayClasses {Ptr v3=0,v2=0,i32=0,c32=0,v4=0;bool ready()const{return v3&&v2&&i32&&c32&&v4;}} arrayClasses;
  void learnArrayClasses(Ptr mesh){if(arrayClasses.ready())return;Owned tmp;ArrayClasses c;
-  try{auto cls=[&](abi::Offset getter,unsigned stride){Ptr a=e.get(getter,mesh);require(a!=0,"Missing managed array template");pin(tmp,a);Ptr k=load<Ptr>(a);require(k&&load<uint16_t>(k+0xba)==stride,"Managed element size mismatch");return k;};
+  try{auto cls=[&](abi::Offset getter,unsigned stride){Ptr a=e.get(getter,mesh);require(a!=0,"Missing managed array template");pin(tmp,a);Ptr k=load<Ptr>(a);require(elementSize(k,stride),"Managed element size mismatch");return k;};
    c.v3=cls(abi::getPositions,12);c.v2=cls(abi::getUV,8);c.i32=cls(abi::getTriangles,4);c.c32=cls(abi::getColors,4);c.v4=cls(abi::getTangents,16);}
   catch(...){freeOwned(tmp);throw;}freeOwned(tmp);arrayClasses=c;log("array-classes","learned from "+name(mesh));}
  void freeOwned(Owned& o){for(auto i=o.objects.rbegin();i!=o.objects.rend();++i)if(alive(*i))e.action(abi::destroy,*i);for(auto h:o.handles)e.call<void>(abi::unpin,h);o.objects.clear();o.handles.clear();}
@@ -1668,8 +1677,12 @@ struct Runtime::Impl {
    // Skin weights (32 bytes per vertex): a new block from the engine allocator with the skin label replaces the clone's
    // skin array {data +0xf0, label +0xf8, size +0x100, capacity +0x108}. The clone's previous block is not returned
    // (its deallocator is unconfirmed); the engine frees ours with the mesh.
+   // The label: the one the clone's own skin array carries (+0xf8); 7.1's skin label was 15, and 7.2 renumbered labels
+   // (its allocator calls use 1, 72, 79 …), so 15 is only the fallback when that value does not read as a label.
    Ptr allocator=load<Ptr>(e.base+abi::nativeAllocator);require(allocator!=0,"Engine allocator missing");
-   Ptr weight=e.call<Ptr>(abi::nativeAlloc,allocator,Ptr(0),uint64_t(weights.data.size()),16,15,0,"gibox-weights",1);require(weight!=0,"Weight buffer allocation failed");
+   uint32_t own=load<uint32_t>(data+0xf8);int label=own>=1&&own<0x200?int(own):15;
+   if(!skinLabelSaid){skinLabelSaid=true;log("skin-label","weights allocated with label "+std::to_string(label)+(own>=1&&own<0x200?" (the mesh's own skin array)":" (7.1's; the mesh's own reads "+std::to_string(own)+")"));}
+   Ptr weight=e.call<Ptr>(abi::nativeAlloc,allocator,Ptr(0),uint64_t(weights.data.size()),16,label,0,"gibox-weights",1);require(weight!=0,"Weight buffer allocation failed");
    std::memcpy(reinterpret_cast<void*>(weight),weights.data.data(),weights.data.size());store<Ptr>(data+0xf0,weight);store<uint64_t>(data+0x100,geo.n);store<uint64_t>(data+0x108,geo.n);
    e.action(abi::meshFinish,bp.mesh);e.op(abi::meshUpload,bp.mesh,0);
    freeOwned(tmp);return bp;
@@ -1724,7 +1737,7 @@ struct Runtime::Impl {
    catch(const std::exception& ex){a.stopped=true;a.error=ex.what();log("animation-error",s.name+" mode="+animationMode(s)+" prepare: "+ex.what());}
   }}
  Ptr animationArray(BuiltPart& bp,const std::string& key,Ptr cls,const void* data,unsigned count,unsigned stride){auto it=bp.dynamicArrays.find(key);Ptr array=it==bp.dynamicArrays.end()?0:it->second;
-  require(!array||length(array,model::maxIndices)==count,"Animation managed array shape");if(!array){if(data)array=arrayOf(bp.dynamicRoots,cls,data,count,stride);else{require(cls&&load<uint16_t>(cls+0xba)==stride,"Animation array element size");array=e.call<Ptr>(abi::arrayNew,cls,uint64_t(count));require(array!=0,"Animation array allocation failed");pin(bp.dynamicRoots,array);}bp.dynamicArrays[key]=array;}
+  require(!array||length(array,model::maxIndices)==count,"Animation managed array shape");if(!array){if(data)array=arrayOf(bp.dynamicRoots,cls,data,count,stride);else{require(elementSize(cls,stride),"Animation array element size");array=e.call<Ptr>(abi::arrayNew,cls,uint64_t(count));require(array!=0,"Animation array allocation failed");pin(bp.dynamicRoots,array);}bp.dynamicArrays[key]=array;}
   else if(count&&data){std::memcpy(reinterpret_cast<void*>(array+0x20),data,size_t(count)*stride);}
   return array;}
  void updateDynamic(Set& s,size_t i,Ptr mesh,const PartFile& p){auto& bp=s.parts[i];const auto& geo=p.geo;require(alive(mesh),"Animation staging mesh expired");
