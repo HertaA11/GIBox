@@ -211,7 +211,7 @@ struct Runtime::Impl {
  // experiments.logicCore: the set's own INI logic, picking its animation frame or its outfit (logic_game.hpp).
  struct LogicRun {std::unique_ptr<LogicDriver> driver;bool failed=false,fresh=false,noted=false;uint64_t misses=0,lastStats=0;unsigned missLines=0;std::string missLogged;std::map<std::string,int> pushed;Assignment want;bool persistDue=false;uint64_t persistAt=0,persistSaves=0;};   // want: the outfit it picked (applyVariant may wait for textures)
  uint64_t animationToken=0;
- struct Set:Owned {std::string name,path,generation;unsigned id=0;std::shared_ptr<ModelFile> data;std::vector<Fingerprint> targets;std::vector<BuiltPart> parts;std::map<std::string,MatTex> textures;std::map<std::string,MaterialFile> mats;std::string meshKey;AnimationRun animation;uint64_t blobSize=0;std::string fileGeneration,textureWait;Variants variants;bool originalMaterials=false,built=false,mergeDraws=true;std::vector<TextureSwap> swaps;LogicSpec logicSpec;LogicRun logic;Assignment assignment;uint64_t used=0,bytes=0;};  // bytes: estimated memory of the built set
+ struct Set:Owned {bool lost=false;std::string name,path,generation;unsigned id=0;std::shared_ptr<ModelFile> data;std::vector<Fingerprint> targets;std::vector<BuiltPart> parts;std::map<std::string,MatTex> textures;std::map<std::string,MaterialFile> mats;std::string meshKey;AnimationRun animation;uint64_t blobSize=0;std::string fileGeneration,textureWait;Variants variants;bool originalMaterials=false,built=false,mergeDraws=true;std::vector<TextureSwap> swaps;LogicSpec logicSpec;LogicRun logic;Assignment assignment;uint64_t used=0,bytes=0;};  // bytes: estimated memory of the built set
  // source: for a renderer the game created from one of ours (adopted), the renderer whose material clones it shows.
  struct Attachment:Owned {Ptr renderer=0,native=0,original=0,originalMaterials=0,source=0;Set* set=nullptr;RestoreBackup* backup=nullptr;size_t part=0;bool adopted=false;std::map<std::string,Ptr> clones;std::string restoreError;
    uint64_t refreshAt=0,materialTraceStart=0,materialTraceAt=0,materialCheckAt=0,materialCheckUntil=0;unsigned refreshes=0,materialTraceSamples=0,materialRepairs=0;std::map<Ptr,std::string> retired;std::map<Ptr,Ptr> materialSources;  // clone -> canonical game material; retained across refreshes
@@ -1296,7 +1296,12 @@ struct Runtime::Impl {
  std::string name(Ptr p){require(alive(p),"Destroyed Unity object");Ptr s=e.get(abi::getName,p);if(!s)return {};auto n=load<uint32_t>(s+0x10);require(n<=1024,"Unity name bound");std::string out;for(unsigned i=0;i<n;i++){unsigned a=load<uint16_t>(s+0x14+i*2);if(a>=0xd800&&a<=0xdbff){require(i+1<n,"UTF16 name");unsigned b=load<uint16_t>(s+0x14+(++i)*2);require(b>=0xdc00&&b<=0xdfff,"UTF16 name");a=0x10000+((a-0xd800)<<10)+(b-0xdc00);}utf8(out,a);}return out;}
  void pin(Owned& o,Ptr p){if(!p)return;auto h=e.call<uint32_t>(abi::pin,p,2,Ptr(0));require(h!=0,"GC handle allocation failed");o.handles.push_back(h);}
  Ptr own(Owned& o,Ptr p){require(alive(p),"Unity allocation failed");o.objects.push_back(p);pin(o,p);return p;}
- Ptr clone(Owned& o,Ptr p){return own(o,e.get(abi::clone,p));}
+ // Everything GIBox makes (model meshes, restore snapshots, material copies, textures) is kept from the game's
+ // unused-asset unload (HideFlags.DontUnloadUnusedAsset): a scene change (the login screen, a domain) unloads what no
+ // renderer holds, which took the restore snapshot and the built mesh of a mod whose character was away (0.7.80 log:
+ // "Restoration mesh snapshot unavailable" after a domain). GIBox still destroys them itself (freeOwned).
+ void keep(Ptr p){e.call<void>(abi::setHideFlags,p,int(32),Ptr(0));}
+ Ptr clone(Owned& o,Ptr p){Ptr c=own(o,e.get(abi::clone,p));keep(c);return c;}
  // A managed array class's element size: a uint16 at +0xba in 7.1; 7.2's array allocator (abi::arrayNew) reads one at
  // +0xb4. The first class whose element size is known (a game array of a known element type) settles which: the one
  // that holds it and the other does not (logged); until then either counts. Neither: the halfwords around are logged.
@@ -1324,7 +1329,7 @@ struct Runtime::Impl {
   // objectNew only allocates the managed shell; its native texture (+0x10) exists once the constructor (textureInit) has run.
   Ptr x=e.call<Ptr>(abi::objectNew,load<Ptr>(descriptor));require(x!=0,"Texture allocation failed");o.objects.push_back(x);pin(o,x);
   e.call<void>(abi::textureInit,x,int(t.w),int(t.h),4,0,linear?1:0,Ptr(0));require(alive(x),"Texture init failed");e.call<void>(abi::texturePixels,x,reinterpret_cast<Ptr>(t.pixels.data()),int(t.pixels.size()),Ptr(0));e.action(abi::textureApply,x);
-  if(kept){e.call<void>(abi::setHideFlags,x,int(32),Ptr(0));*kept=(e.call<int>(abi::getHideFlags,x,Ptr(0))&32)!=0;}
+  keep(x);if(kept)*kept=(e.call<int>(abi::getHideFlags,x,Ptr(0))&32)!=0;
   return x;}
  void extraTexture(Ptr mat,Ptr tx,std::initializer_list<const char*> properties){if(auto* prop=firstProperty(mat,properties))e.call<void>(abi::setTexture,mat,managedName(prop),tx,Ptr(0));}
  // The entities of a List<entity> field of the manager (empty when it is null or does not read as a list).
@@ -2009,7 +2014,10 @@ struct Runtime::Impl {
    auto waitKey=s.path+"|material|"+std::to_string(a->native);
    if(missing>=0){auto reason=bp.name+" 的原材质槽 "+std::to_string(missing)+" 尚未就绪，等待后重试";materialWait[s.path]=reason;
     if(missingLogged[waitKey]!=reason){missingLogged[waitKey]=reason;log("material-wait",s.name+": "+reason);}freeOwned(*a);return false;}
-   missingLogged.erase(waitKey);require(a->backup&&alive(a->backup->mesh),"Restoration mesh snapshot unavailable");snapshotMaterials(*a->backup,a->originalMaterials);
+   missingLogged.erase(waitKey);
+   // Destroyed by the game anyway (an unload GIBox did not see coming): the set is built again, not given up.
+   if(!(a->backup&&alive(a->backup->mesh))||!alive(bp.mesh)){if(!s.lost){s.lost=true;log("model-lost",s.name+"/"+bp.name+": "+(alive(bp.mesh)?"the restore snapshot":"the built mesh")+" was destroyed by the game (a scene change); building the model again");}freeOwned(*a);return false;}
+   snapshotMaterials(*a->backup,a->originalMaterials);
    e.set(abi::setMesh,r,bp.mesh);meshSet=true;applyMaterials(*a);if(!s.originalMaterials)a->refreshAt=now+(ctl.exp.firstRefreshMs?uint64_t(ctl.exp.firstRefreshMs):1500);
    if(!alive(bp.originMesh)){bp.originMesh=mesh;bp.originMaterials=a->originalMaterials;pin(s,mesh);pin(s,bp.originMaterials);}}
   catch(...){try{directRestore(*a,"attach failed");}catch(const std::exception&){}if(meshSet&&alive(r))e.set(abi::setMesh,r,mesh);freeOwned(*a);throw;}
@@ -2669,6 +2677,8 @@ struct Runtime::Impl {
    for(Set* s:live)logicKeys(*s);
    for(Set* s:live)try{if(s->logic.driver&&!animated(*s)){if(!s->logic.want.empty())applyVariant(*s,s->logic.want);continue;}auto v=ctl.variables.find(s->name);applyVariant(*s,pick(s->variants,v==ctl.variables.end()?std::map<std::string,int>{}:v->second));}catch(const std::exception& ex){log("variant-error",s->name+": "+ex.what());}
    bool budget=true;std::vector<std::string> active,errors,building;std::string waiting,animationWaiting;bool stale=false;
+   // A set whose objects the game destroyed (model-lost): released once nothing shows it, then built again below.
+   {std::vector<Set*> lost;for(auto& s:sets)if(s->lost){bool used=false;for(auto& a:attachments)used=used||a.second->set==s.get();if(!used)lost.push_back(s.get());}for(Set* s:lost)releaseSet(s);}
    for(auto* m:wanted){
     if(!findSet(m->path,m->generation)&&!liveSet(*m)&&shadowed(*m,wanted))continue;
     auto f=failed.find(m->path);if(f!=failed.end()&&f->second.first==m->generation){errors.push_back(m->name+": "+f->second.second);continue;}

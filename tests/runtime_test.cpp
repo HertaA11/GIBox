@@ -1103,6 +1103,13 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
   control(false);run(6);{std::string t=text(persisted);t.replace(t.find("Mods\\\\Keys"),10,"Mods\\\\Else");write(persisted,t);}
   before=log().size();control(true);run(12);again=log().substr(before);
   assert(again.find("logic-persist Keys: the saved values belong to another INI (Mods\\Else\\a.ini); not restored")!=std::string::npos&&again.find("first outfit $look=0")!=std::string::npos);
+  // A scene change (the login screen, a domain): GIBox's objects carry DontUnloadUnusedAsset; one the game destroys anyway
+  // (here the built mesh, while the character is away) is noticed at the next attach and the model is built again.
+  {Ptr built=meshOf(w);assert(built!=full&&hideFlags[built]==32);
+   store<Ptr>(w+0x10,0);f->world(0);f->scene={};run(6);
+   destroy(built,0);Ptr w2=f->renderer(full);f->world(w2);f->scene={w2};run(20);
+   Ptr rebuilt=meshOf(w2);assert(rebuilt&&rebuilt!=built&&load<Ptr>(rebuilt+0x10)&&rebuilt!=full&&log().find("model-lost Keys/")!=std::string::npos&&log().find("Restoration mesh snapshot unavailable")==std::string::npos);
+   w=w2;}
   keys.shutdown();assert(meshOf(w)==full);}
  // A driven outfit model (the converter: its Present program follows the clock): the program picks the outfit, the
  // App's table is not pushed, ] / [ move the selection (back = is the App's "previous"), and Q shows outfit 2 for 3 s
