@@ -10,9 +10,11 @@ inline constexpr const char* buildId="6d85e3141bcd6b508f3e853bab508cc407278eac";
 // and data that no dump declares are notFound+n here until found in this build's libyuanshen.so (pendingRequired):
 // distinct values no RVA of this image reaches, never called (the runtime does not start, an optional hook is skipped).
 inline constexpr const char* pendingRequired="";
-// nativeAlloc on 7.2 crashed on the device (0.7.78): it took its "not initialised" path (a null fallback allocator at
-// *(allocator)+0xc60). Off until that call is understood; the runtime reuses the mesh's own skin block meanwhile.
-inline bool allocVerified=false;   // a variable only so host tests can exercise both paths
+// The engine allocation for the skin weights: on (0.7.79 had it off after the 0.7.78 crash, whose cause was the wrong
+// nativeAllocator, see below). Off: the mesh's own skin block is reused when it has room. A variable so host tests run both.
+inline bool allocVerified=true;
+// MemoryManager: its "initialised" byte (Allocate takes the label's allocator only when it is 1).
+inline constexpr uintptr_t managerActive=0xc4e;
 // Missing ones that only switch a feature off: the bind hooks, the old template scan, the hand-off diagnostics.
 inline constexpr const char* pendingOptional="ready activate";
 // The entity manager: *(base + manager) + managerSlot (7.1: 0x159c1638, 0x8c00). Read from the 7.2 accessor that
@@ -31,9 +33,12 @@ inline constexpr uintptr_t managerSlot=0x9070;
 //  arrayNew 0x43beb7c: what Guid.ToByteArray, BitConverter.GetBytes (short/int/long/uint/ulong), MemoryStream(int),
 //   String.ToCharArray and Delegate.GetInvocationList call with X0 = the array type and W1 = the length their source
 //   gives (16, 2, 4, 8, 4, 8, 1); 34660 calls (7.1 used 0x43252b8, another entry). Reads the class's element size at +0xb4.
-//  nativeAlloc 0x517b2b4, nativeAllocator 0x156a0840: 2692 of its calls pass *(0x156a0840) as X0, an alignment in W3,
-//   a label in W4, a file name in X6 and a line in W7 (GIBox's call: allocator, 0, size, 16, label, 0, name, 1); it
-//   allocates when X1 is null.
+//  nativeAlloc 0x517b2b4: MemoryManager::Reallocate(manager, ptr, size, align, label, options, file, line) (decompiled):
+//   a null ptr goes to Allocate(manager, size, align, label, ...) at 0x43b4138, which uses the label's allocator
+//   (manager + 0x1e38 + 16 * label for labels up to 0xa8) once the manager's byte +0xc4e is 1, else its fallback +0xc60.
+//  nativeAllocator 0x15d92120: the MemoryManager instance (every caller passes *(0x15d92120), created there on first use).
+//   0.7.78 used 0x156a0840 by mistake: the bump pointer that instance is placed with (+0x2950 per use), not a manager;
+//   its "manager" was unused buffer space (+0xc4e 0, +0xc60 null): the device crash.
 //  The native Mesh data offsets GIBox reads (+0x48, then +0x74 vertices, +0xc0 submeshes, +0xe0 bones) are what
 //   Mesh.get_vertexCount / get_subMeshCount / get_bindposes read in 7.2 (bindposes: data +0xd0, count +0xe0, so the
 //   next dynamic array, the skin, is +0xf0 / label +0xf8 / size +0x100 / capacity +0x108 as before).
@@ -79,7 +84,7 @@ enum Offset:uintptr_t {
  // newString(null, const char*) returns a managed System.String*; the two Material calls take that pointer (a property NAME), not an int ID.
  newString=0x8ed74ac,hasProperty=0x80e72c8,setTexture=0x80e7dbc,
  // Engine allocator: alloc(*(B+nativeAllocator), 0, bytes, 16, label 15, 0, name, 1); the skin-weight block of a built mesh.
- nativeAlloc=0x517b2b4,nativeAllocator=0x156a0840,
+ nativeAlloc=0x517b2b4,nativeAllocator=0x15d92120,
  // Object.FindObjectsOfType(Type): managed entry is "MOV W1,#1 (active scene objects); B 0x5a982c0".
  // The native body reads [Type+0x10] (Il2CppType*), strings "FindAllObjectsOfType: ...". Returns Object[].
  findObjectsOfType=0x8ffe48c,

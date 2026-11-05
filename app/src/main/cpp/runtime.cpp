@@ -1684,16 +1684,16 @@ struct Runtime::Impl {
    // skin array {data +0xf0, label +0xf8, size +0x100, capacity +0x108}. The clone's previous block is not returned
    // (its deallocator is unconfirmed); the engine frees ours with the mesh.
    // The label: the one the clone's own skin array carries (+0xf8; checked to be 15 above, as in 7.1).
-   // 7.2 (0.7.78 device crash): nativeAlloc took its "not initialised" path and read a null fallback allocator at
-   // *(allocator)+0xc60. Until that call is understood (abi::allocVerified), the clone's own skin block is reused when it
-   // has room for the part's vertices (it was copied from the game's mesh: its own block, freed with it); otherwise the
-   // part is refused, said why, and nothing is allocated.
+   // The allocator is the engine's MemoryManager; it is used only when its "initialised" byte is 1 (else Allocate would
+   // take its fallback path, which crashed 0.7.78 when GIBox passed the wrong object). With abi::allocVerified off, the
+   // clone's own skin block is reused when it has room for the part's vertices; otherwise the part is refused, said why.
    uint32_t own=load<uint32_t>(data+0xf8);int label=own>=1&&own<0x200?int(own):15;
    Ptr weight=0;uint64_t room=load<uint64_t>(data+0x108);Ptr have=load<Ptr>(data+0xf0);
    if(!abi::allocVerified){
     require(have&&room>=geo.n,"该部件 "+std::to_string(geo.n)+" 个顶点，游戏网格的权重数组只容得下 "+std::to_string(room)+" 个；7.2 的引擎分配调用还没核实，暂不另行分配（不会闪退）");
     weight=have;if(!skinLabelSaid){skinLabelSaid=true;log("skin-label","weights written into the mesh's own skin block (capacity "+std::to_string(room)+"); 7.2 engine allocation not used until verified");}}
    else{Ptr allocator=load<Ptr>(e.base+abi::nativeAllocator);require(allocator!=0,"Engine allocator missing");
+    require(load<uint8_t>(allocator+abi::managerActive)==1,"引擎内存管理器未就绪（初始化标志不是 1），不分配权重（不会闪退）");
     if(!skinLabelSaid){skinLabelSaid=true;log("skin-label","weights allocated with label "+std::to_string(label)+(own>=1&&own<0x200?" (the mesh's own skin array)":" (7.1's; the mesh's own reads "+std::to_string(own)+")"));}
     weight=e.call<Ptr>(abi::nativeAlloc,allocator,Ptr(0),uint64_t(weights.data.size()),16,label,0,"gibox-weights",1);require(weight!=0,"Weight buffer allocation failed");room=geo.n;}
    std::memcpy(reinterpret_cast<void*>(weight),weights.data.data(),weights.data.size());store<Ptr>(data+0xf0,weight);store<uint64_t>(data+0x100,geo.n);store<uint64_t>(data+0x108,std::max<uint64_t>(room,geo.n));

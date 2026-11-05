@@ -142,7 +142,7 @@ Ptr resolve(abi::Offset o){if(Ptr g=resolveGlow(o))return g;switch(o){
  default:throw std::runtime_error("Unexpected fake engine call: "+std::to_string(o));}}
 bool alive(Ptr p){return p&&load<Ptr>(p+0x10);}
 }
-int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // the engine allocation path; the logic-key block below runs the 7.2 default (off)
+int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // the engine allocation path (the default); the logic-key block below runs the reuse path
  char temp[]="/tmp/model-runtime-XXXXXX";assert(mkdtemp(temp));std::string root=temp,pkg="com.miHoYo.Yuanshen",media=root+"/media",shared=media+"/"+pkg+"/GIBox",models=shared+"/models",boneRoot=shared+"/skeletons";
  writeModel(models+"/A");writeModel(models+"/B");
  // Model B carries a real 1x1 diffuse and a LightMap, so its material builds two textures.
@@ -157,7 +157,7 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
  Ptr odd=f->renderer(original,"Other");                                                 // same mesh, other skeleton
  Ptr other=f->renderer(f->mesh("OtherBody"),"BoneA","Body",f->kavehRoot);Ptr otherMesh=f->obj[other].mesh;  // another character (model C, U)
  f->scene={world,ui,npc,odd,other};
- Engine e(f->base);e.resolver=resolve;Runtime runtime(e,pkg,root+"/private",media,false);store<Ptr>(f->base+abi::nativeAllocator,f->alloc(0x10));
+ Engine e(f->base);e.resolver=resolve;Runtime runtime(e,pkg,root+"/private",media,false);{Ptr mm=f->alloc(0x2950);store<uint8_t>(mm+abi::managerActive,1);store<Ptr>(f->base+abi::nativeAllocator,mm);}   // the engine MemoryManager, initialised
  // Optional, local-only integration input: a real exported index-only model, never bundled into the test suite.
  if(argc>=2){bool expectWait=argc==3&&std::string(argv[2])=="--expect-wait";assert(argc==2||expectWait);runtime.shutdown();std::string dest=models+"/Actual";std::filesystem::copy(argv[1],dest,std::filesystem::copy_options::recursive);auto data=loadModelFile(dest,false,true);assert(data->id==10000007&&data->parts.size()==1&&data->parts[0].sourceBones.empty());auto& part=data->parts[0];auto old=readLearned(dest).targets.at(part.spec.name);auto names=readLegacyBoneNames(dest+"/bonemap-"+part.spec.name+".tsv",part.spec.bones);
   assert(part.geo.n==20757&&part.used.size()==101&&old.bones==114);f->expectedVertices=part.geo.n;f->obj[f->skeletonRoot].name="Avatar_Girl_Sword_PlayerGirl";
@@ -1070,7 +1070,7 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
   auto control=[&](bool logic){write(sharedK+"/control.json","{\"enabled\":true,\"logLevel\":\"debug\",\"revision\":"+std::to_string(++revision)+",\"selected\":[\"Keys\"],\"variables\":{\"Keys\":{\"$look\":0}},\"keys\":{\"Keys\":["+presses+"]},\"experiments\":{\"logicCore\":"+(logic?"true":"false")+"}}");};
   auto press=[&](const std::string& section,const std::string& extra=""){presses+=std::string(presses.empty()?"":",")+"{\"seq\":"+std::to_string(++seq)+",\"file\":0,\"section\":\""+section+"\""+extra+"}";};
   auto log=[&]{return text(sharedK+"/GIBox Log.txt");};auto persisted=sharedK+"/logic-persist/Keys.json";
-  abi::allocVerified=false;   // 7.2 default: the mesh's own skin block (capacity 6 for 3 vertices)
+  abi::allocVerified=false;   // the reuse path: the mesh's own skin block (capacity 6 for 3 vertices)
   Runtime keys(e,pkg,root+"/keys-private",mediaK,false);uint64_t now=7500000;
   auto run=[&](int n){for(int i=0;i<n;i++){keys.tick(now);now+=600;}};
   press("KeyLook");control(true);run(12);   // a press made before this game start
