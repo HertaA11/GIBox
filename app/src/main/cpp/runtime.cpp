@@ -1338,7 +1338,7 @@ struct Runtime::Impl {
  // runtime ID), and another entity field of that entity holding a character config ID (10000000..10001999). What fits is
  // kept across ticks (and character switches) and taken only once a single (manager ID, runtime ID, config ID) is left;
  // until then there is no current character, and the candidates left are logged whenever they change.
- struct Layout {bool known=false;uint16_t list=0,current=0,config=0,runtime=0;std::set<std::array<uint16_t,3>> left;std::map<std::array<uint16_t,3>,uint16_t> lists;bool seeded=false;std::string said;} lay;
+ struct Layout {bool known=false;uint16_t list=0,current=0,config=0,runtime=0;std::set<std::array<uint16_t,3>> left;std::map<std::array<uint16_t,3>,uint16_t> lists;bool seeded=false;unsigned agree=0;std::string said;} lay;
  void calibrate(Ptr m){std::set<std::array<uint16_t,3>> fit;std::map<std::array<uint16_t,3>,uint16_t> lists;std::map<std::array<uint16_t,3>,unsigned> config;
   for(uint16_t L:abi::managerLists){auto ents=managerEntities(m,L);if(ents.empty())continue;
    for(uint16_t M:abi::managerIds){unsigned cur=load<uint32_t>(m+M);if(!cur)continue;
@@ -1351,6 +1351,12 @@ struct Runtime::Impl {
   for(auto& k:lay.left)if(lists.count(k))lay.lists[k]=lists[k];
   auto hx=[](unsigned v){char b[8];std::snprintf(b,sizeof b,"0x%x",v);return std::string(b);};
   std::string s;for(auto& k:lay.left){s+=(s.empty()?"":"; ")+std::string("manager id ")+hx(k[0])+", runtime id "+hx(k[1])+", config id "+hx(k[2])+" (list "+hx(lay.lists[k])+(config.count(k)?", config "+std::to_string(config[k]):"")+")";}
+  // Fields that always held the same values: several runtime-ID fields left with the same manager and config field,
+  // equal on every entity of the list for 30 calibrations in a row, are taken as one (the lowest offset).
+  if(lay.left.size()>1){bool same=true;auto first=*lay.left.begin();for(auto& k:lay.left)same=same&&k[0]==first[0]&&k[2]==first[2];
+   if(same){auto ents=managerEntities(m,lay.lists[first]);for(Ptr x:ents)for(auto& k:lay.left)same=same&&load<uint32_t>(x+k[1])==load<uint32_t>(x+first[1]);}
+   lay.agree=same?lay.agree+1:0;
+   if(lay.agree>=30){std::string fs;for(auto& k:lay.left)fs+=(fs.empty()?"":", ")+hx(k[1]);lay.left={first};s+=" — runtime ID fields "+fs+" held the same values on every entity 30 times in a row: taken as one ("+hx(first[1])+")";}}
   if(lay.left.size()==1){auto k=*lay.left.begin();lay.known=true;lay.current=k[0];lay.runtime=k[1];lay.config=k[2];lay.list=lay.lists[k];
    abi::liveConfig.store(lay.config);abi::liveRuntime.store(lay.runtime);
    log("layout","entity fields of this build found by what they hold: "+s);return;}
@@ -1677,13 +1683,20 @@ struct Runtime::Impl {
    // Skin weights (32 bytes per vertex): a new block from the engine allocator with the skin label replaces the clone's
    // skin array {data +0xf0, label +0xf8, size +0x100, capacity +0x108}. The clone's previous block is not returned
    // (its deallocator is unconfirmed); the engine frees ours with the mesh.
-   // The label: the one the clone's own skin array carries (+0xf8); 7.1's skin label was 15, and 7.2 renumbered labels
-   // (its allocator calls use 1, 72, 79 …), so 15 is only the fallback when that value does not read as a label.
-   Ptr allocator=load<Ptr>(e.base+abi::nativeAllocator);require(allocator!=0,"Engine allocator missing");
+   // The label: the one the clone's own skin array carries (+0xf8; checked to be 15 above, as in 7.1).
+   // 7.2 (0.7.78 device crash): nativeAlloc took its "not initialised" path and read a null fallback allocator at
+   // *(allocator)+0xc60. Until that call is understood (abi::allocVerified), the clone's own skin block is reused when it
+   // has room for the part's vertices (it was copied from the game's mesh: its own block, freed with it); otherwise the
+   // part is refused, said why, and nothing is allocated.
    uint32_t own=load<uint32_t>(data+0xf8);int label=own>=1&&own<0x200?int(own):15;
-   if(!skinLabelSaid){skinLabelSaid=true;log("skin-label","weights allocated with label "+std::to_string(label)+(own>=1&&own<0x200?" (the mesh's own skin array)":" (7.1's; the mesh's own reads "+std::to_string(own)+")"));}
-   Ptr weight=e.call<Ptr>(abi::nativeAlloc,allocator,Ptr(0),uint64_t(weights.data.size()),16,label,0,"gibox-weights",1);require(weight!=0,"Weight buffer allocation failed");
-   std::memcpy(reinterpret_cast<void*>(weight),weights.data.data(),weights.data.size());store<Ptr>(data+0xf0,weight);store<uint64_t>(data+0x100,geo.n);store<uint64_t>(data+0x108,geo.n);
+   Ptr weight=0;uint64_t room=load<uint64_t>(data+0x108);Ptr have=load<Ptr>(data+0xf0);
+   if(!abi::allocVerified){
+    require(have&&room>=geo.n,"该部件 "+std::to_string(geo.n)+" 个顶点，游戏网格的权重数组只容得下 "+std::to_string(room)+" 个；7.2 的引擎分配调用还没核实，暂不另行分配（不会闪退）");
+    weight=have;if(!skinLabelSaid){skinLabelSaid=true;log("skin-label","weights written into the mesh's own skin block (capacity "+std::to_string(room)+"); 7.2 engine allocation not used until verified");}}
+   else{Ptr allocator=load<Ptr>(e.base+abi::nativeAllocator);require(allocator!=0,"Engine allocator missing");
+    if(!skinLabelSaid){skinLabelSaid=true;log("skin-label","weights allocated with label "+std::to_string(label)+(own>=1&&own<0x200?" (the mesh's own skin array)":" (7.1's; the mesh's own reads "+std::to_string(own)+")"));}
+    weight=e.call<Ptr>(abi::nativeAlloc,allocator,Ptr(0),uint64_t(weights.data.size()),16,label,0,"gibox-weights",1);require(weight!=0,"Weight buffer allocation failed");room=geo.n;}
+   std::memcpy(reinterpret_cast<void*>(weight),weights.data.data(),weights.data.size());store<Ptr>(data+0xf0,weight);store<uint64_t>(data+0x100,geo.n);store<uint64_t>(data+0x108,std::max<uint64_t>(room,geo.n));
    e.action(abi::meshFinish,bp.mesh);e.op(abi::meshUpload,bp.mesh,0);
    freeOwned(tmp);return bp;
   }catch(...){freeOwned(tmp);throw;}

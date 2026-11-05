@@ -48,8 +48,22 @@ uint64_t onMeshBones(uintptr_t renderer,uintptr_t mesh,uintptr_t hashes,uintptr_
  auto result=meshBonesOriginal(renderer,mesh,hashes,bones,a4,a5,a6,a7);
  if(auto* p=published.load(std::memory_order_acquire))p->meshBound(renderer);
  return result;}
+// The recorded entry bytes (7.1) against this build's: equal, except the immediates that move with the code's address
+// (ADRP / ADR pages, B / BL / conditional branch offsets, literal loads, and the low 12 bits of a load / store / add
+// off a register other than SP: an ADRP's page offset). 7.2's get_gameObject and resource receiver differ only there.
+uint32_t codeMask(uint32_t w){
+ if((w&0x9F000000)==0x90000000||(w&0x9F000000)==0x10000000)return 0x9F00001F;
+ if((w&0x7C000000)==0x14000000)return 0xFC000000;
+ if((w&0xFF000010)==0x54000000||(w&0x7E000000)==0x34000000)return 0xFF00001F;
+ if((w&0x7E000000)==0x36000000)return 0xFFF8001F;
+ if((w&0x3B000000)==0x18000000)return 0xFF00001F;
+ if((w&0x3B000000)==0x39000000&&((w>>5)&31)!=31)return 0xFFC003FF;
+ if((w&0x7F800000)==0x11000000&&((w>>5)&31)!=31)return 0xFFC003FF;
+ return 0xFFFFFFFF;}
 bool codeMatches(uintptr_t base,const ms::abi::CodeCheck& c){auto* p=reinterpret_cast<const unsigned char*>(base+c.rva);auto digit=[](char x){return x<='9'?x-'0':x-'a'+10;};
- for(size_t i=0;i<16;i++){if(p[i]!=unsigned(digit(c.hex[2*i])*16+digit(c.hex[2*i+1])))return false;}return true;}
+ for(size_t i=0;i<16;i+=4){uint32_t want=0,got=0;for(size_t b=0;b<4;b++){want|=uint32_t(digit(c.hex[2*(i+b)])*16+digit(c.hex[2*(i+b)+1]))<<(8*b);got|=uint32_t(p[i+b])<<(8*b);}
+  uint32_t m=codeMask(want);if((want&m)!=(got&m))return false;}
+ return true;}
 #endif
 struct Image{uintptr_t base=0;const ElfW(Phdr)* ph=nullptr;size_t count=0;};
 int findImage(dl_phdr_info* info,size_t,void* ptr){std::string name=info->dlpi_name?info->dlpi_name:"";auto p=name.find_last_of('/');name=name.substr(p==name.npos?0:p+1);if(name!="libyuanshen.so")return 0;auto& out=*static_cast<Image*>(ptr);out={info->dlpi_addr,info->dlpi_phdr,info->dlpi_phnum};return 1;}

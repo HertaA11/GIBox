@@ -10,6 +10,9 @@ inline constexpr const char* buildId="6d85e3141bcd6b508f3e853bab508cc407278eac";
 // and data that no dump declares are notFound+n here until found in this build's libyuanshen.so (pendingRequired):
 // distinct values no RVA of this image reaches, never called (the runtime does not start, an optional hook is skipped).
 inline constexpr const char* pendingRequired="";
+// nativeAlloc on 7.2 crashed on the device (0.7.78): it took its "not initialised" path (a null fallback allocator at
+// *(allocator)+0xc60). Off until that call is understood; the runtime reuses the mesh's own skin block meanwhile.
+inline bool allocVerified=false;   // a variable only so host tests can exercise both paths
 // Missing ones that only switch a feature off: the bind hooks, the old template scan, the hand-off diagnostics.
 inline constexpr const char* pendingOptional="ready activate";
 // The entity manager: *(base + manager) + managerSlot (7.1: 0x159c1638, 0x8c00). Read from the 7.2 accessor that

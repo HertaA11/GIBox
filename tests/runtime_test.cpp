@@ -142,7 +142,8 @@ Ptr resolve(abi::Offset o){if(Ptr g=resolveGlow(o))return g;switch(o){
  default:throw std::runtime_error("Unexpected fake engine call: "+std::to_string(o));}}
 bool alive(Ptr p){return p&&load<Ptr>(p+0x10);}
 }
-int main(int argc,char** argv){Fake fake;f=&fake;char temp[]="/tmp/model-runtime-XXXXXX";assert(mkdtemp(temp));std::string root=temp,pkg="com.miHoYo.Yuanshen",media=root+"/media",shared=media+"/"+pkg+"/GIBox",models=shared+"/models",boneRoot=shared+"/skeletons";
+int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // the engine allocation path; the logic-key block below runs the 7.2 default (off)
+ char temp[]="/tmp/model-runtime-XXXXXX";assert(mkdtemp(temp));std::string root=temp,pkg="com.miHoYo.Yuanshen",media=root+"/media",shared=media+"/"+pkg+"/GIBox",models=shared+"/models",boneRoot=shared+"/skeletons";
  writeModel(models+"/A");writeModel(models+"/B");
  // Model B carries a real 1x1 diffuse and a LightMap, so its material builds two textures.
  {Spec b;b.textures=true;b.channels=true;writeModel(models+"/B",b);}
@@ -1069,9 +1070,11 @@ int main(int argc,char** argv){Fake fake;f=&fake;char temp[]="/tmp/model-runtime
   auto control=[&](bool logic){write(sharedK+"/control.json","{\"enabled\":true,\"logLevel\":\"debug\",\"revision\":"+std::to_string(++revision)+",\"selected\":[\"Keys\"],\"variables\":{\"Keys\":{\"$look\":0}},\"keys\":{\"Keys\":["+presses+"]},\"experiments\":{\"logicCore\":"+(logic?"true":"false")+"}}");};
   auto press=[&](const std::string& section,const std::string& extra=""){presses+=std::string(presses.empty()?"":",")+"{\"seq\":"+std::to_string(++seq)+",\"file\":0,\"section\":\""+section+"\""+extra+"}";};
   auto log=[&]{return text(sharedK+"/GIBox Log.txt");};auto persisted=sharedK+"/logic-persist/Keys.json";
+  abi::allocVerified=false;   // 7.2 default: the mesh's own skin block (capacity 6 for 3 vertices)
   Runtime keys(e,pkg,root+"/keys-private",mediaK,false);uint64_t now=7500000;
   auto run=[&](int n){for(int i=0;i<n;i++){keys.tick(now);now+=600;}};
   press("KeyLook");control(true);run(12);   // a press made before this game start
+  assert(log().find("skin-label weights written into the mesh's own skin block (capacity 6); 7.2 engine allocation not used until verified")!=std::string::npos);abi::allocVerified=true;
   assert(log().find("logic-start Keys: 1 INI")!=std::string::npos&&log().find("first outfit $look=0")!=std::string::npos&&log().find("logic-key")==std::string::npos);
   press("KeyLook");control(true);run(6);
   assert(log().find("logic-key Keys: KeyLook (cycle) press, input 2")!=std::string::npos&&log().find("variant Keys $look=1")!=std::string::npos);
@@ -1447,6 +1450,11 @@ int main(int argc,char** argv){Fake fake;f=&fake;char temp[]="/tmp/model-runtime
   store<uint32_t>(ent+0x3cc,0);for(uint64_t now=9001000;now<9002000;now+=200){lr.tick(now);}
   l=text(ll);
   assert(l.find("layout entity fields of this build found by what they hold: manager id 0x2a8, runtime id 0x464, config id 0x45c (list 0x160, config 10000107)")!=std::string::npos);
-  lr.shutdown();store<uint32_t>(ent+kConfig,was);}
+  lr.shutdown();
+  // Two runtime-ID fields that always hold the same value (7.2's device log: 0x330 and 0x3f4): taken as one after 30.
+  store<uint32_t>(ent+0x3f4,load<uint32_t>(ent+kRuntime));std::string lm2=root+"/layout-media2",ll2=lm2+"/"+pkg+"/GIBox/GIBox Log.txt";Runtime lr2(e,pkg,root+"/layout-private2",lm2,false);
+  for(uint64_t now=9100000;now<9110000;now+=200){lr2.tick(now);}
+  l=text(ll2);assert(l.find("layout-wait 2 field combinations still fit")!=std::string::npos&&l.find("runtime ID fields 0x3f4, 0x464 held the same values on every entity 30 times in a row: taken as one (0x3f4)")!=std::string::npos);
+  lr2.shutdown();store<uint32_t>(ent+0x3f4,0);store<uint32_t>(ent+kConfig,was);}
  std::cout<<"Native runtime: PASS (7.2 entity fields found by what they hold, waiting while two fit; texture-only diagnostics read-only and cached; logic core: outfits by what the logic selects, App value as input, off, not finite and missing variable refused; App key presses as core key events (cycle, toggle, back, taken once, not replayed at start, refused when not a cycle/toggle key or the core is off), persist saved atomically per model and restored over the App table, not for another INI; driven outfit models (the program picks by clock and keys, the App table not pushed); frames by what the draws select, as FrameLoop, a selection no frame has keeps the frame, no match at the start keeps FrameLoop, switch off; face texture swaps: written, copies tracked, fresh materials, restored, assets copied; direct textures: written, put back, game copies tracked, assets and shared materials copied; merged draws: hidden and non-contiguous ranges, variant switches, separateDraws rebuild; slot textures by property block and custom texture, glow trace windows and read-back, structural capture exit after 30 s preserved, replacement-off restores originals and says so, missing renderer logged once, preload and per-variant textures, glow experiments, appearance timeline, hidden party members by library identity, model.bin checked once per file, extra material slots borrow a shader, paired restoration after game material copies, clean palette backups, inherited refresh schedule, temporary material readiness, clones retaken after switch-in, lower-LOD world mesh with the same bones (attach, and build checked against the bone library), indexed skeleton bounds and retry, idle sets released after a minute, version 2 conditional draws switched in place, unverified lower LODs never recorded or built against, bone export only on request, wait reasons in status and log, GIBox model folders and learned.json, skeleton.json library (quiet while loading, reasons once), first-switched-on precedence for two mods of one character, manual import by ID + model name, re-import for another character, XXMI log lines and levels,fingerprint matching, detail-page/asset-reload followers, NPC/skeleton guards, multi-model, idle cache, hot reload, broken-edit fallback, variants, name-matched models, async hand-off attach/build, game mesh put back (hand-off, LOD), game rebinding answered with ours, no magenta after drops, adoption, clone hand-over, update retargeting, bone library, Type from this_arg pairs or array classes, scan-off fallback, failure latch, rollback, GC release, threaded worker)\n";
 }
