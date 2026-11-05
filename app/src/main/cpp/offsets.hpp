@@ -11,7 +11,7 @@ inline constexpr const char* buildId="6d85e3141bcd6b508f3e853bab508cc407278eac";
 // distinct values no RVA of this image reaches, never called (the runtime does not start, an optional hook is skipped).
 inline constexpr const char* pendingRequired="nativeAllocator nativeAlloc arrayNew";
 // Missing ones that only switch a feature off: the bind hooks, the old template scan, the hand-off diagnostics.
-inline constexpr const char* pendingOptional="lodBind meshBones ready activate";
+inline constexpr const char* pendingOptional="ready activate";
 // The entity manager: *(base + manager) + managerSlot (7.1: 0x159c1638, 0x8c00). Read from the 7.2 accessor that
 // returns it, NKIIBJKODNH.POKJNBEFKHA() at 0xc887d04 (7.1: AHJIDBJFIJE.MKFJCCPNOAC()):
 // ADRP X8, 0x15809000; MOV W9, #0x9070; LDR X8, [X8, #0x5a0]; LDR X0, [X8, X9]; RET.
@@ -23,6 +23,8 @@ inline constexpr uintptr_t managerSlot=0x9070;
 //   7.1 like findObjectsNative next to it (+0xbbe30), FindObjectsOfType's MOV W1,#1; B target.
 //  objectNew 0x43cdaf8: the call right before 4155 of 8290 constructor calls (the next one 246), every
 //   MaterialPropertyBlock..ctor call among them: the game's own `new` (7.1 used 0xfa5e86c, another entry).
+//  lodBind 0x584ffc4, meshBones 0x579ca94: the 7.1 entry bytes, each the only hit near where the 7.1 address lands with
+//   the shift of the pairs above (19 and 34 hits in the whole image); 0xb3530 apart (7.1: 0xb3290).
 // GCGEJOPPGAE (7.1 JDIIHHFJKBM, the entity): its MonoVisualEntityTool backing field (the only field of that type; 7.1:
 // 0xf8); MonoVisualEntityTool's SkinnedMeshRenderer[] (the only one; 0x68 in both builds).
 inline constexpr uintptr_t entityVisual=0x320,visualRenderers=0x68;
@@ -85,7 +87,7 @@ enum Offset:uintptr_t {
  // their count). This is how the game put its mesh back over ours (hand-off, LOD changes).
  //   lodBind(loader native, Mesh native, renderer native)                    - native LOD switch
  //   meshBones(renderer native, Mesh native, hash container, bone container) - SkinnedMeshRenderer.BindMeshBones
- lodBind=notFound+0x70,meshBones=notFound+0x80,
+ lodBind=0x584ffc4,meshBones=0x579ca94,
  // Scripting::ScriptingWrapperFor(Object*) -> managed object (Texture2D.whiteTexture tail-calls it).
  wrapperFor=0x5b4dd98,
  // il2cpp Reflection::GetTypeObject(const Il2CppType*) -> System.Type; IL2CPP typeof code calls it right before 0x8ffe48c.
