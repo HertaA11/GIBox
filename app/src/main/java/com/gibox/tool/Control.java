@@ -31,6 +31,16 @@ public final class Control {
         try (FileOutputStream out = new FileOutputStream(tmp)) { out.write(j.toString().getBytes(StandardCharsets.UTF_8)); out.getFD().sync(); }
         Files.move(tmp.toPath(), new File(dir, "control.json").toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING, java.nio.file.StandardCopyOption.ATOMIC_MOVE);
     }
+    /** A file GIBox ships for the game (pc-hashes.json): written to the shared folder when it is missing or differs. */
+    public static synchronized boolean installShared(String pkg, String name, byte[] content) throws Exception {
+        File dir = shared(pkg), out = new File(dir, name);
+        if (out.isFile() && out.length() == content.length && java.util.Arrays.equals(Files.readAllBytes(out.toPath()), content)) return false;
+        if (!dir.isDirectory() && !dir.mkdirs()) throw new IllegalStateException("无法创建控制目录：" + dir);
+        File tmp = new File(dir, name + ".tmp");
+        try (FileOutputStream o = new FileOutputStream(tmp)) { o.write(content); o.getFD().sync(); }
+        Files.move(tmp.toPath(), out.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING, java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+        return true;
+    }
     /** A newly imported model is selected and replacement is switched on, so the import shows up without further steps. */
     public static synchronized void enable(String pkg, String model) throws Exception {
         JSONObject j = load(pkg); JSONArray a = j.optJSONArray("selected"); if (a == null) a = new JSONArray(); boolean listed = false;
@@ -80,7 +90,8 @@ public final class Control {
      *  slot confirmed on the full mesh is written) / migrate (a confirmed slot also on a checked lower LOD); "testRequest"
      *  a counter: each new value runs the test rounds over "testStrategies", "observeMs" each (save, apply, read back,
      *  observe, restore, verify; a failed restore stops them); "ibHash" true: the index-buffer hash diagnostic (Vulkan,
-     *  read-only), read by the game only when it starts. */
+     *  read-only), read by the game only when it starts; "capture" true: every character's index buffers against the
+     *  PC database (hash-report.txt, hash-map.json), also read only at the game's start. */
     public static String textureMods(String pkg, String key, String fallback) { JSONObject x = load(pkg).optJSONObject("textureMods"); return x == null ? fallback : x.optString(key, fallback); }
     public static boolean textureModsFlag(String pkg, String key) { JSONObject x = load(pkg).optJSONObject("textureMods"); return x != null && x.optBoolean(key, false); }
     public static synchronized void setTextureMods(String pkg, String key, Object value) throws Exception {

@@ -60,7 +60,7 @@ struct KeyPress {long long seq=0;size_t file=0;std::string section;bool back=fal
 // full / migrate, test rounds.
 // auto (0.7.60): the game's own per-renderer instance is written in place (its effects keep running on it); a loaded asset
 // or a material another renderer shows is copied first, and the game's instance made from that copy is followed in place.
-struct TexModControl {std::string strategy="auto",lod="full";long long testRequest=0;std::vector<std::string> testStrategies{"auto","direct","clone"};int observeMs=4000;};
+struct TexModControl {std::string strategy="auto",lod="full";bool capture=false;long long testRequest=0;std::vector<std::string> testStrategies{"auto","direct","clone"};int observeMs=4000;};
 struct ControlState {TexModControl tex;Experiments exp;bool enabled=false;int logLevel=int(Level::Info);std::vector<std::string> selected;long long exportBones=0,refreshBones=0,renderMark=0;unsigned refreshBonesCharacter=0;std::map<std::string,std::map<std::string,int>> variables;std::map<std::string,std::vector<KeyPress>> keys;};
 ControlState parseControl(const std::string& raw){
  Json c=JsonParser(raw).parse();require(c.type==Json::Object,"Control JSON object");ControlState s;
@@ -83,7 +83,7 @@ ControlState parseControl(const std::string& raw){
    s.keys[model.first].push_back(x);}}
  s.logLevel=logThreshold(c);
  const auto& t=c.at("textureMods");if(t.type==Json::Object){auto text=[&](const char* k,const char* fallback,std::initializer_list<const char*> allowed){const auto& v=t.at(k);if(v.type!=Json::String)return std::string(fallback);for(auto* a:allowed)if(v.string==a)return v.string;return std::string(fallback);};
-  s.tex.strategy=text("strategy","auto",{"diagnose","auto","direct","clone"});s.tex.lod=text("lod","full",{"full","migrate"});s.tex.testRequest=integerOf(t.at("testRequest"));require(s.tex.testRequest>=0,"textureMods.testRequest");
+  s.tex.capture=t.at("capture").type==Json::Bool&&t.at("capture").boolean;s.tex.strategy=text("strategy","auto",{"diagnose","auto","direct","clone"});s.tex.lod=text("lod","full",{"full","migrate"});s.tex.testRequest=integerOf(t.at("testRequest"));require(s.tex.testRequest>=0,"textureMods.testRequest");
   const auto& ts=t.at("testStrategies");if(ts.type==Json::Array){s.tex.testStrategies.clear();for(auto& v:ts.array)if(v.type==Json::String&&(v.string=="auto"||v.string=="direct"||v.string=="clone")&&s.tex.testStrategies.size()<4)s.tex.testStrategies.push_back(v.string);if(s.tex.testStrategies.empty())s.tex.testStrategies={"auto","direct","clone"};}
   auto ms=integerOf(t.at("observeMs"));if(ms)s.tex.observeMs=int(std::min<long long>(60000,std::max<long long>(1000,ms)));}
  const auto& x=c.at("experiments");if(x.type==Json::Object){auto flag=[&](const char* k){return x.at(k).type==Json::Bool&&x.at(k).boolean;};
@@ -257,6 +257,11 @@ struct Runtime::Impl {
  struct TexDiagFile {std::string stamp,error;size_t content=0;std::shared_ptr<texdiag::Doc> doc;std::shared_ptr<texdiag::TextureMod> mod;std::string dir,mapping;};
  std::map<std::string,std::string> texRecordsGen;
  std::map<std::string,TexDiagFile> texDiagScanned,texDiagWorker,texDiagDocs;bool texDiagFresh=false;uint64_t texDiagScanAt=0,texDiagAt=0;
+ // The PC hash database (GIBox/pc-hashes.json, installed by the App) and this device's hash map (hash-map.json, written
+ // here): read by the worker (the database again when its stamp changes, every rule then annotated again), handed over
+ // with the documents. The game thread owns the map once it has it and is its only writer.
+ std::string pcStamp="?",pcNote,pcScannedNote,pcLogged;bool pcMapRead=false;std::shared_ptr<const pcdb::Db> pcWorker,pcScanned,pcDb;
+ std::shared_ptr<pcdb::DeviceMap> mapScanned,devMap;bool devMapDirty=false;uint64_t devMapSaveAt=0;
  struct TexDiagSeen {std::string key;texdiag::Renderer info;};std::map<Ptr,TexDiagSeen> texDiagSeen;std::map<std::string,std::string> texDiagLogged,texDiagMatched;
  std::unique_ptr<renderprobe::UnityReader> texDiagReader;
  struct RenderBones {std::vector<std::pair<Ptr,uint32_t>> bones;std::string error;};
@@ -288,14 +293,23 @@ struct Runtime::Impl {
   if(now>=texDiagScanAt){texDiagScanAt=now+2000;textureDiagScan();}
  }
  // GIBox/texture-diag/*.json (TextureDiag.java): parsed here when its stamp changes; Tick gets the set when it differs.
- void textureDiagScan(){std::map<std::string,TexDiagFile> now;std::error_code ec;auto dir=shared+"/"+"texture-diag";
+ void textureDiagScan(){std::map<std::string,TexDiagFile> now;std::error_code ec;auto dir=shared+"/"+"texture-diag";bool news=false;
+  {auto file=shared+"/pc-hashes.json";auto st=exists(file)?stampOf(file):std::string();if(st!=pcStamp){pcStamp=st;texDiagWorker.clear();news=true;   // every rule annotated again
+    if(st.empty()){pcWorker.reset();pcNote="not installed ("+file+"; the App installs it): texture hashes cannot be told apart, index-buffer hashes only by their submesh starts";}
+    else try{auto b=read(file,16u<<20);pcWorker=std::make_shared<const pcdb::Db>(pcdb::parse(std::string(b.begin(),b.end())));
+     pcNote=std::to_string(pcWorker->characters.size())+" PC characters, "+std::to_string(pcWorker->comps.size())+" components, "+std::to_string(pcWorker->byIb.size())+" index-buffer and "+std::to_string(pcWorker->byTexture.size())+" texture hashes from "+pcWorker->source+" @"+pcWorker->commit.substr(0,7)+" ("+pcWorker->date+")";}
+    catch(const std::exception& ex){pcWorker.reset();pcNote=std::string("unreadable (")+ex.what()+"); not used";}}}
+  std::shared_ptr<pcdb::DeviceMap> mapNow;
+  if(!pcMapRead){pcMapRead=true;auto file=shared+"/hash-map.json";mapNow=std::make_shared<pcdb::DeviceMap>();
+   if(exists(file))try{auto b=read(file,16u<<20);*mapNow=pcdb::parseMap(std::string(b.begin(),b.end()));}catch(const std::exception& ex){pcNote+=std::string("; hash-map.json unreadable (")+ex.what()+"), started anew";}
+   news=true;}
   if(std::filesystem::is_directory(dir,ec))for(auto& entry:std::filesystem::directory_iterator(dir,ec)){auto path=entry.path().string(),file=entry.path().filename().string();
    if(file.empty()||file[0]=='.'||entry.path().extension()!=".json"||!entry.is_regular_file(ec)){continue;}if(now.size()>=32)break;
    auto stamp=stampOf(path);auto old=texDiagWorker.find(path);if(old!=texDiagWorker.end()&&old->second.stamp==stamp){now[path]=old->second;continue;}
    // A new stamp with the same text (the media storage put the old time back, 0.7.50 log) is no change.
    TexDiagFile f;f.stamp=stamp;try{auto body=text(path);f.content=std::hash<std::string>()(body);
     if(old!=texDiagWorker.end()&&old->second.content==f.content&&old->second.error.empty()){f.doc=old->second.doc;now[path]=f;continue;}
-    f.doc=std::make_shared<texdiag::Doc>(texdiag::parse(body,path));f.doc->stamp=stamp;}catch(const std::exception& ex){f.error=ex.what();}now[path]=f;}
+    f.doc=std::make_shared<texdiag::Doc>(texdiag::parse(body,path));f.doc->stamp=stamp;if(pcWorker)texdiag::annotate(*f.doc,*pcWorker);}catch(const std::exception& ex){f.error=ex.what();}now[path]=f;}
   // Texture-only mods (models/<name>/texture.json, no model.json): their rules are diagnosed the same way.
   if(std::filesystem::is_directory(modelRoot,ec))for(auto& entry:std::filesystem::directory_iterator(modelRoot,ec)){if(!entry.is_directory(ec))continue;auto dir=entry.path().string(),folder=entry.path().filename().string();
    if(folder.empty()||folder[0]=='.'||exists(dir+"/model.json")||!exists(dir+"/texture.json")){continue;}if(now.size()>=64)break;auto path=dir+"/texture.json";auto stamp=stampOf(path);auto old=texDiagWorker.find(path);
@@ -303,11 +317,11 @@ struct Runtime::Impl {
    TexDiagFile f;f.stamp=stamp;f.dir=dir;try{auto body=read(path,16u<<20);std::string text(body.begin(),body.end());f.content=std::hash<std::string>()(text);
     if(old!=texDiagWorker.end()&&old->second.content==f.content&&old->second.error.empty()){f.doc=old->second.doc;f.mod=old->second.mod;f.mapping=old->second.mapping;now[path]=f;continue;}
     {std::error_code mec;auto mp=dir+"/texture-mapping.json";if(std::filesystem::is_regular_file(mp,mec)){auto b=read(mp,1u<<20);f.mapping.assign(b.begin(),b.end());}}
-    f.mod=std::make_shared<texdiag::TextureMod>(texdiag::parseMod(text,dir));f.mod->name=folder;f.mod->doc.name=folder;f.mod->doc.stamp=stamp;f.doc=std::make_shared<texdiag::Doc>(f.mod->doc);}
+    f.mod=std::make_shared<texdiag::TextureMod>(texdiag::parseMod(text,dir));f.mod->name=folder;f.mod->doc.name=folder;f.mod->doc.stamp=stamp;if(pcWorker)texdiag::annotate(f.mod->doc,*pcWorker);f.doc=std::make_shared<texdiag::Doc>(f.mod->doc);}
    catch(const std::exception& ex){f.error=ex.what();}now[path]=f;}
   bool same=now.size()==texDiagWorker.size();if(same)for(auto& kv:now){auto o=texDiagWorker.find(kv.first);same=same&&o!=texDiagWorker.end()&&o->second.content==kv.second.content&&o->second.error==kv.second.error;}
-  if(same){texDiagWorker=now;return;}
-  texDiagWorker=now;std::lock_guard<std::mutex> l(sm);texDiagScanned=std::move(now);texDiagFresh=true;}
+  if(same&&!news){texDiagWorker=now;return;}
+  texDiagWorker=now;std::lock_guard<std::mutex> l(sm);texDiagScanned=std::move(now);pcScanned=pcWorker;pcScannedNote=pcNote;if(mapNow)mapScanned=mapNow;texDiagFresh=true;}
  // urgent: the character is appearing now: its job goes ahead of the queue (once; a queued copy then finds it loaded).
  void requestLoad(const ModelInfo& m,bool urgent=false){
   auto key=m.path+"|"+m.generation;{std::lock_guard<std::mutex> l(sm);auto it=loaded.find(m.path);if(it!=loaded.end()&&it->second.generation==m.generation)return;
@@ -477,13 +491,16 @@ struct Runtime::Impl {
   {std::lock_guard<std::mutex> l(sm);if(texDiagFresh){texDiagFresh=false;
     for(auto& kv:texDiagDocs)if(!texDiagScanned.count(kv.first))log("texture-diag-ini",kv.first+": removed");
     texDiagDocs=texDiagScanned;texDiagMatched.clear();texDiagLogged.clear();texDiagSeen.clear();texQuickNo.clear();texMatches.clear();texMatchLive.clear();
+    pcDb=pcScanned;if(mapScanned&&!devMap){devMap=mapScanned;}mapScanned.reset();
+    if(pcScannedNote!=pcLogged){pcLogged=pcScannedNote;log("pc-hashes",pcScannedNote+(devMap?"; this device's hash map: "+std::to_string(devMap->byIb.size())+" index-buffer hash(es) tied to a mesh":""));}
     // A mod file read anew (start, re-import): its saved mapping is checked against this build and these rules.
     for(auto& kv:texDiagDocs)if(kv.second.mod&&texRecordsGen[kv.first]!=kv.second.mod->generation){texRecordsGen[kv.first]=kv.second.mod->generation;texLoadMapping(kv.first,kv.second);}   // a new or changed file: everything logged once more
     for(auto& kv:texDiagDocs){auto& f=kv.second;if(!f.doc){texDiagLog("texture-diag-unsupported","file|"+kv.first,kv.first+": "+f.error);continue;}auto& d=*f.doc;
      std::string vars,others;for(auto& v:d.variables)vars+=(vars.empty()?"":"; ")+v;for(auto& o:d.others)others+=(others.empty()?"":"; ")+o;
      texDiagLog("texture-diag-ini","doc|"+kv.first,d.name+": "+kv.first+" stamp "+f.stamp+", INI "+d.ini+", character "+std::to_string(d.character)+", "+std::to_string(d.rules.size())+" rules, "+std::to_string(d.resources.size())+" resources"
       +(vars.empty()?"":", variables: "+vars)+(others.empty()?"":", other INIs: "+others)+"; read-only, nothing is replaced");
-     for(auto& r:d.rules)texDiagLog("texture-diag-ini","rule|"+kv.first+"|"+r.section,texdiag::ruleLine(d,r));
+     for(auto& r:d.rules)texDiagLog("texture-diag-ini","rule|"+kv.first+"|"+r.section,texdiag::ruleLine(d,r)+(r.pcNote.empty()?"":" | PC: "+r.pcNote));
+     if(!d.pc.empty())texDiagLog("texture-diag-ini","pc|"+kv.first,d.name+": "+d.pc);
      for(auto& n:d.notes)texDiagLog("texture-diag-ini","note|"+kv.first+"|"+n,d.name+": "+n);}}}
   if(texDiagDocs.empty()){texDiagSeen.clear();return;}
   if(now<texDiagAt){return;}texDiagAt=now+1000;
@@ -520,9 +537,9 @@ struct Runtime::Impl {
   for(size_t i=0;i<live.size();i++)for(auto& m:live[i].materials)for(size_t j:users[m.material])if(j!=i)m.sharedWith.push_back(texdiag::label(live[j]));
   std::string stamp;for(auto& r:live)stamp+=texDiagSeen[r.renderer].key+";";
   for(auto* d:docs){auto& last=texDiagMatched[d->path];if(last==d->stamp+"|"+stamp)continue;last=d->stamp+"|"+stamp;
-   auto matches=texdiag::match(*d,live);unsigned counts[5]={0,0,0,0,0};bool mod=false;{auto f=texDiagDocs.find(d->path);mod=f!=texDiagDocs.end()&&f->second.mod;}
+   auto matches=texdiag::match(*d,live,devMap.get());unsigned counts[5]={0,0,0,0,0};bool mod=false;{auto f=texDiagDocs.find(d->path);mod=f!=texDiagDocs.end()&&f->second.mod;}
    if(mod)texRemember(*d,matches,live);
-   for(auto& m:matches){counts[int(m.verdict)]++;if(m.verdict==texdiag::Verdict::Skipped)continue;texDiagLog("texture-diag-match","match|"+d->path+"|"+d->rules[m.rule].section,texdiag::matchLine(*d,m,live));}
+   for(auto& m:matches){counts[int(m.verdict)]++;if(m.verdict==texdiag::Verdict::Skipped)continue;texDiagLog("texture-diag-match","match|"+d->path+"|"+d->rules[m.rule].section+"|"+std::to_string(m.renderer)+"|"+std::to_string(m.slot),texdiag::matchLine(*d,m,live));}
    texDiagLog("texture-diag-match","sum|"+d->path,d->name+": "+std::to_string(live.size())+" renderers of "+std::to_string(ch.config)+": "+std::to_string(counts[0])+" 确定匹配, "+std::to_string(counts[1])+" 高可信候选, "
     +std::to_string(counts[2])+" 存在歧义, "+std::to_string(counts[3])+" 无法匹配, "+std::to_string(counts[4])+" without textures; "+(mod?"writes follow the strategy ("+ctl.tex.strategy+", see texture-apply)":std::string("nothing was replaced (phase 1)")));}}
 
@@ -547,7 +564,7 @@ struct Runtime::Impl {
  struct TexStore:Owned {std::string generation;std::map<std::string,Ptr> made;std::vector<std::pair<std::string,bool>> wanted;size_t next=0;uint64_t ms=0,bytes=0,ticks=0,readyAt=0;unsigned kept=0,lost=0;bool done=false;};
  std::map<std::string,std::unique_ptr<TexStore>> texStores;std::vector<std::unique_ptr<TexStore>> texStoresKept;
  struct TexDone {texdiag::Write write;Ptr before=0,ours=0;};
- struct TexSlot {std::string rule,evidence,label,mesh,plan;size_t ruleIndex=0;Ptr renderer=0,native=0,material=0,materialNative=0,clone=0;int slot=-1;bool lod=false;std::vector<TexDone> writes;unsigned again=0;bool gaveUp=false;uint64_t writtenAt=0;
+ struct TexSlot {std::string rule,evidence,label,mesh,plan;std::vector<size_t> rules;Ptr renderer=0,native=0,material=0,materialNative=0,clone=0;int slot=-1;bool lod=false;std::vector<TexDone> writes;unsigned again=0;bool gaveUp=false;uint64_t writtenAt=0;
   bool adopted=false;Ptr copy=0,source=0;};   // adopted: material is the game's instance made from ours (copy / source: our copy it came from, the material that copy replaced)
  struct TexLive:Owned {std::string path,mod,strategy,test;std::vector<TexSlot> slots;std::set<std::string> said;};
  std::map<std::string,std::unique_ptr<TexLive>> texLive;std::vector<std::unique_ptr<TexLive>> texStranded;
@@ -578,11 +595,16 @@ struct Runtime::Impl {
    for(size_t k=0;k<r.slots.size();k++){o+=std::string(k?",":"")+"{\"slot\":"+std::to_string(r.slots[k].first)+",\"rule\":"+quote(r.slots[k].second)+"}";}o+="]}";r.saved=true;}
   o+="]}\n";auto file=texMappingFile(f->second);worker.post([file,o]{try{writeAtomic(file,o);}catch(...){}});
   log("texture-map",f->second.mod->name+": "+std::to_string(list.size())+" confirmed mesh(es) saved to "+file+" (build "+std::string(abi::buildId).substr(0,8)+", rules "+texSignature(*f->second.mod)+")");}
- // A saved mapping is used only for this game build, these rules and this character; anything else is dropped, said why.
+ // A saved mapping is used for these rules and this character (from any game build: each record is re-checked before a
+ // write); anything else is dropped, said why.
  void texLoadMapping(const std::string& path,const TexDiagFile& f){texRecords.erase(path);if(f.mapping.empty())return;
   try{Json j=JsonParser(f.mapping).parse();require(j.type==Json::Object&&texdiag::str(j,"format")=="gibox-texture-mapping"&&texdiag::num(j,"version",0)==1,"not a texture mapping");
-   std::string why=texdiag::str(j,"buildId")!=abi::buildId?"made for another game build":texdiag::str(j,"signature")!=texSignature(*f.mod)?"made for other rules (the mod was converted again)":unsigned(texdiag::num(j,"character",0))!=f.mod->character?"made for another character":"";
+   // Another game build: used all the same. Game updates keep the character meshes (7.1 -> 7.2), and every record is
+   // checked against the live renderer before anything is written (texRecordTargets: mesh name, vertices, bones, each
+   // submesh's start and count, slot materials, avatar), so a mesh that did change is simply not written.
+   std::string why=texdiag::str(j,"signature")!=texSignature(*f.mod)?"made for other rules (the mod was converted again)":unsigned(texdiag::num(j,"character",0))!=f.mod->character?"made for another character":"";
    if(!why.empty()){log("texture-map",f.mod->name+": saved mapping not used: "+why+"; it is replaced at the next confirmation");return;}
+   std::string built=texdiag::str(j,"buildId");if(built!=abi::buildId)log("texture-map",f.mod->name+": saved mapping from game build "+built.substr(0,8)+": used; each record is checked against the live mesh before a write");
    std::vector<TexRecord> list;const auto& rs=j.at("records");require(rs.type==Json::Array&&rs.array.size()<=64,"mapping records");
    for(auto& x:rs.array){TexRecord r;r.renderer=texdiag::str(x,"renderer");r.mesh=texdiag::str(x,"mesh");r.avatar=texdiag::str(x,"avatar");r.from=texdiag::str(x,"from")+" (saved)";r.hash=texdiag::str(x,"hash");
     r.vertices=unsigned(texdiag::num(x,"vertices",0));r.bones=unsigned(texdiag::num(x,"bones",0));r.saved=true;
@@ -657,7 +679,8 @@ struct Runtime::Impl {
   info.layout.status="未采集: not read yet";texDiagMesh(mesh,info.layout);
   Ptr arr=e.get(abi::getMaterials,r);if(arr)for(Ptr m:pointers(arr,64)){texdiag::Material mat;mat.material=m;if(alive(m))mat.name=name(m);info.materials.push_back(mat);}
   return info;}
- struct TexTarget {Ptr renderer=0,native=0;int slot=-1;size_t rule=0;std::string evidence,label,mesh;bool lod=false;};
+ // One slot to write: every rule on it (a segment and texture hashes; texdiag::writesFor merges them).
+ struct TexTarget {Ptr renderer=0,native=0;int slot=-1;std::vector<size_t> rules;std::string evidence,label,mesh;bool lod=false;};
  // A renderer against the records: the full mesh by all its features, a lower LOD (migrate only) by renderer, mesh base
  // name, avatar, submesh count and the slot materials' part names. why: what keeps it from being written, when nothing does.
  std::vector<TexTarget> texRecordTargets(const std::string& path,const texdiag::TextureMod& m,Ptr r,std::string& why){std::vector<TexTarget> out;
@@ -667,7 +690,8 @@ struct Runtime::Impl {
   for(auto& rec:ri->second){if(normalize(rn)!=rec.renderer||meshName(fp.mesh)!=meshName(rec.mesh))continue;near=true;
    auto info=texLightRead(r);if(info.avatar!=rec.avatar){why="avatar "+info.avatar+" is not the mapping's "+rec.avatar;continue;}
    std::string ruleWhy;auto build=[&](const std::string& evidence){for(auto& sl:rec.slots){int rule=-1;for(size_t i=0;i<m.doc.rules.size();i++)if(m.doc.rules[i].section==sl.second)rule=int(i);if(rule<0)continue;
-     out.push_back({r,native,sl.first,size_t(rule),evidence,texdiag::label(info),fp.mesh,lod});}};
+     TexTarget* t=nullptr;for(auto& x:out)if(x.renderer==r&&x.slot==sl.first)t=&x;if(!t){out.push_back({r,native,sl.first,{},evidence,texdiag::label(info),fp.mesh,lod});t=&out.back();}
+     if(std::find(t->rules.begin(),t->rules.end(),size_t(rule))==t->rules.end())t->rules.push_back(size_t(rule));}};
    bool parts=info.materials.size()==rec.parts.size();for(size_t i=0;parts&&i<rec.parts.size();i++)parts=texdiag::materialPart(info.materials[i].name)==rec.parts[i];
    if(!lod){bool same=fp.mesh==rec.mesh&&fp.vertices==rec.vertices&&fp.bones==rec.bones&&info.known()&&info.layout.subs.size()==rec.subs.size();
      for(size_t i=0;same&&i<rec.subs.size();i++)same=info.layout.subs[i].start==rec.subs[i].first&&info.layout.subs[i].count==rec.subs[i].second;
@@ -683,17 +707,20 @@ struct Runtime::Impl {
  std::vector<TexTarget> texTargets(const std::string& path,const texdiag::TextureMod& m,TexLive* L){std::vector<TexTarget> out;std::set<std::pair<Ptr,int>> taken;
   auto mi=texMatches.find(path);auto li=texMatchLive.find(path);
   if(mi!=texMatches.end()&&li!=texMatchLive.end())for(auto& x:mi->second){if(x.verdict!=texdiag::Verdict::Confirmed||x.renderer<0||x.slot<0)continue;const auto& R=li->second[size_t(x.renderer)];
-   if(!alive(R.renderer)||load<Ptr>(R.renderer+0x10)!=R.native||!texUsable(L,R.renderer,texdiag::label(R))||!taken.insert({R.renderer,x.slot}).second)continue;
-   out.push_back({R.renderer,R.native,x.slot,x.rule,"确定匹配（indexStart = match_first_index，同一 hash 的分段全部对上，材质数 = 子网格数）",texdiag::label(R),R.meshName,R.lod});}
+   if(!alive(R.renderer)||load<Ptr>(R.renderer+0x10)!=R.native||!texUsable(L,R.renderer,texdiag::label(R)))continue;
+   if(!taken.insert({R.renderer,x.slot}).second){for(auto& t:out)if(t.renderer==R.renderer&&t.slot==x.slot&&std::find(t.rules.begin(),t.rules.end(),x.rule)==t.rules.end())t.rules.push_back(x.rule);continue;}
+   bool pc=!m.doc.rules[x.rule].pcTextures.empty()||m.doc.rules[x.rule].pcHasIb;
+   out.push_back({R.renderer,R.native,x.slot,{x.rule},pc?"确定匹配（PC hash 数据库定位的部件与槽位，见 texture-diag-match）":"确定匹配（indexStart = match_first_index，同一 hash 的分段全部对上，材质数 = 子网格数）",texdiag::label(R),R.meshName,R.lod});}
   std::vector<Ptr> pool;try{pool=worldRenderers();}catch(const std::exception&){}for(auto& sn:seen)pool.push_back(sn.renderer);for(Ptr r:texPending)pool.push_back(r);if(L)for(auto& x:L->slots)pool.push_back(x.renderer);
-  for(Ptr r:pool){std::string why;for(auto& t:texRecordTargets(path,m,r,why)){if(!texUsable(L,r,t.label)||!taken.insert({r,t.slot}).second)continue;out.push_back(t);}
+  for(Ptr r:pool){std::string why;for(auto& t:texRecordTargets(path,m,r,why)){if(!texUsable(L,r,t.label))continue;
+    if(!taken.insert({r,t.slot}).second){for(auto& o:out)if(o.renderer==r&&o.slot==t.slot)for(size_t k:t.rules)if(std::find(o.rules.begin(),o.rules.end(),k)==o.rules.end())o.rules.push_back(k);continue;}out.push_back(t);}
    if(L&&!why.empty())texSay(*L,"wait|"+hex(r)+"|"+why,"texture-wait",texTag(*L)+": "+rendererName(r)+"#"+hex(load<Ptr>(r+0x10))+" waits: "+why);}
   return out;}
  // One slot: what the strategy writes, read back at once; the log line names everything needed to follow it.
  bool texApply(TexLive& L,const texdiag::TextureMod& m,const std::map<std::string,Texture>& px,const TexTarget& t,TexSlot& s){
-  const auto& rule=m.doc.rules[t.rule];std::vector<std::string> skipped;auto plan=texdiag::writes(rule,texVars(m),skipped);
-  s=TexSlot{};s.rule=rule.section;s.ruleIndex=t.rule;s.evidence=t.evidence;s.label=t.label;s.mesh=t.mesh;s.renderer=t.renderer;s.native=t.native;s.slot=t.slot;s.lod=t.lod;for(auto& w:plan)s.plan+=w.property+"="+w.resource+";";
-  std::string line=texTag(L)+": "+rule.section+" -> character="+std::to_string(ch.config)+" "+t.label+" mesh="+t.mesh+" lod="+(t.lod?"lower":"full")+" slot="+std::to_string(t.slot)+" evidence="+t.evidence;
+  std::vector<std::string> skipped;auto plan=texdiag::writesFor(m.doc,t.rules,texVars(m),skipped);
+  s=TexSlot{};s.rule=texdiag::sections(m.doc,t.rules);s.rules=t.rules;s.evidence=t.evidence;s.label=t.label;s.mesh=t.mesh;s.renderer=t.renderer;s.native=t.native;s.slot=t.slot;s.lod=t.lod;for(auto& w:plan)s.plan+=w.property+"="+w.resource+";";
+  std::string line=texTag(L)+": "+s.rule+" -> character="+std::to_string(ch.config)+" "+t.label+" mesh="+t.mesh+" lod="+(t.lod?"lower":"full")+" slot="+std::to_string(t.slot)+" evidence="+t.evidence;
   Ptr arr=e.get(abi::getMaterials,t.renderer);require(arr!=0,"no material array");auto current=pointers(arr,64);require(size_t(t.slot)<current.size(),"slot "+std::to_string(t.slot)+" beyond "+std::to_string(current.size())+" materials");
   Ptr mat=current[size_t(t.slot)];require(alive(mat),"slot material destroyed");line+=" material="+texMaterial(mat);
   std::string shared;for(auto& kv:texDiagSeen){if(kv.first==t.renderer||!alive(kv.first))continue;for(auto& x:kv.second.info.materials)if(x.material==mat)shared+=(shared.empty()?"":", ")+texdiag::label(kv.second.info);}
@@ -786,7 +813,7 @@ struct Runtime::Impl {
       if(!alive(w.ours)){std::string note;w.ours=texOurs(L,px,w.write,note);line+=" | "+w.write.property+note;}
       putTexture(s.material,w.write.property.c_str(),w.ours);Ptr back=e.call<Ptr>(glow::rvaGetTexture,s.material,id,Ptr(0));line+=" | "+w.write.property+": "+texDescribe(now)+" -> "+texDescribe(w.ours)+" readback="+(back==w.ours?"ok":"FAILED, now "+texDescribe(back));}
     s.writtenAt=texClock();log("texture-event",head+event+"; written again in the game's instance made from ours (not copied)"+line+when+" ("+std::to_string(again)+")");continue;}
-   TexTarget t{s.renderer,s.native,s.slot,s.ruleIndex,s.evidence,s.label,s.mesh,s.lod};
+   TexTarget t{s.renderer,s.native,s.slot,s.rules,s.evidence,s.label,s.mesh,s.lod};
    bool restored=texRestore(L,s,"re-apply after the game's change");if(!restored){s.gaveUp=true;continue;}
    try{texApply(L,m,px,t,s);s.again=again;}catch(const std::exception& ex){log("texture-error",texTag(L)+": "+ex.what());s.gaveUp=true;continue;}
    log("texture-event",head+event+when+", written again within "+std::to_string(texClock()-noticed)+" ms ("+std::to_string(again)+")");}}
@@ -831,7 +858,7 @@ struct Runtime::Impl {
     std::vector<texdiag::Renderer> infos;for(Ptr r:list)if(alive(r)&&!attachments.count(r)){try{infos.push_back(texLightRead(r));texSeen(infos.back().native,"hand-off");}catch(const std::exception& ex){log("texture-error",m.name+": hand-off read of "+hex(r)+": "+ex.what());}}
     if(infos.empty()){continue;}bool own=ch.entity&&m.character==ch.config;auto ri=texRecords.find(kv.first);if(!own&&ri!=texRecords.end())for(auto& rec:ri->second)for(auto& i:infos)own=own||(!rec.avatar.empty()&&i.avatar==rec.avatar);
     if(!own){if(texHandoffSaid.insert(m.name+"|"+goName).second)log("texture-handoff",m.name+": "+goName+" ("+std::to_string(infos.size())+" renderers) is not character "+std::to_string(m.character)+" (controlled "+std::to_string(ch.config)+", no saved avatar matches); not matched");continue;}
-    auto matches=texdiag::match(m.doc,infos);unsigned confirmed=0;for(auto& x:matches)confirmed+=x.verdict==texdiag::Verdict::Confirmed;
+    auto matches=texdiag::match(m.doc,infos,devMap.get());unsigned confirmed=0;for(auto& x:matches)confirmed+=x.verdict==texdiag::Verdict::Confirmed;
     for(auto& x:matches)if(x.verdict==texdiag::Verdict::Confirmed&&x.renderer>=0){auto& tt=texTimes[infos[size_t(x.renderer)].native];if(!tt.matched){tt.matched=texClock();}}
     texRemember(m.doc,matches,infos);std::string lods;for(auto& i:infos)if(i.lod)lods+=(lods.empty()?"":", ")+i.name+"/"+i.meshName;
     log("texture-handoff",m.name+": "+goName+" handed over: "+std::to_string(infos.size())+" renderers read and matched in "+std::to_string(texClock()-t0)+" ms, "+std::to_string(confirmed)+" slot(s) confirmed by index starts"+(lods.empty()?"":"; lower LOD: "+lods));
@@ -898,7 +925,7 @@ struct Runtime::Impl {
    auto targets=texTargets(kv.first,m,L);
    // Slots no longer targeted (renderer gone, mapping lost) go back; a changed variant is written again.
    bool failed=false;for(auto it=L->slots.begin();it!=L->slots.end();){bool still=false;for(auto& t:targets)still=still||(t.renderer==it->renderer&&t.slot==it->slot);
-    std::string plan;if(still){for(auto& t:targets)if(t.renderer==it->renderer&&t.slot==it->slot){std::vector<std::string> sk;for(auto& w:texdiag::writes(m.doc.rules[t.rule],texVars(m),sk))plan+=w.property+"="+w.resource+";";}}
+    std::string plan;if(still){for(auto& t:targets)if(t.renderer==it->renderer&&t.slot==it->slot){std::vector<std::string> sk;for(auto& w:texdiag::writesFor(m.doc,t.rules,texVars(m),sk))plan+=w.property+"="+w.resource+";";}}
     if(still&&plan==it->plan){++it;continue;}bool ok=texRestore(*L,*it,still?"variant changed":"no longer a target");if(!ok){failed=true;break;}it=L->slots.erase(it);}
    if(failed){texDrop(std::move(texLive[kv.first]),false);texLive.erase(kv.first);status+=(status.empty()?"":"；")+who+"还原失败，已停止";continue;}
    size_t done=0;for(auto& t:targets){TexSlot* s=nullptr;for(auto& x:L->slots)if(x.renderer==t.renderer&&x.slot==t.slot)s=&x;
@@ -957,6 +984,11 @@ struct Runtime::Impl {
     auto sl=std::make_pair(slot,r.section);if(std::find(rec->slots.begin(),rec->slots.end(),sl)==rec->slots.end()){rec->slots.push_back(sl);added=true;}
     slots+=(slots.empty()?"":"; ")+r.section+" -> submesh "+std::to_string(slot)+" (starts at "+std::to_string(r.first)+") = material slot "+std::to_string(slot)+" "+(size_t(slot)<R.materials.size()?R.materials[size_t(slot)].name:std::string());}
    texSay0("ibok|"+m.name+"|"+hex8(h.value)+"|"+R.meshName+"|"+std::to_string(added),"texture-hash-confirm",what+" = "+texdiag::label(R)+" mesh "+R.meshName+" ("+std::to_string(R.vertices)+" vertices, the only diagnosed mesh with these index and vertex counts): "+slots);
+   // This device's map (hash-map.json): the hash and its mesh, for later sessions and other mods of the hash.
+   {if(!devMap)devMap=std::make_shared<pcdb::DeviceMap>();auto ib=hex8(h.value);auto& x=devMap->byIb[ib];
+    if(x.mesh!=R.meshName||x.vertices!=R.vertices){x.ib=ib;x.variant=vkcap::variantName(h.variant);x.renderer=normalize(R.name);x.mesh=R.meshName;x.avatar=R.avatar;x.build=abi::buildId;x.vertices=R.vertices;x.bones=R.bones;x.subs.clear();
+     for(auto& sb:R.layout.subs){x.subs.push_back({uint32_t(sb.start),uint32_t(sb.count)});}
+     if(pcDb){auto pc=pcDb->byIb.find(ib);if(pc!=pcDb->byIb.end()){x.character=pcDb->comps[pc->second[0]].character;x.component=pcDb->comps[pc->second[0]].name;}}devMapDirty=true;}}
    if(added){texQuickNo.clear();texWaitUntil.clear();texSaveMapping(kv.first);}tied=true;}
   return tied;}
  void texSay0(const std::string& key,const std::string& state,const std::string& line){if(ibSaid.insert(key).second)log(state,line);}
@@ -978,6 +1010,7 @@ struct Runtime::Impl {
     log("ib-hash",hex8(h.value)+" ("+w->second+") equals "+ibDescribe(b)+" read "+vkcap::variantName(h.variant)+"; meshes with this index count: "+ibMeshes(b));
     if(ibHits.size()<4096)ibHits.push_back({b.seq,h.value,b.bytes,b.max16,b.max32,h.variant,b.via,false});}}
   for(auto& h:ibHits)if(!h.done)h.done=ibConfirm(h);
+  devMapSave(now);
   // A mesh confirmed by its submesh starts: the uploads of its index count, with every hash, against its rules' hashes.
   for(auto& kv:texRecords){auto f=texDiagDocs.find(kv.first);if(f==texDiagDocs.end()||!f->second.mod)continue;auto& m=*f->second.mod;
    for(auto& rec:kv.second){uint64_t n=meshIndices(rec.subs);if(!n)continue;std::string want;for(auto& sl:rec.slots)for(auto& r:m.doc.rules){std::string h=r.hash;for(auto& c:h)c=char(std::tolower(uint8_t(c)));if(r.section==sl.second&&want.find(h)==std::string::npos)want+=(want.empty()?"":" ")+h;}
@@ -988,6 +1021,85 @@ struct Runtime::Impl {
   if(st.uploads!=ibReported&&(now-ibSince>=10000||ibReported==0)){ibReported=st.uploads;
    log("ib-capture",std::to_string(st.uploads)+" index uploads read ("+std::to_string(st.bytes>>20)+" MiB): copy regions into index buffers "+std::to_string(st.copies)+", first binds of mapped index buffers "+std::to_string(st.mappedBinds)+"; not read: source not mapped "+std::to_string(st.notMapped)+", out of range "+std::to_string(st.outOfRange)+", over 64 MiB "+std::to_string(st.tooLarge)+", queue full "+std::to_string(st.dropped)+"; Vulkan lookups wrapped "+std::to_string(st.wrapped)+", left unwrapped (not exported by the loader) "+std::to_string(st.resolved-st.wrapped));}
   if(!ibSaidNothing&&st.wrapped==0&&now-ibSince>=60000){ibSaidNothing=true;log("ib-capture","the game looked up none of the wrapped Vulkan functions since GIBox started: it may draw with OpenGL ES, or it looked them up before GIBox loaded; nothing to read");}}
+
+ // ---------------------------------------------------------------- every character's index buffers against the PC (0.7.82)
+ // control.json textureMods.capture (on at the game's start, like ibHash): every character mesh shown is read (name,
+ // vertices, submesh starts and counts) and each index upload tied to the one mesh with its index and vertex counts.
+ // An upload whose hash the PC database knows names that PC component: recorded in hash-map.json (the matcher then
+ // finds the component by its mesh in later sessions, without the capture) and compared in hash-report.txt with the
+ // PC draw starts; meshes with no PC hash are listed with their own hashes. Read-only: nothing is written to the game.
+ struct CapMesh {std::string renderer,mesh,avatar;unsigned vertices=0,bones=0;bool lod=false;std::vector<std::pair<uint32_t,uint32_t>> subs;uint64_t indices=0;};
+ struct CapTie {std::string ib,variant,character,component,meshKey,note;uint64_t seq=0;std::vector<std::string> meshes;};
+ std::map<std::string,CapMesh> capMeshes;std::set<std::pair<Ptr,Ptr>> capRead;std::map<std::string,CapTie> capTies,capOpen;uint64_t capSeq=0;
+ uint64_t capAt=0,capReportAt=0,capUploads=0;bool capDirty=false,capSaid=false;std::string capLast;
+ static std::string capKey(const std::string& mesh,unsigned vertices,uint64_t indices){return mesh+"|"+std::to_string(vertices)+"|"+std::to_string(indices);}
+ // The meshes whose index and vertex counts an upload has, read with the index width its hash variant was taken with.
+ std::vector<const CapMesh*> capShapes(uint32_t bytes,uint32_t max16,uint32_t max32,uint8_t variant){std::vector<std::pair<uint64_t,uint64_t>> shapes;uint8_t format=variant>>2;
+  if(format!=2){shapes.push_back({bytes/2,uint64_t(max16)+1});}if(format!=1&&bytes%4==0)shapes.push_back({bytes/4,uint64_t(max32)+1});
+  std::vector<const CapMesh*> out;for(auto& kv:capMeshes)for(auto& sh:shapes)if(kv.second.indices==sh.first&&kv.second.vertices==sh.second){out.push_back(&kv.second);break;}return out;}
+ // hash-map.json: at most every 5 s; what is matched is matched again with it.
+ void devMapSave(uint64_t now){if(!devMap||!devMapDirty||now<devMapSaveAt)return;devMapDirty=false;devMapSaveAt=now+5000;auto file=shared+"/hash-map.json",body=pcdb::writeMap(*devMap);
+  worker.post([file,body]{try{writeAtomic(file,body);}catch(...){}});texQuickNo.clear();texWaitUntil.clear();texDiagMatched.clear();}
+ void captureTick(uint64_t now){auto& T=vkcap::tracker();if(!ctl.tex.capture||!T.enabled)return;if(now<capAt)return;capAt=now+1000;
+  if(!capSaid){capSaid=true;log("hash-capture","on: every character mesh shown is read and each index upload tied to it; compared with the PC database ("+(pcDb?pcDb->commit.substr(0,7):std::string("not installed"))+"), written to "+shared+"/hash-report.txt and hash-map.json"+(ctl.enabled?std::string():"; model replacement is off, so only the controlled character's renderers are read (switch it on for the whole scene)"));}
+  if(!devMap)devMap=std::make_shared<pcdb::DeviceMap>();
+  // 1. Meshes: what discovery and the controlled character show, at most 16 new ones a second.
+  std::vector<Ptr> pool;try{pool=worldRenderers();}catch(const std::exception&){}for(auto& sn:seen)pool.push_back(sn.renderer);unsigned reads=0;size_t before=capMeshes.size();
+  for(Ptr r:pool){if(reads>=16)break;try{if(!alive(r))continue;Ptr native=load<Ptr>(r+0x10);Ptr mesh=e.get(abi::getMesh,r);if(!alive(mesh))continue;if(!capRead.insert({native,load<Ptr>(mesh+0x10)}).second)continue;reads++;
+    auto info=texLightRead(r);if(info.avatar.empty()||!info.known())continue;CapMesh c;c.renderer=info.name;c.mesh=info.meshName;c.avatar=info.avatar;c.vertices=info.vertices;c.bones=info.bones;c.lod=info.lod;
+    for(auto& sb:info.layout.subs){c.subs.push_back({uint32_t(sb.start),uint32_t(sb.count)});}c.indices=pcdb::indices(c.subs);if(!c.indices)continue;capMeshes.emplace(capKey(c.mesh,c.vertices,c.indices),c);}
+   catch(const std::exception&){}}
+  if(capRead.size()>20000)capRead.clear();
+  bool newMeshes=capMeshes.size()!=before;if(newMeshes)capDirty=true;
+  // 2. Uploads: each new one whose hash the PC knows; those not tied yet again when new meshes came.
+  auto tie=[&](const vkcap::Blob& b){for(auto& h:b.hashes){auto ib=hex8(h.value);if(!pcDb)break;auto pc=pcDb->byIb.find(ib);if(pc==pcDb->byIb.end())continue;capUploads++;
+    const auto& comp=pcDb->comps[pc->second[0]];auto ms=capShapes(b.bytes,b.max16,b.max32,h.variant);CapTie t;t.ib=ib;t.variant=vkcap::variantName(h.variant);t.character=comp.character;t.component=comp.name;t.seq=b.seq;
+    if(ms.size()!=1){for(auto* m:ms)t.meshes.push_back(m->avatar+" "+m->renderer+" "+m->mesh);t.note=ms.empty()?"no mesh read yet with its "+std::to_string(b.bytes/2)+" (16-bit) or "+std::to_string(b.bytes/4)+" (32-bit) indices and matching vertex count":std::to_string(ms.size())+" meshes have its index and vertex counts";
+     if(!capTies.count(ib)){auto& o=capOpen[ib];if(o.note!=t.note)capDirty=true;o=t;}return;}
+    const CapMesh& m=*ms[0];t.meshKey=capKey(m.mesh,m.vertices,m.indices);capOpen.erase(ib);auto old=capTies.find(ib);if(old!=capTies.end()&&old->second.meshKey==t.meshKey)return;capTies[ib]=t;capDirty=true;
+    pcdb::Mesh e;e.ib=ib;e.variant=t.variant;e.character=comp.character;e.component=comp.name;e.renderer=normalize(m.renderer);e.mesh=m.mesh;e.avatar=m.avatar;e.build=abi::buildId;e.vertices=m.vertices;e.bones=m.bones;e.subs=m.subs;
+    devMap->byIb[ib]=e;devMapDirty=true;
+    log("hash-capture",ib+" = PC "+comp.character+" "+comp.name+" (upload #"+std::to_string(b.seq)+", "+t.variant+"): mesh "+m.mesh+" of "+m.avatar+" / "+m.renderer+" ("+std::to_string(m.vertices)+" vertices, "+std::to_string(m.indices)+" indices); submesh starts "+capStarts(m.subs)+(pcdb::startsEqual(m.subs,comp.indexes)?" = the PC draw starts":" vs the PC draw starts "+texdiag::joined(comp.indexes)));
+    return;}};
+  for(auto& b:ibBlobs)if(b.seq>capSeq){tie(b);capSeq=b.seq;}
+  if(newMeshes&&!capOpen.empty()){std::set<uint64_t> want;for(auto& kv:capOpen)want.insert(kv.second.seq);for(auto& b:ibBlobs)if(want.count(b.seq))tie(b);}
+  devMapSave(now);
+  // 3. The map (for the matcher, also after a restart) and the report.
+  if(capDirty&&now>=capReportAt){capDirty=false;capReportAt=now+5000;auto file=shared+"/hash-report.txt",body=captureReport();worker.post([file,body]{try{writeAtomic(file,body);}catch(...){}});
+   std::string sum=std::to_string(capMeshes.size())+" character meshes read, "+std::to_string(capTies.size())+" PC index-buffer hashes tied to a mesh, "+std::to_string(capOpen.size())+" not (yet)";
+   if(sum!=capLast){capLast=sum;log("hash-capture",sum+"; report "+file);}}}
+ static std::string capStarts(const std::vector<std::pair<uint32_t,uint32_t>>& subs){std::string o;for(auto& s:subs)o+=(o.empty()?"":",")+std::to_string(s.first);return "["+o+"]";}
+ std::string captureReport(){std::string o="GIBox hash 对比报告：安卓采集的索引缓冲 vs PC（GI-Model-Importer-Assets）\n";
+  o+="游戏版本 "+std::string(abi::buildId).substr(0,8)+"；PC 数据库 "+(pcDb?pcDb->source+" @"+pcDb->commit.substr(0,7)+"（"+pcDb->date+"）":std::string("未安装（打开一次 GIBox App 会装上）"))+"\n";
+  o+="本次读到角色网格 "+std::to_string(capMeshes.size())+" 个；与 PC 索引缓冲 hash 相同的上传对应到网格 "+std::to_string(capTies.size())+" 个，未对应 "+std::to_string(capOpen.size())+" 个；hash-map.json 共 "+std::to_string(devMap?devMap->byIb.size():0)+" 条（含之前几次）\n";
+  o+="说明：hash 相同 = 安卓上传的索引数据逐字节等于 PC 的；“起点”是各子网格的 indexStart，PC 的是各段 match_first_index。\n";
+  if(!pcDb)return o;
+  // Per PC character with something tied (this session or earlier): every component, tied or not.
+  std::map<std::string,std::vector<size_t>> chars;std::set<std::string> any;for(auto& kv:capTies)any.insert(kv.second.character);if(devMap)for(auto& kv:devMap->byIb)any.insert(kv.second.character);
+  for(size_t i=0;i<pcDb->comps.size();i++)if(any.count(pcDb->comps[i].character))chars[pcDb->comps[i].character].push_back(i);
+  o+="\n== 和 PC 对上的角色（"+std::to_string(chars.size())+" 个）\n";
+  std::set<std::string> tiedMeshes;
+  for(auto& kv:chars){unsigned av=pcDb->characters.count(kv.first)?pcDb->characters.at(kv.first):0;o+=kv.first+(av?"（AvatarId "+std::to_string(av)+"）":"（没有对应的 AvatarId）")+"\n";
+   for(size_t i:kv.second){auto& c=pcDb->comps[i];o+="  "+(c.name.empty()?std::string("（无名部件）"):c.name)+"  ";
+    if(c.ib.empty()){std::string tx;for(auto& sub:c.textures)for(auto& b:sub)tx+=(tx.empty()?"":" ")+b.first+"="+b.second;o+="PC 没有它的索引缓冲 hash（只有贴图："+tx+"）；按部件名对应\n";continue;}
+    o+="ib "+c.ib+"  PC 起点 "+texdiag::joined(c.indexes)+(c.counts.empty()?"":" 数量 "+texdiag::joined(c.counts))+"\n";
+    auto t=capTies.find(c.ib);const pcdb::Mesh* dm=nullptr;if(devMap){auto d=devMap->byIb.find(c.ib);if(d!=devMap->byIb.end())dm=&d->second;}
+    if(t!=capTies.end()){auto m=capMeshes.find(t->second.meshKey);if(m!=capMeshes.end()){auto& x=m->second;tiedMeshes.insert(t->second.meshKey);bool same=pcdb::startsEqual(x.subs,c.indexes);
+      std::string counts;for(auto& sb:x.subs)counts+=(counts.empty()?"":",")+std::to_string(sb.second);
+      o+="      = "+x.avatar+" / "+x.renderer+" / 网格 "+x.mesh+"（"+std::to_string(x.vertices)+" 顶点，"+std::to_string(x.indices)+" 索引）；安卓起点 "+capStarts(x.subs)+" 数量 ["+counts+"] "+(same?"与 PC 一致 ✓":"与 PC 不同 ✗")+"；上传方式："+t->second.variant+"\n";continue;}}
+    auto op=capOpen.find(c.ib);if(op!=capOpen.end()){o+="      本次见到上传（#"+std::to_string(op->second.seq)+"，"+op->second.variant+"）但没对上唯一网格："+op->second.note;for(auto& x:op->second.meshes)o+="；"+x;o+="\n";continue;}
+    if(dm){o+="      之前采集过（版本 "+dm->build.substr(0,8)+"）："+dm->avatar+" / "+dm->renderer+" / 网格 "+dm->mesh+"（"+std::to_string(dm->vertices)+" 顶点）起点 "+capStarts(dm->subs)+(pcdb::startsEqual(dm->subs,c.indexes)?" 与 PC 一致 ✓":" 与 PC 不同 ✗")+"\n";continue;}
+    o+="      本次没见到与它 hash 相同的上传（这件衣服/部件没出现，或安卓的索引数据与 PC 不同）\n";}}
+  // Character meshes with no PC hash: their own hashes, for comparing by hand.
+  std::map<uint32_t,std::vector<const vkcap::Blob*>> bySize;for(auto& b:ibBlobs)bySize[b.bytes].push_back(&b);
+  std::string rest;unsigned n=0,lods=0;
+  for(auto& kv:capMeshes){if(tiedMeshes.count(kv.first))continue;auto& x=kv.second;if(x.lod){lods++;continue;}if(n>=400)break;n++;
+   rest+="  "+x.avatar+" / "+x.renderer+" / 网格 "+x.mesh+"（"+std::to_string(x.vertices)+" 顶点，"+std::to_string(x.indices)+" 索引，起点 "+capStarts(x.subs)+"）";
+   std::string hs;for(uint64_t w:{uint64_t(2),uint64_t(4)}){auto it=bySize.find(uint32_t(x.indices*w));if(it==bySize.end())continue;for(auto* b:it->second){uint32_t mx=w==2?b->max16:b->max32;if(uint64_t(mx)+1!=x.vertices)continue;
+     for(auto& h:b->hashes){if((h.variant>>2)==0)hs+=(hs.empty()?"":"，")+std::string((h.variant&3)==0?"数据":(h.variant&3)==1?"IB":(h.variant&3)==2?"IB|SRV|UAV":"IMMUTABLE")+" "+hex8(h.value);}break;}if(!hs.empty())break;}
+   rest+=hs.empty()?"：没见到它的上传\n":"：hash "+hs+"（PC 数据库里没有）\n";}
+  o+="\n== 安卓角色网格里没和 PC 对上的（"+std::to_string(n)+" 个完整模型"+(lods?"，另有 "+std::to_string(lods)+" 个低精度 LOD 未列出（PC 没有）":"")+"）\n"+rest;
+  return o;}
 
  // ---------------------------------------------------------------- switch-in glow trace (debug + experiments.glowTrace)
  // The hooks (glow_trace.hpp) keep every write to the objects registered here: each attachment's renderer, its
@@ -2638,6 +2750,7 @@ struct Runtime::Impl {
    try{textureDiagTick(now);}catch(const std::exception& ex){log("texture-diag-unsupported",std::string("diagnostics stopped this round: ")+ex.what());}
    try{textureModTick(now);}catch(const std::exception& ex){log("texture-error",std::string("texture-only mods this round: ")+ex.what());}
    try{ibHashTick(now);}catch(const std::exception& ex){log("ib-capture",std::string("this round: ")+ex.what());}
+   try{captureTick(now);}catch(const std::exception& ex){log("hash-capture",std::string("this round: ")+ex.what());}
    // Reuse the verified Type discovery only here, on the existing serial Tick.
    // Diagnostic hooks never call Runtime::Impl and never scan all objects.
    if(handoff::canSeed()&&now>=handoffTypeRetry){handoffTypeRetry=now+1000;

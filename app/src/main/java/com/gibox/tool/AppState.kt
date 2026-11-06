@@ -102,6 +102,9 @@ class AppState(private val activity: Activity) {
     val logFile: File get() = AppLog.file(game)
     private val labelsFile: File get() = File(activity.filesDir, "labels/$game.json")
 
+    /** The game the PC hash database was installed for this run (installPcHashes, called from refresh). */
+    private var pcHashesFor = ""
+
     init {
         AppLog.debug(game, "app", "App Start $appVersion")
         // File access is asked for once, at the first start after installing; later a feature that needs it asks again.
@@ -138,7 +141,17 @@ class AppState(private val activity: Activity) {
         val control = Control.load(game)
         boneRefreshRequest = control.optLong("refreshBones", 0)
         boneRefreshCharacter = control.optInt("refreshBonesCharacter", 0)
+        installPcHashes()
         revision++
+    }
+    /** The PC hash database (assets/pc-hashes.json, THIRD_PARTY.md): the game reads it from the shared folder. */
+    private fun installPcHashes() {
+        if (pcHashesFor == game || !storage) return
+        runCatching {
+            val bytes = activity.assets.open("pc-hashes.json").use { it.readBytes() }
+            if (Control.installShared(game, "pc-hashes.json", bytes)) AppLog.info(game, LOGGER, "已安装 PC hash 数据库（${bytes.size / 1024} KB）")
+            pcHashesFor = game
+        }.onFailure { AppLog.warning(game, LOGGER, "PC hash 数据库安装失败：${it.message}") }
     }
     fun refreshStatus() { status = Control.status(game) }
     fun acceptStatus(pkg: String, snapshot: Control.Status) { if (game == pkg) status = snapshot }
@@ -544,6 +557,16 @@ class AppState(private val activity: Activity) {
             val send = grant(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_STREAM, uri))
             choose("打开运行日志", view, listOf(send))
         } catch (e: Throwable) { fail("分享日志", e, null) }
+    }
+    /** The hash comparison report the game writes in capture mode (GIBox/hash-report.txt). */
+    fun shareHashReport() {
+        val file = File(Control.shared(game), "hash-report.txt")
+        if (!file.isFile) { toast("还没有报告：打开“采集所有角色的 hash”，重启游戏，让角色出现一次"); return }
+        try {
+            val uri = DocumentsContract.buildDocumentUri(DirectoryProvider.AUTHORITY, "$game:shared/${file.name}")
+            fun grant(i: Intent) = i.apply { clipData = ClipData.newRawUri("hash 对比报告", uri); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+            choose("打开 hash 对比报告", grant(Intent(Intent.ACTION_VIEW).setDataAndType(uri, "text/plain")), listOf(grant(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_STREAM, uri))))
+        } catch (e: Throwable) { fail("打开报告", e, null) }
     }
     fun readLog(): String = AppLog.tail(logFile, 128 * 1024)
     fun clearLog() {

@@ -10,6 +10,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -75,8 +76,9 @@ fun DebugScreen(state: AppState) {
                 val strategy = remember(rev) { state.textureMods("strategy", "auto") }
                 val lod = remember(rev) { state.textureMods("lod", "full") }
                 val ibHash = remember(rev) { state.textureModsFlag("ibHash") }
+                val capture = remember(rev) { state.textureModsFlag("capture") }
                 SettingsGroup(title = { SectionTitle("纯贴图 MOD") }, verticalArrangement = gap) {
-                    SegmentedListItem(shapes = ListItemDefaults.segmentedShapes(0, 4)) {
+                    SegmentedListItem(shapes = ListItemDefaults.segmentedShapes(0, 6)) {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text("替换方式", style = MaterialTheme.typography.titleSmall)
                             Text("其他方式只用于对比排查，切换前会先还原。", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -87,7 +89,7 @@ fun DebugScreen(state: AppState) {
                             }
                         }
                     }
-                    SegmentedListItem(shapes = ListItemDefaults.segmentedShapes(1, 4)) {
+                    SegmentedListItem(shapes = ListItemDefaults.segmentedShapes(1, 6)) {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text("远处的简化模型", style = MaterialTheme.typography.titleSmall)
                             Text("大世界里角色常用简化模型。默认只换完整模型；也可以换到核对一致的简化模型上。", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -102,14 +104,28 @@ fun DebugScreen(state: AppState) {
                         state = ibHash,
                         title = { Text("用 hash 找部件") },
                         subtitle = { Text("重启游戏后生效。像 PC 一样按 hash 找到刘海、眼睛等部件，找到后可关掉") },
-                        shapes = ListItemDefaults.segmentedShapes(2, 4),
+                        shapes = ListItemDefaults.segmentedShapes(2, 6),
                         onCheckedChange = { state.setTextureModsFlag("ibHash", it) },
+                    )
+                    SettingsSwitch(
+                        state = capture,
+                        title = { Text("采集所有角色的 hash") },
+                        subtitle = { Text("重启游戏后生效。出现过的角色都和 PC 比对，结果用于以后自动识别；采完可关掉") },
+                        shapes = ListItemDefaults.segmentedShapes(3, 6),
+                        onCheckedChange = { state.setTextureModsFlag("capture", it) },
+                    )
+                    SettingsMenuLink(
+                        title = { Text("hash 对比报告") },
+                        subtitle = { Text("安卓与 PC 逐个部件对比") },
+                        icon = { Icon(Icons.Filled.Share, contentDescription = null) },
+                        shapes = ListItemDefaults.segmentedShapes(4, 6),
+                        onClick = { state.shareHashReport() },
                     )
                     SettingsMenuLink(
                         title = { Text("轮流测试替换方式") },
                         subtitle = { Text("依次试三种方式，每轮观察 4 秒后还原核对") },
                         icon = { Icon(Icons.Filled.Build, contentDescription = null) },
-                        shapes = ListItemDefaults.segmentedShapes(3, 4),
+                        shapes = ListItemDefaults.segmentedShapes(5, 6),
                         onClick = { state.startTextureTest() },
                     )
                 }

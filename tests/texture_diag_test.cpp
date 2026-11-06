@@ -3,7 +3,10 @@
 #include "texture_diag.hpp"
 #include <cassert>
 #include <cstdlib>
+#include <fstream>
 #include <iostream>
+#include <iterator>
+#include <set>
 using ms::Ptr;
 using namespace ms::texdiag;
 namespace {
@@ -106,5 +109,58 @@ int main(){
   bool bad=false;try{parseMod(R"J({"format":"gibox-texture-mod","version":1,"name":"X","generation":"t","character":{"id":10000007},"variants":{"vars":[],"default":{}},"textures":[{"resource":"r","file":"../x.rgba","width":1,"height":1}],"diag":{"format":"gibox-texture-diag","version":1,"rules":[]}})J","/m");}catch(const std::exception&){bad=true;}assert(bad);}
  if(std::getenv("TEXDIAG_PRINT")){for(auto& m:lm)std::cout<<matchLine(lumine,m,dev)<<"\n";for(auto& m:wm)std::cout<<matchLine(lumine,m,low)<<"\n";}
  if(std::getenv("TEXDIAG_PRINT"))for(auto& m:all)std::cout<<matchLine(d,m,rs)<<"\n";
+
+ // The PC hash database (0.7.82): Linnea's entries as GI-Model-Importer-Assets has them (2039d16), plus another
+ // character with a Face and the same light map, which must not be taken for hers.
+ {const char* pc=R"J({"format":"gibox-pc-hashes","version":1,"commit":"2039d16d4b64696098ba53cd69888ce967397be9","date":"2026-08-03","characters":[
+   {"name":"Linnea","avatar":10000130,"components":[{"name":"Bangs","ib":"773fbe7b","indexes":[0],"counts":[14517],"textures":[[["LightMap","0f6493aa"],["NormalMap","0287a193"],["Diffuse","ab64b4cc"]]]},
+    {"name":"Eyes","ib":"39564ab6","indexes":[0],"counts":[684],"textures":[[["LightMap","0f6493aa"],["Diffuse","ab64b4cc"]]]},
+    {"name":"Body","ib":"e282f691","indexes":[0,46956,101592],"counts":[46956,54636,870],"textures":[[["LightMap","0f6493aa"],["NormalMap","0287a193"],["Diffuse","ab64b4cc"]],[["LightMap","573e8513"],["Diffuse","832fe591"]],[["LightMap","573e8513"],["Diffuse","832fe591"]]]},
+    {"name":"Face","ib":"","counts":[5196],"textures":[[["Diffuse","1d1bd3cf"]]]}]},
+   {"name":"Other","avatar":10000107,"components":[{"name":"Face","ib":"","textures":[[["Diffuse","1d1bd3cf"],["LightMap","99999999"]]]}]}]})J";
+  auto db=ms::pcdb::parse(pc);assert(db.comps.size()==5&&db.byIb.at("e282f691").size()==1&&db.byTexture.at("0f6493aa").size()==3&&db.byTexture.at("1d1bd3cf").size()==2&&db.characters.at("Linnea")==10000130);
+  {std::string how;auto c=ms::pcdb::charactersFor(db,10000130,{"zzzzzzzz"},&how);assert(c.size()==1&&c.count("Linnea")&&has(how,"by AvatarId 10000130"));
+   c=ms::pcdb::charactersFor(db,0,{"E282F691"},&how);assert(c.size()==1&&c.count("Linnea")&&has(how,"index-buffer hashes"));assert(ms::pcdb::charactersFor(db,10000002,{},&how).empty());}
+  // A texture-only Linnea mod: one Body segment, Bangs by its hash at 0, Eyes without match_first_index, her face
+  // diffuse and the light map she shares across Bangs, Eyes and the first Body draw (its resource name says nothing).
+  const char* lm=R"J({"format":"gibox-texture-diag","version":1,"name":"Lin","ini":"Lin.ini","character":10000130,"rules":[
+   {"section":"TextureOverrideLinneaBodyA","hint":"body","hash":"e282f691","first":0,"kind":"segment","textures":[{"slot":"resource\\gimi\\diffuse","resource":"rbody","role":"diffuse"}]},
+   {"section":"TextureOverrideLinneaBangs","hint":"bangs","hash":"773fbe7b","first":0,"kind":"segment","textures":[{"slot":"resource\\gimi\\diffuse","resource":"rbangs","role":"diffuse"}]},
+   {"section":"TextureOverrideLinneaEyes","hint":"eyes","hash":"39564ab6","first":-1,"kind":"hash-unknown","textures":[{"slot":"ps-t0","resource":"reyes","role":"diffuse"}]},
+   {"section":"TextureOverrideLinneaFaceHeadDiffuse","hint":"faceheaddiffuse","hash":"1d1bd3cf","first":-1,"kind":"hash-unknown","textureName":true,"textures":[{"slot":"this","resource":"rface","role":"diffuse"}]},
+   {"section":"TextureOverrideLinneaShared","hint":"shared","hash":"0F6493AA","first":-1,"kind":"hash-unknown","textures":[{"slot":"this","resource":"rl","role":"unknown"}]},
+   {"section":"TextureOverrideLinneaOld","hint":"body","hash":"e282f691","first":46000,"kind":"segment","textures":[{"slot":"resource\\gimi\\diffuse","resource":"rbody","role":"diffuse"}]},
+   {"section":"TextureOverrideLinneaSomething","hint":"something","hash":"12345678","first":-1,"kind":"hash-unknown","textures":[{"slot":"this","resource":"rx","role":"diffuse"}]}],"resources":[]})J";
+  Doc ld=parse(lm,"/x/Lin.json");
+  std::vector<Renderer> rs{renderer("Body",0x10,{{0,46956},{46956,54636},{101592,870}},3),renderer("Bang",0x20,{{0,14517}},1),renderer("Eye",0x30,{{0,684}},1),renderer("Face",0x40,{{0,5196}},1),renderer("Brow",0x50,{{0,600}},1)};
+  // Without the database: Bangs is only named, Eyes and the textures cannot be told.
+  {auto m=match(ld,rs);assert(of(m,ld,"TextureOverrideLinneaBangs").verdict==Verdict::Likely&&of(m,ld,"TextureOverrideLinneaFaceHeadDiffuse").verdict!=Verdict::Confirmed&&has(matchLine(ld,of(m,ld,"TextureOverrideLinneaShared"),rs),"PC hash database is not installed"));}
+  annotate(ld,db);assert(has(ld.pc,"Linnea (by the index-buffer hashes its rules name)")&&ld.rules[4].textures[0].role=="lightmap"&&has(ld.rules[4].pcNote,"role unknown by its name, lightmap by the PC slot")&&ld.rules[3].pcTextures.size()==1&&ld.rules[3].pcTextures[0].component=="Face");
+  assert(has(ld.rules[5].pcNote,"match_first_index 46000 is not a PC draw start of Linnea Body [0,46956,101592]"));
+  auto m=match(ld,rs);auto line=[&](const Match& x){return matchLine(ld,x,rs);};
+  if(std::getenv("TEXDIAG_PRINT"))for(auto& x:m)std::cout<<line(x)<<"\n";
+  // Body A: one segment in the mod, the other PC draw starts make it the only one; Bangs: the PC index count.
+  auto& body=of(m,ld,"TextureOverrideLinneaBodyA");assert(body.verdict==Verdict::Confirmed&&body.renderer==0&&body.slot==0&&has(line(body),"only Body#0x10 has all 3 of the hash's PC draw starts as submesh starts")&&has(line(body),"= the PC draw's"));
+  auto& bangs=of(m,ld,"TextureOverrideLinneaBangs");assert(bangs.verdict==Verdict::Confirmed&&bangs.renderer==1&&has(line(bangs),"only Bang#0x20 has 1 submeshes and 14517 indices in it, as the PC draw"));
+  auto& eyes=of(m,ld,"TextureOverrideLinneaEyes");assert(eyes.verdict==Verdict::Confirmed&&eyes.renderer==2&&eyes.slot==0&&has(line(eyes),"no match_first_index; PC: 1 draw(s) of this index buffer, this one at 0"));
+  auto& face=of(m,ld,"TextureOverrideLinneaFaceHeadDiffuse");assert(face.verdict==Verdict::Confirmed&&face.renderer==3&&face.slot==0&&has(line(face),"PC: texture hash 1d1bd3cf is Linnea Face draw 0 Diffuse")&&has(line(face),"no index buffer of its own"));
+  // The light map: one match per PC draw it is in, written next to the Body segment's diffuse (other textures).
+  std::vector<const Match*> shared;for(auto& x:m)if(ld.rules[x.rule].section=="TextureOverrideLinneaShared")shared.push_back(&x);
+  assert(shared.size()==3);std::set<int> at;for(auto* x:shared){assert(x->verdict==Verdict::Confirmed&&x->slot==0);at.insert(x->renderer);}assert((at==std::set<int>{0,1,2}));
+  assert(has(line(*shared[0]),"also on this slot, setting other textures")||has(line(*shared[1]),"also on this slot, setting other textures")||has(line(*shared[2]),"also on this slot, setting other textures"));
+  assert(of(m,ld,"TextureOverrideLinneaOld").verdict!=Verdict::Confirmed&&has(line(of(m,ld,"TextureOverrideLinneaOld")),"is not a PC draw start"));
+  assert(of(m,ld,"TextureOverrideLinneaSomething").verdict==Verdict::None&&has(line(of(m,ld,"TextureOverrideLinneaSomething")),"not in the PC hash database for this character"));
+  // A lower LOD Face is no target; the other character's Face texture is not Linnea's light map.
+  {auto low=rs;low[3].lod=true;auto x=match(ld,low);assert(of(x,ld,"TextureOverrideLinneaFaceHeadDiffuse").verdict!=Verdict::Confirmed);}
+  // This device's upload: Bangs without a PC count, and a second one-submesh mesh with the same index count.
+  {auto db2=db;for(auto& c:db2.comps)c.counts.clear();Doc d2=parse(lm,"/x/Lin.json");annotate(d2,db2);auto two=rs;two.push_back(renderer("Bag",0x60,{{0,14517}},1));
+   assert(of(match(d2,two),d2,"TextureOverrideLinneaBangs").verdict!=Verdict::Confirmed);
+   ms::pcdb::DeviceMap dm;ms::pcdb::Mesh e;e.ib="773fbe7b";e.mesh="BangMesh";e.vertices=0;e.subs={{0,14517}};dm.byIb[e.ib]=e;two[1].vertices=0;
+   auto dmText=ms::pcdb::writeMap(dm);bool bad=false;try{ms::pcdb::parseMap(dmText);}catch(const std::exception&){bad=true;}assert(bad);   // a mesh without vertices is refused
+   e.vertices=4839;dm.byIb[e.ib]=e;two[1].vertices=4839;auto back=ms::pcdb::parseMap(ms::pcdb::writeMap(dm));assert(back.byIb.at("773fbe7b").subs.size()==1&&back.byIb.at("773fbe7b").vertices==4839);
+   auto x=match(d2,two,&back);auto& b2=of(x,d2,"TextureOverrideLinneaBangs");assert(b2.verdict==Verdict::Confirmed&&b2.renderer==1&&has(matchLine(d2,b2,two),"was reproduced on this device by the upload of mesh BangMesh"));}
+  // The database the App installs parses, and ties Linnea to her AvatarId.
+  {std::ifstream f("app/src/main/assets/pc-hashes.json");std::string text((std::istreambuf_iterator<char>(f)),std::istreambuf_iterator<char>());auto real=ms::pcdb::parse(text);
+   assert(real.comps.size()>300&&real.characters.at("Linnea")==10000130&&real.byIb.at("e282f691").size()==1&&real.commit=="2039d16d4b64696098ba53cd69888ce967397be9");}}
  std::cout<<"Texture-only diagnostics: PASS (conditions and write plan, texture.json, document, index-start / group / name / count / order evidence, merged PC segments, unreadable layouts never confirmed, texture-hash candidates by size, shared slots)\n";
 }
