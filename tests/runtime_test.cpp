@@ -58,7 +58,8 @@ struct Fake {
   klass=kindClass("renderer");Ptr scenes=object("transform","Scene");skeletonRoot=object("transform","Avatar_Girl_Catalyst_Citlali");obj[skeletonRoot].parent=scenes;kavehRoot=object("transform","Avatar_Boy_Sword_Kaveh");obj[kavehRoot].parent=scenes;}
  ~Fake(){for(void* p:allocated)std::free(p);munmap(reinterpret_cast<void*>(base),0x16000000);}
 }*f=nullptr;
-Ptr getMesh(Ptr p,Ptr){return f->obj.at(p).mesh;}Ptr getMaterials(Ptr p,Ptr){return f->obj.at(p).materials;}Ptr getBones(Ptr p,Ptr){f->boneReads[p]++;return f->obj.at(p).bones;}
+// The engine reads the renderer through its own native pointer: anything else at that address crashes (0.7.83 tombstone).
+Ptr getMesh(Ptr p,Ptr){assert(load<Ptr>(p)==f->kindClass("renderer")&&"get_sharedMesh on something that is not a renderer");return f->obj.at(p).mesh;}Ptr getMaterials(Ptr p,Ptr){return f->obj.at(p).materials;}Ptr getBones(Ptr p,Ptr){f->boneReads[p]++;return f->obj.at(p).bones;}
 Ptr getName(Ptr p,Ptr){f->nameReads[p]++;auto n=f->obj.at(p).name;Ptr s=f->alloc(0x14+2*n.size());store<uint32_t>(s+0x10,n.size());for(size_t i=0;i<n.size();i++)store<uint16_t>(s+0x14+i*2,n[i]);return s;}
 Ptr clone(Ptr p,Ptr){f->clones++;auto original=f->obj.at(p);if(original.kind!="mesh"){Ptr out=f->object(original.kind,original.name);if(original.kind=="material"){f->diffuse[out]=f->diffuse[p];f->named[out]=f->named[p];f->glow[out]=f->glow[p];f->props[out]=f->props[p];f->keywords[out]=f->keywords[p];}return out;}f->meshClones++;Ptr out=f->mesh(original.name,load<uint32_t>(original.shared+0x74));auto& o=f->obj[out];o.arrays=original.arrays;store<uint64_t>(o.shared+0xe0,load<uint64_t>(original.shared+0xe0));store<uint64_t>(o.native+0x90,load<uint64_t>(original.native+0x90));return out;}
 void destroy(Ptr p,Ptr){store<Ptr>(p+0x10,0);}
@@ -1486,7 +1487,13 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
     // A character the PC database lacks: its mod's hash is found through this device's upload of Body (one submesh at
     // 0 like Bang, and a part name that names nothing: without the map nothing would decide).
     assert(countC(std::string("TextureOverrideNewBody hash=")+hbody+" match_first_index=0 -> 确定匹配 renderer=Body#")==1);
-    assert(f->diffuse[gmat]!=gameTex&&f->diffuse[bmat]!=gameTex);q.shutdown();assert(f->diffuse[gmat]==gameTex&&f->diffuse[bmat]==gameTex);}}
+    assert(f->diffuse[gmat]!=gameTex&&f->diffuse[bmat]!=gameTex);
+    // A renderer discovery saw, then destroyed and its wrapper's memory reused by a string before the next discovery
+    // (the archive's character switch): the next tick's users of the discovered list leave it alone.
+    Ptr ghost=f->renderer(f->mesh("Ghost",3));auto scene=f->scene;f->scene.push_back(ghost);for(uint64_t end=t+600;t<end;t+=100)q.tick(t);
+    Ptr klass=load<Ptr>(ghost),native=load<Ptr>(ghost+0x10);f->scene=scene;store<Ptr>(ghost,f->kindClass("string"));store<uint64_t>(ghost+0x10,0x0061005300000005ull);
+    for(uint64_t end=t+1500;t<end;t+=100){q.tick(t);}store<Ptr>(ghost,klass);store<Ptr>(ghost+0x10,native);
+    q.shutdown();assert(f->diffuse[gmat]==gameTex&&f->diffuse[bmat]==gameTex);}}
   f->world(0);}
  // Game 7.2: the manager's and the entity's ID fields are found by what they hold (offsets.hpp candidates). Two entity
  // fields in the config range with different values: nothing is taken and the candidates are logged; once one of them

@@ -220,10 +220,15 @@ struct Runtime::Impl {
    // Direct textures (directPlan): game material -> its native object, what each written property held before (put back on
    // every re-apply, restore and detach) and what we wrote (main texture first); copy: a game copy of such a material.
    struct Direct {Ptr native=0;std::vector<std::pair<const char*,Ptr>> before,after;bool copy=false;Ptr main()const{return after.empty()?0:after[0].second;}};std::map<Ptr,Direct> direct;std::set<Ptr> directPinned;std::string directReport;unsigned directLost=0;};
- struct Seen {Ptr renderer=0,mesh=0;Fingerprint fp;};
+ // A renderer discovery saw (seen is rebuilt every 500 ms; a bind adds one). Its class and native pointer as they were
+ // then: a renderer the game destroyed since has no native pointer, and one whose wrapper the GC collected may hold
+ // anything (a string, 0.7.83 tombstone: get_sharedMesh on "Sad01" after a character switch in the archive), so every
+ // later use checks both first (seenLive).
+ struct Seen {Ptr renderer=0,mesh=0;Fingerprint fp;Ptr klass=0,native=0;};
  struct Character {Ptr entity=0;unsigned runtime=0,config=0;} ch;
  ControlState ctl;std::vector<ModelInfo> models;long long exportSeen=0,boneRefreshDone=0;unsigned boneRefreshDoneId=0;
  std::vector<std::unique_ptr<Set>> sets;std::map<Ptr,std::unique_ptr<Attachment>> attachments;std::vector<Seen> seen;
+ static bool seenLive(const Seen& s){return s.renderer&&s.native&&load<Ptr>(s.renderer)==s.klass&&load<Ptr>(s.renderer+0x10)==s.native;}
  std::vector<std::unique_ptr<RestoreBackup>> restoreBackups;uint64_t restorePruneAt=0,bindAfterHits=0,bindDeferred=0;
  Recent<std::pair<Ptr,uint32_t>,Fingerprint> fpCache{8192};std::set<std::pair<Ptr,Ptr>> skipped;
  std::map<std::string,std::pair<std::string,std::string>> failed;            // path -> generation, message
@@ -514,7 +519,7 @@ struct Runtime::Impl {
   // still read and logged, not matched.
   std::vector<std::pair<Ptr,Ptr>> twins;   // (world renderer, full-LOD twin)
   for(Ptr r:world){try{if(!alive(r))continue;auto it=texDiagSeen.find(r);if(it==texDiagSeen.end()||!it->second.info.lod)continue;auto& w=it->second.info;
-    for(auto& sn:seen){if(sn.renderer==r||!alive(sn.renderer)||!alive(sn.mesh)||lowerLod(sn.fp.mesh)||meshName(sn.fp.mesh)!=meshName(w.meshName)||normalize(rendererName(sn.renderer))!=normalize(w.name))continue;
+    for(auto& sn:seen){if(sn.renderer==r||!seenLive(sn)||!alive(sn.mesh)||lowerLod(sn.fp.mesh)||meshName(sn.fp.mesh)!=meshName(w.meshName)||normalize(rendererName(sn.renderer))!=normalize(w.name))continue;
      if(avatarIdentity(sn.renderer)!=w.avatar){continue;}twins.push_back({r,sn.renderer});break;}}
    catch(const std::exception&){}}
   std::vector<Ptr> reading=world;for(auto& t:twins)reading.push_back(t.second);
@@ -580,7 +585,11 @@ struct Runtime::Impl {
  std::map<std::string,std::vector<TexRecord>> texRecords;std::set<std::pair<Ptr,Ptr>> texQuickNo;
  // When a renderer was first seen (hand-off or scan) and how far it got: the texture-timing lines.
  struct TexTime {uint64_t seen=0,matched=0;std::string via,match;bool logged=false;};
- std::map<Ptr,TexTime> texTimes;std::set<Ptr> texPending;std::vector<Ptr> texHanded;std::set<std::string> texHandoffSaid;
+ std::map<Ptr,TexTime> texTimes;
+ // Renderers waiting for their textures, with their class and native pointer when added: like seen, checked before
+ // each use (a destroyed renderer's wrapper may have been collected and its memory reused).
+ std::map<Ptr,std::pair<Ptr,Ptr>> texPending;void texPend(Ptr r){texPending[r]={load<Ptr>(r),load<Ptr>(r+0x10)};}
+ static bool texPendLive(const std::pair<const Ptr,std::pair<Ptr,Ptr>>& kv){return kv.second.second&&load<Ptr>(kv.first)==kv.second.first&&load<Ptr>(kv.first+0x10)==kv.second.second;}std::vector<Ptr> texHanded;std::set<std::string> texHandoffSaid;
  std::map<std::pair<Ptr,Ptr>,uint64_t> texWaitUntil;std::string texWaitLod;   // a renderer near a mapping that does not apply: checked again after 500 ms
  bool texModOn(const std::string& name)const{return ctl.enabled&&std::find(ctl.selected.begin(),ctl.selected.end(),name)!=ctl.selected.end();}
  static std::string texFnv(const std::string& s){uint64_t h=1469598103934665603ull;for(unsigned char c:s){h^=c;h*=1099511628211ull;}char b[20];std::snprintf(b,sizeof b,"%016llx",(unsigned long long)h);return b;}
@@ -711,7 +720,7 @@ struct Runtime::Impl {
    if(!taken.insert({R.renderer,x.slot}).second){for(auto& t:out)if(t.renderer==R.renderer&&t.slot==x.slot&&std::find(t.rules.begin(),t.rules.end(),x.rule)==t.rules.end())t.rules.push_back(x.rule);continue;}
    bool pc=!m.doc.rules[x.rule].pcTextures.empty()||m.doc.rules[x.rule].pcHasIb;
    out.push_back({R.renderer,R.native,x.slot,{x.rule},pc?"确定匹配（PC hash 数据库定位的部件与槽位，见 texture-diag-match）":"确定匹配（indexStart = match_first_index，同一 hash 的分段全部对上，材质数 = 子网格数）",texdiag::label(R),R.meshName,R.lod});}
-  std::vector<Ptr> pool;try{pool=worldRenderers();}catch(const std::exception&){}for(auto& sn:seen)pool.push_back(sn.renderer);for(Ptr r:texPending)pool.push_back(r);if(L)for(auto& x:L->slots)pool.push_back(x.renderer);
+  std::vector<Ptr> pool;try{pool=worldRenderers();}catch(const std::exception&){}for(auto& sn:seen)if(seenLive(sn))pool.push_back(sn.renderer);for(auto& kv:texPending)if(texPendLive(kv))pool.push_back(kv.first);if(L)for(auto& x:L->slots)pool.push_back(x.renderer);
   for(Ptr r:pool){std::string why;for(auto& t:texRecordTargets(path,m,r,why)){if(!texUsable(L,r,t.label))continue;
     if(!taken.insert({r,t.slot}).second){for(auto& o:out)if(o.renderer==r&&o.slot==t.slot)for(size_t k:t.rules)if(std::find(o.rules.begin(),o.rules.end(),k)==o.rules.end())o.rules.push_back(k);continue;}out.push_back(t);}
    if(L&&!why.empty())texSay(*L,"wait|"+hex(r)+"|"+why,"texture-wait",texTag(*L)+": "+rendererName(r)+"#"+hex(load<Ptr>(r+0x10))+" waits: "+why);}
@@ -829,21 +838,21 @@ struct Runtime::Impl {
   for(auto& kv:texLive){auto& L=kv.second;if(!L||L->strategy=="diagnose")continue;auto f=texDiagDocs.find(kv.first);if(f==texDiagDocs.end()||!f->second.mod)continue;
    std::shared_ptr<std::map<std::string,Texture>> px;{std::lock_guard<std::mutex> l(sm);auto p=texPixels.find(kv.first);if(p==texPixels.end()||!p->second.pixels)continue;px=p->second.pixels;}
    std::set<Ptr> rs;for(auto& s:L->slots)rs.insert(s.renderer);for(Ptr r:rs)texWatchRenderer(*L,*f->second.mod,*px,r,"the per-tick check");
-   std::vector<Ptr> pool;try{pool=worldRenderers();}catch(const std::exception&){}for(auto& sn:seen)pool.push_back(sn.renderer);for(Ptr r:texPending)pool.push_back(r);
+   std::vector<Ptr> pool;try{pool=worldRenderers();}catch(const std::exception&){}for(auto& sn:seen)if(seenLive(sn))pool.push_back(sn.renderer);for(auto& kv:texPending)if(texPendLive(kv))pool.push_back(kv.first);
    for(Ptr r:pool)texQuickApply(*L,kv.first,*f->second.mod,*px,r,"scan",false);}}
  // A renderer with no slot yet: written when its mesh is a mapped one and the textures are ready; else the wait is said.
  // A model the game handed over first shows the loaded asset material, then the game's instance made from it: direct
  // waits for the instance on every path (writing the asset reaches every copy made from it, and an instance made from
  // a written asset would hide the texture to restore).
  bool texAssetWait(TexLive& L,const TexTarget& t,const std::string& via){if(L.strategy!="direct")return false;Ptr arr=e.get(abi::getMaterials,t.renderer);auto mats=arr?pointers(arr,64):std::vector<Ptr>{};
-  if(size_t(t.slot)>=mats.size()||instanceId(mats[size_t(t.slot)])<0){return false;}texPending.insert(t.renderer);
+  if(size_t(t.slot)>=mats.size()||instanceId(mats[size_t(t.slot)])<0){return false;}texPend(t.renderer);
   texSay(L,"asset|"+hex(t.renderer),"texture-wait",texTag(L)+": "+t.label+" ("+via+") still holds the loaded asset material; direct waits for the game's instance (writing the asset would reach every copy made from it)");return true;}
  void texQuickApply(TexLive& L,const std::string& path,const texdiag::TextureMod& m,const std::map<std::string,Texture>& px,Ptr r,const std::string& via,bool handoff){
   try{if(!alive(r)||attachments.count(r)||swapped.count(r))return;for(auto& x:L.slots)if(x.renderer==r)return;
    std::string why;auto targets=texRecordTargets(path,m,r,why);Ptr native=load<Ptr>(r+0x10);
    if(targets.empty()){if(!why.empty())texSay(L,"wait|"+hex(r)+"|"+why,"texture-wait",texTag(L)+": "+rendererName(r)+"#"+hex(native)+" waits: "+why);return;}
    texSeen(native,via);auto& tt=texTimes[native];if(!tt.matched)tt.matched=texClock();
-   if(!texStoreReady(path,why)){texPending.insert(r);texSay(L,"ready|"+hex(r),"texture-wait",texTag(L)+": "+targets[0].label+" matched ("+via+") but waits: "+why);return;}
+   if(!texStoreReady(path,why)){texPend(r);texSay(L,"ready|"+hex(r),"texture-wait",texTag(L)+": "+targets[0].label+" matched ("+via+") but waits: "+why);return;}
    for(auto& t:targets)if(texAssetWait(L,t,via))return;
    for(auto& t:targets){TexSlot fresh;texApply(L,m,px,t,fresh);L.slots.push_back(std::move(fresh));}if(handoff)texHanded.push_back(r);}
   catch(const std::exception& ex){texSay(L,"quick|"+hex(r)+"|"+ex.what(),"texture-error",texTag(L)+": "+ex.what());}}
@@ -863,7 +872,7 @@ struct Runtime::Impl {
     texRemember(m.doc,matches,infos);std::string lods;for(auto& i:infos)if(i.lod)lods+=(lods.empty()?"":", ")+i.name+"/"+i.meshName;
     log("texture-handoff",m.name+": "+goName+" handed over: "+std::to_string(infos.size())+" renderers read and matched in "+std::to_string(texClock()-t0)+" ms, "+std::to_string(confirmed)+" slot(s) confirmed by index starts"+(lods.empty()?"":"; lower LOD: "+lods));
     std::string strategy=texStrategy();if(strategy=="diagnose")continue;TexLive* L=nullptr;std::shared_ptr<std::map<std::string,Texture>> px;std::string why;
-    if(!texLiveFor(kv.first,f,strategy,texTestId(),L,px,why)){for(Ptr r:list)if(alive(r))texPending.insert(r);log("texture-wait",m.name+": "+goName+" waits: "+why);continue;}
+    if(!texLiveFor(kv.first,f,strategy,texTestId(),L,px,why)){for(Ptr r:list)if(alive(r))texPend(r);log("texture-wait",m.name+": "+goName+" waits: "+why);continue;}
     for(Ptr r:list)texQuickApply(*L,kv.first,m,*px,r,"hand-off",true);}}
   catch(const std::exception& ex){log("texture-error",std::string("hand-off: ")+ex.what());}freeOwned(tmp);}
  // Right after the game's own hand-off callback, and at its mesh binding: our slots on those renderers checked at once.
@@ -891,7 +900,7 @@ struct Runtime::Impl {
   return ok;}
  void textureModTick(uint64_t now){try{texQuick();}catch(const std::exception& ex){log("texture-error",std::string("quick: ")+ex.what());}
   if(now<texModAt){return;}texModAt=now+500;texStatus.clear();texApplied=false;
-  for(auto it=texPending.begin();it!=texPending.end();)if(!alive(*it))it=texPending.erase(it);else ++it;
+  for(auto it=texPending.begin();it!=texPending.end();)if(!texPendLive(*it))it=texPending.erase(it);else ++it;
   bool any=false;for(auto& kv:texDiagDocs)any=any||(kv.second.mod&&texModOn(kv.second.mod->name));
   // Test rounds: a new request after the game started (one there at start is history, not a request).
   if(texTest.seen<0)texTest.seen=ctl.tex.testRequest;
@@ -1057,6 +1066,9 @@ struct Runtime::Impl {
     if(!capTies.count(ib)){auto& o=capOpen[ib];if(o.note!=t.note)capDirty=true;o=t;}return false;}
    CapMesh& m=*ms[0];t.meshKey=capKey(m.mesh,m.vertices,m.indices);capOpen.erase(ib);auto old=capTies.find(ib);if(old!=capTies.end()&&old->second.meshKey==t.meshKey)return true;capTies[ib]=t;capDirty=true;
    devMapPut(ib,t.variant,comp->character,comp->name,m);
+   // The other forms too: a mod made with another 3DMigoto build may carry one of them (the Traveler mod of 0.7.57 had
+   // the IB-only one; the database's TravelerGirl has IB|SRV|UAV).
+   for(auto& h:b.hashes)if((h.variant>>2)==(pc->variant>>2)&&(h.variant&3)&&h.value!=pc->value)devMapPut(hex8(h.value),vkcap::variantName(h.variant),comp->character,comp->name,m);
    log("hash-capture",ib+" = PC "+comp->character+" "+comp->name+" (upload #"+std::to_string(b.seq)+", "+t.variant+"): mesh "+m.mesh+" of "+m.avatar+" / "+m.renderer+" ("+std::to_string(m.vertices)+" vertices, "+std::to_string(m.indices)+" indices); submesh starts "+capStarts(m.subs)+(pcdb::startsEqual(m.subs,comp->indexes)?" = the PC draw starts":" vs the PC draw starts "+texdiag::joined(comp->indexes)));
    return true;}
   if(ms.size()!=1)return false;
@@ -1066,10 +1078,10 @@ struct Runtime::Impl {
  void captureTick(uint64_t now){auto& T=vkcap::tracker();if(!ctl.tex.capture||!T.enabled)return;if(now<capAt)return;capAt=now+1000;
   if(!capSaid){capSaid=true;log("hash-capture","on: every character mesh shown is read and each index upload tied to it; compared with the PC database ("+(pcDb?pcDb->commit.substr(0,7):std::string("not installed"))+"), written to "+shared+"/hash-report.txt and hash-map.json"+(ctl.enabled?std::string():"; model replacement is off, so only the controlled character's renderers are read (switch it on for the whole scene)"));}
   if(!devMap)devMap=std::make_shared<pcdb::DeviceMap>();
-  // 1. Meshes: what discovery and the controlled character show, at most 16 new ones a second; not a renderer GIBox
+  // 1. Meshes: what discovery and the controlled character show, at most 32 new ones a second; not a renderer GIBox
   //    has taken over (its mesh is GIBox's, not the game's upload).
-  std::vector<Ptr> pool;try{pool=worldRenderers();}catch(const std::exception&){}for(auto& sn:seen)pool.push_back(sn.renderer);unsigned reads=0;size_t before=capMeshes.size();
-  for(Ptr r:pool){if(reads>=16)break;try{if(!alive(r))continue;if(attachments.count(r)){if(capRead.insert({load<Ptr>(r+0x10),0}).second)capSkippedOurs++;continue;}
+  std::vector<Ptr> pool;try{pool=worldRenderers();}catch(const std::exception&){}for(auto& sn:seen)if(seenLive(sn))pool.push_back(sn.renderer);unsigned reads=0;size_t before=capMeshes.size();
+  for(Ptr r:pool){if(reads>=32)break;try{if(!alive(r))continue;if(attachments.count(r)){if(capRead.insert({load<Ptr>(r+0x10),0}).second)capSkippedOurs++;continue;}
     Ptr native=load<Ptr>(r+0x10);Ptr mesh=e.get(abi::getMesh,r);if(!alive(mesh))continue;if(!capRead.insert({native,load<Ptr>(mesh+0x10)}).second)continue;reads++;
     auto info=texLightRead(r);if(info.avatar.empty()||!info.known())continue;CapMesh c;c.renderer=info.name;c.mesh=info.meshName;c.avatar=info.avatar;c.vertices=info.vertices;c.bones=info.bones;c.lod=info.lod;
     for(auto& sb:info.layout.subs){c.subs.push_back({uint32_t(sb.start),uint32_t(sb.count)});}c.indices=pcdb::indices(c.subs);if(!c.indices)continue;
@@ -1104,14 +1116,15 @@ struct Runtime::Impl {
     if(t!=capTies.end()){auto m=capMeshes.find(t->second.meshKey);if(m!=capMeshes.end()){auto& x=m->second;tiedMeshes.insert(t->second.meshKey);bool same=pcdb::startsEqual(x.subs,c.indexes);
       std::string counts;for(auto& sb:x.subs)counts+=(counts.empty()?"":",")+std::to_string(sb.second);
       o+="      = "+x.avatar+" / "+x.renderer+" / 网格 "+x.mesh+"（"+std::to_string(x.vertices)+" 顶点，"+std::to_string(x.indices)+" 索引）；安卓起点 "+capStarts(x.subs)+" 数量 ["+counts+"] "+(same?"与 PC 一致 ✓":"与 PC 不同 ✗")+"；上传方式："+t->second.variant+"\n";continue;}}
-    auto op=capOpen.find(c.ib);if(op!=capOpen.end()){o+="      本次见到上传（#"+std::to_string(op->second.seq)+"，"+op->second.variant+"）但没对上唯一网格："+op->second.note;for(auto& x:op->second.meshes)o+="；"+x;o+="\n";continue;}
-    if(dm){o+="      之前采集过（版本 "+dm->build.substr(0,8)+"）："+dm->avatar+" / "+dm->renderer+" / 网格 "+dm->mesh+"（"+std::to_string(dm->vertices)+" 顶点）起点 "+capStarts(dm->subs)+(pcdb::startsEqual(dm->subs,c.indexes)?" 与 PC 一致 ✓":" 与 PC 不同 ✗")+"\n";continue;}
+    auto op=capOpen.find(c.ib);
+    if(dm){o+="      之前采集过（版本 "+dm->build.substr(0,8)+"）："+dm->avatar+" / "+dm->renderer+" / 网格 "+dm->mesh+"（"+std::to_string(dm->vertices)+" 顶点）起点 "+capStarts(dm->subs)+(pcdb::startsEqual(dm->subs,c.indexes)?" 与 PC 一致 ✓":" 与 PC 不同 ✗")+(op!=capOpen.end()?"；本次也见到了 hash 相同的上传":"")+"\n";continue;}
+    if(op!=capOpen.end()){o+="      本次见到 hash 相同的上传（#"+std::to_string(op->second.seq)+"，"+op->second.variant+"），但没读到对应网格："+op->second.note;for(auto& x:op->second.meshes){o+="；"+x;}o+="\n";continue;}
     o+="      本次没见到与它 hash 相同的上传（这件衣服/部件没出现，或安卓的索引数据与 PC 不同）\n";}}
   // PC hashes uploaded but tied to no single mesh, of characters not above (a character GIBox replaces by a mesh mod
   // shows GIBox's mesh, not the game's).
   {std::string open;for(auto& kv:capOpen){if(chars.count(kv.second.character))continue;open+="  "+kv.second.character+" "+kv.second.component+"  ib "+kv.first+"（上传 #"+std::to_string(kv.second.seq)+"）："+kv.second.note;
     for(auto& x:kv.second.meshes){open+="；"+x;}open+="\n";}
-   if(!open.empty())o+="\n== PC 数据库里有、本次见到上传但没对上网格的（多半是这个角色正被 GIBox 的模型 MOD 替换，读不到游戏原网格）\n"+open;}
+   if(!open.empty())o+="\n== 上传的 hash 和 PC 相同、但没读到对应网格的（hash 相同已说明数据一致；没读到网格多半是角色只被预加载没显示、显示太短，或正被 GIBox 的模型 MOD 替换）\n"+open;}
   // Character meshes with no PC hash, per character: their own hashes (in hash-map.json, so a mod naming one is found).
   std::map<uint32_t,std::vector<const vkcap::Blob*>> bySize;for(auto& b:ibBlobs)bySize[b.bytes].push_back(&b);
   std::map<std::string,std::vector<const CapMesh*>> byAvatar;unsigned lods=0;for(auto& kv:capMeshes){if(tiedMeshes.count(kv.first))continue;if(kv.second.lod){lods++;continue;}byAvatar[kv.second.avatar].push_back(&kv.second);}
@@ -1602,7 +1615,7 @@ struct Runtime::Impl {
  // while the character is not on the field (party, detail page), but only from playable-character skeletons
  // (Avatar_...), and keeps its ID.
  void learnByName(const ModelInfo& m){
-  std::vector<Fingerprint> t;if(targetsFor(m,t))return;std::vector<Ptr> pool;try{pool=worldRenderers();}catch(const std::exception&){}for(auto& s:seen)pool.push_back(s.renderer);
+  std::vector<Fingerprint> t;if(targetsFor(m,t))return;std::vector<Ptr> pool;try{pool=worldRenderers();}catch(const std::exception&){}for(auto& s:seen)if(seenLive(s))pool.push_back(s.renderer);
   unsigned budget=8;bool changed=false;std::set<Ptr> world0;try{for(Ptr r:worldRenderers())world0.insert(r);}catch(const std::exception&){}
   for(auto& p:m.parts){if(p.hasTarget||learned[m.path].count(p.name))continue;
    for(Ptr r:pool){if(!alive(r))continue;if(normalize(rendererName(r))!=normalize(p.group))continue;auto key=std::make_pair(r,load<Ptr>(r+0x10));if(!chains.has(key)){if(!budget)break;budget--;}{auto c=chain(r);if(!namesMatch(m.names,c)||(m.id&&std::find(c.begin(),c.end(),"avatar")==c.end()))continue;}
@@ -1691,7 +1704,7 @@ struct Runtime::Impl {
    if(part.legacyBoneNames.size()!=part.spec.bones||part.used.empty()){report(part.legacyBoneError.empty()?"no complete historical index bonemap; waiting for a full mesh or skeleton library":part.legacyBoneError);continue;}
    bool covered=true;for(unsigned index:part.used)covered=covered&&index<part.legacyBoneNames.size()&&!part.legacyBoneNames[index].empty();
    if(!covered){probe.stamp.clear();report("the historical bonemap does not name every bone used by this conversion");continue;}
-   for(const auto& candidate:seen){if(!world.count(candidate.renderer)||!alive(candidate.renderer)||!alive(candidate.mesh)||!lowerLod(candidate.fp.mesh)||meshName(candidate.fp.mesh)!=meshName(target.mesh)||candidate.fp.bones!=target.bones||candidate.fp.submeshes!=target.submeshes||normalize(rendererName(candidate.renderer))!=normalize(target.renderer))continue;
+   for(const auto& candidate:seen){if(!world.count(candidate.renderer)||!seenLive(candidate)||!alive(candidate.mesh)||!lowerLod(candidate.fp.mesh)||meshName(candidate.fp.mesh)!=meshName(target.mesh)||candidate.fp.bones!=target.bones||candidate.fp.submeshes!=target.submeshes||normalize(rendererName(candidate.renderer))!=normalize(target.renderer))continue;
     if(attachments.count(candidate.renderer)||skipped.count({candidate.renderer,load<Ptr>(candidate.renderer+0x10)})||e.get(abi::getMesh,candidate.renderer)!=candidate.mesh)continue;
     Owned roots;try{auto current=fingerprint(candidate.mesh,true);require(lowerLod(current.mesh)&&meshName(current.mesh)==meshName(target.mesh)&&current.bones==target.bones&&current.submeshes==target.submeshes,"candidate mesh layout changed");
      if(!m.names.empty()){auto tokens=chain(candidate.renderer,true);require(namesMatch(m.names,tokens)&&std::find(tokens.begin(),tokens.end(),"avatar")!=tokens.end(),"candidate avatar identity differs");}
@@ -1721,7 +1734,7 @@ struct Runtime::Impl {
    if(!part.hasTarget||!matches(t,part.target)||data.sourceBones.size()!=t.bones||data.sourceBinds.size()!=64ull*t.bones)continue;
    embedded.name=t.renderer;embedded.target=t;embedded.bones=data.sourceBones;embedded.parents=data.sourceParents;embedded.bindposes=data.sourceBinds;rec=&embedded;break;}
   if(!rec){return !lib&&saved?legacyLodTemplate(m,t,*saved):std::nullopt;}std::set<Ptr> world;try{for(Ptr r:worldRenderers())world.insert(r);}catch(const std::exception&){return std::nullopt;}
-  for(auto& s:seen){if(!world.count(s.renderer)||!alive(s.renderer)||!alive(s.mesh)||!lowerLod(s.fp.mesh)||meshName(s.fp.mesh)!=meshName(t.mesh)||s.fp.bones!=rec->bones.size()||normalize(rendererName(s.renderer))!=normalize(t.renderer))continue;
+  for(auto& s:seen){if(!world.count(s.renderer)||!seenLive(s)||!alive(s.mesh)||!lowerLod(s.fp.mesh)||meshName(s.fp.mesh)!=meshName(t.mesh)||s.fp.bones!=rec->bones.size()||normalize(rendererName(s.renderer))!=normalize(t.renderer))continue;
    if(attachments.count(s.renderer)||skipped.count({s.renderer,load<Ptr>(s.renderer+0x10)})||e.get(abi::getMesh,s.renderer)!=s.mesh||!sameBones(s.renderer,rec->bones))continue;
    Owned tmp;bool same=false;try{Ptr binds=e.get(abi::getBindposes,s.mesh);if(binds){pin(tmp,binds);auto b=arrayBytes(binds,64,512);same=b.size()==rec->bindposes.size()&&std::memcmp(b.data(),rec->bindposes.data(),b.size())==0;}}catch(const std::exception&){same=false;}freeOwned(tmp);
    if(!same||!usableTemplate(s,minBones,true))continue;
@@ -1731,10 +1744,10 @@ struct Runtime::Impl {
  std::optional<std::vector<Seen>> templatesFor(const ModelInfo& model,const std::vector<Fingerprint>& targets){std::vector<Seen> out;
   for(size_t i=0;i<targets.size();i++){auto& t=targets[i];bool found=false;unsigned min=model.parts[i].minBones;
    // Not a renderer that already failed to attach (another skeleton on the same asset): it would fail the build too.
-   for(auto& s:seen)if(matches(t,s.fp)&&alive(s.renderer)&&alive(s.mesh)&&!attachments.count(s.renderer)&&!skipped.count({s.renderer,load<Ptr>(s.renderer+0x10)})&&e.get(abi::getMesh,s.renderer)==s.mesh&&usableTemplate(s,min)){out.push_back(s);found=true;break;}
+   for(auto& s:seen)if(matches(t,s.fp)&&seenLive(s)&&alive(s.mesh)&&!attachments.count(s.renderer)&&!skipped.count({s.renderer,load<Ptr>(s.renderer+0x10)})&&e.get(abi::getMesh,s.renderer)==s.mesh&&usableTemplate(s,min)){out.push_back(s);found=true;break;}
    if(!found)for(auto& a:attachments)if(alive(a.first)&&alive(a.second->original)&&matches(t,fingerprint(a.second->original))){Seen s{a.first,a.second->original,fingerprint(a.second->original)};if(usableTemplate(s,min)){out.push_back(s);found=true;break;}}
    if(!found)if(auto lod=lodTemplate(model,t,min)){out.push_back(*lod);found=true;}
-   if(!found){for(auto& s:seen)if(matches(t,s.fp)&&alive(s.renderer)&&alive(s.mesh)&&!usableTemplate(s,min)){staleNote[model.path]=t.renderer+" 的骨骼或绑定矩阵尚未完整，持续等待并重新检测";break;}return std::nullopt;}}
+   if(!found){for(auto& s:seen)if(matches(t,s.fp)&&seenLive(s)&&alive(s.mesh)&&!usableTemplate(s,min)){staleNote[model.path]=t.renderer+" 的骨骼或绑定矩阵尚未完整，持续等待并重新检测";break;}return std::nullopt;}}
   staleNote.erase(model.path);
   return out;}
 
@@ -2331,7 +2344,7 @@ struct Runtime::Impl {
   return world.count(sn.renderer)&&s.id&&s.id==ch.config&&lowerLod(sn.fp.mesh)&&meshName(sn.fp.mesh)==meshName(t.mesh)&&normalize(rendererName(sn.renderer))==normalize(t.renderer)&&sn.fp.bones==t.bones&&sameBones(sn.renderer,s.parts[i].bones);}
  // Attach every seen renderer whose original mesh matches a part of a live set.
  void attachSeen(const std::vector<Set*>& live,uint64_t now){std::set<Ptr> world;bool worldRead=false;
-  for(auto& sn:seen){if(attachments.count(sn.renderer)||!alive(sn.renderer))continue;
+  for(auto& sn:seen){if(attachments.count(sn.renderer)||!seenLive(sn))continue;
    for(Set* s:live){bool done=false;for(size_t i=0;i<s->parts.size()&&!done;i++){bool lod=false;
      if(!matches(s->parts[i].target,sn.fp)){if(!lowerLod(sn.fp.mesh))continue;if(!worldRead){worldRead=true;try{for(Ptr r:worldRenderers())world.insert(r);}catch(const std::exception&){}}if(!lodOf(*s,i,sn,world))continue;lod=true;}
      done=true;
@@ -2365,7 +2378,7 @@ struct Runtime::Impl {
    if(!keep){if(detach(a,giveWay))it=attachments.erase(it);else ++it;}else{a.set->used=now;++it;}}
   seen.clear();scanSkipped=0;scanCount++;
   for(Ptr r:list){try{if(!alive(r)||attachments.count(r))continue;Ptr native=load<Ptr>(r+0x10);if(skipped.count({r,native})){scanSkipped++;continue;}Ptr m=e.get(abi::getMesh,r);if(!alive(m))continue;
-    auto o=ours.find(m);if(o!=ours.end()){adopt(r,*o->second.first,o->second.second,now);continue;}seen.push_back({r,m,fingerprint(m)});}
+    auto o=ours.find(m);if(o!=ours.end()){adopt(r,*o->second.first,o->second.second,now);continue;}seen.push_back({r,m,fingerprint(m),load<Ptr>(r),load<Ptr>(r+0x10)});}
    catch(const std::exception& ex){log("discover-skip",ex.what());}}
   attachSeen(live,now);swapTick(list);}
  // A finished build takes over in the same tick: its predecessor's renderers, and those of models switched on after it
@@ -2496,7 +2509,7 @@ struct Runtime::Impl {
  // pendingBinds so it is taken over as soon as they are, also while it is still hidden (a party member not switched in).
  struct PendingBind {Ptr native;std::string path;uint64_t since;};std::map<Ptr,PendingBind> pendingBinds;
  bool bindBuild(Ptr r,Ptr mesh,const Fingerprint& fp,const ModelInfo* m,const std::vector<Fingerprint>& targets){
-    seen.erase(std::remove_if(seen.begin(),seen.end(),[&](const Seen& sn){return sn.renderer==r;}),seen.end());seen.push_back({r,mesh,fp});
+    seen.erase(std::remove_if(seen.begin(),seen.end(),[&](const Seen& sn){return sn.renderer==r;}),seen.end());seen.push_back({r,mesh,fp,load<Ptr>(r),load<Ptr>(r+0x10)});
     Set* s=liveSet(*m);if(!s){auto failure=failed.find(m->path);if(failure!=failed.end()&&failure->second.first==m->generation)return false;
      auto tpl=templatesFor(*m,targets);if(!tpl){bindingDeferred(m->name,"template/bones are not complete");return true;}
      LoadResult res;if(!takeLoaded(*m,res)){requestLoad(*m,true);pendingBinds[r]={load<Ptr>(r+0x10),m->path,clockMs()};bindingDeferred(m->name,"model data is not preloaded; taken over once it is read");return true;}
@@ -2673,7 +2686,7 @@ struct Runtime::Impl {
      if(normalize(rn)!=normalize(p.group)&&normalize(fp.mesh)!=normalize(p.group))continue;
      animationPaletteMismatch=animationPaletteMismatch||(m.animated&&p.minBones>fp.bones);candidates+=(candidates.empty()?"":"；")+rn+" / "+describe(fp);if(++count==4)break;}
     details+="\n"+p.name+" 要 "+p.group+(p.minBones?"，按索引绑定至少 "+std::to_string(p.minBones)+" 根骨骼":"，按骨骼名映射")+(candidates.empty()?"；当前角色没有同名部件":"；当前 "+candidates);
-    unsigned full=0;for(auto& s:seen){if(std::find(pool.begin(),pool.end(),s.renderer)!=pool.end()||!alive(s.renderer)||lowerLod(s.fp.mesh)||normalize(rendererName(s.renderer))!=normalize(p.group))continue;
+    unsigned full=0;for(auto& s:seen){if(std::find(pool.begin(),pool.end(),s.renderer)!=pool.end()||!seenLive(s)||lowerLod(s.fp.mesh)||normalize(rendererName(s.renderer))!=normalize(p.group))continue;
      auto* tokens=chains.find({s.renderer,load<Ptr>(s.renderer+0x10)});if(!tokens||!namesMatch(m.names,*tokens)||std::find(tokens->begin(),tokens->end(),"avatar")==tokens->end())continue;
      details+="；场景同角色完整候选 "+describe(s.fp);if(++full==4)break;}}
    if(!details.empty())w.reason+=details;
@@ -2691,7 +2704,7 @@ struct Runtime::Impl {
   std::string details;
   if(!ch.entity&&!rendererTypeObject){w.reason="还没认出当前操控的角色：进入大世界后才开始扫描";w.plain=true;}
   else for(size_t i=0;i<targets.size()&&i<m.parts.size();i++){auto& t=targets[i];bool present=false;std::vector<std::string> sameMesh,sameRenderer;std::string diff;
-   for(auto& s:seen){if(!alive(s.renderer))continue;if(matches(t,s.fp)){present=true;break;}auto rn=rendererName(s.renderer);
+   for(auto& s:seen){if(!seenLive(s))continue;if(matches(t,s.fp)){present=true;break;}auto rn=rendererName(s.renderer);
     if(!t.mesh.empty()&&meshName(s.fp.mesh)==meshName(t.mesh)){if(sameMesh.size()<4)sameMesh.push_back(rn+" / "+describe(s.fp));if(diff.empty())diff=differences(t,s.fp);}
     else if(normalize(rn)==normalize(t.renderer)&&sameRenderer.size()<4)sameRenderer.push_back(rn+" / "+describe(s.fp));}
    if(present)continue;
@@ -2770,6 +2783,7 @@ struct Runtime::Impl {
   try{
    if(!tickTid.load())tickTid.store(threadId());
    // consume() may replace `models`: hand-off pointers into it are dropped first and set again below.
+   seen.erase(std::remove_if(seen.begin(),seen.end(),[&](const Seen& sn){return !seenLive(sn);}),seen.end());
    wantedNow.clear();bindingTargets.clear();bindingReady=false;if(!worker.background()){workerTick(now);}consume();ch=current();renderTick(now);bindingStats();
    if(ch.config!=shownCharacter){shownCharacter=ch.config;log("character",ch.entity?std::to_string(ch.config):std::string("none"));}
    glowTick();
