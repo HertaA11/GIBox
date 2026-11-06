@@ -1455,29 +1455,38 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
   //     texture-only mod whose only rule is that component's diffuse hash (no match_first_index, a "this" binding
   //     whose resource name says nothing) is written to Bang, found through the map: no submesh start, name or size.
   {std::string mediaC=root+"/mediaCap",sharedC=mediaC+"/"+pkg+"/GIBox",modC=sharedC+"/models/HashMod",logC=sharedC+"/GIBox Log.txt";std::filesystem::create_directories(modC+"/textures");
+   uint16_t tri[3]={0,1,2};char hbody[12];std::snprintf(hbody,sizeof hbody,"%08x",ms::vkcap::ibHashes(reinterpret_cast<const uint8_t*>(tri),6)[2].value);
    store<Ptr>(f->owner+0x68,f->array(8,2,two));std::filesystem::create_directories(sharedC);
    write(sharedC+"/pc-hashes.json",std::string(R"J({"format":"gibox-pc-hashes","version":1,"source":"test","commit":"2039d16d4b64696098ba53cd69888ce967397be9","date":"2026-08-03","characters":[{"name":"Lin","avatar":10000107,"components":[
     {"name":"Bangs","ib":")J")+hb+R"J(","indexes":[0],"textures":[[["LightMap","0f6493aa"],["Diffuse","ab64b4cc"]]]},{"name":"Body","ib":"d5ae71a3","indexes":[0,100],"textures":[]}]}]})J");
    write(sharedC+"/control.json","{\"enabled\":true,\"selected\":[],\"textureMods\":{\"capture\":true}}");
    auto countC=[&](const std::string& x){auto l=text(logC);size_t n=0;for(size_t p=l.find(x);p!=std::string::npos;p=l.find(x,p+1))n++;return n;};
    {Runtime q(e,pkg,root+"/privateCap",mediaC,false);uint64_t t=14000000;auto run=[&](uint64_t ms){for(uint64_t end=t+ms;t<end;t+=100)q.tick(t);};
-    T.installed(true,"");uint8_t host[12];std::memcpy(host,idx,12);T.created(0x900,12,0x40);T.bound(0x900,0xa00,0);T.mapped(0xa00,0,12,host);T.indexBound(0x900,0);run(8000);
+    // Body's upload comes before its mesh is read (as in the game): tied once it is.
+    T.installed(true,"");uint8_t hostB[6];std::memcpy(hostB,tri,6);T.created(0xb00,6,0x40);T.bound(0xb00,0xc00,0);T.mapped(0xc00,0,6,hostB);T.indexBound(0xb00,0);
+    uint8_t host[12];std::memcpy(host,idx,12);T.created(0x900,12,0x40);T.bound(0x900,0xa00,0);T.mapped(0xa00,0,12,host);T.indexBound(0x900,0);run(8000);
     if(std::getenv("TEXMOD_PRINT")){auto l=text(logC);size_t p=0;while((p=l.find("hash-capture",p))!=std::string::npos){auto e2=l.find('\n',p);std::cerr<<"C| "<<l.substr(p,e2-p)<<"\n";p=e2;}std::cerr<<text(sharedC+"/hash-report.txt");}
     assert(countC(std::string("hash-capture ")+hb+" = PC Lin Bangs (upload #")==1&&countC("submesh starts [0] = the PC draw starts")==1&&countC("pc-hashes 1 PC characters, 2 components")==1);
     auto rep=text(sharedC+"/hash-report.txt");
     assert(rep.find("Lin（AvatarId 10000107）")!=std::string::npos&&rep.find("与 PC 一致 ✓")!=std::string::npos&&rep.find("Body  ib d5ae71a3")!=std::string::npos&&rep.find("本次没见到与它 hash 相同的上传")!=std::string::npos);
-    assert(text(sharedC+"/hash-map.json").find(std::string("\"ib\":\"")+hb+"\"")!=std::string::npos);T.installed(false,"");q.shutdown();}
+    assert(rep.find(std::string("Body / 网格 Body（3 顶点，3 索引，起点 [0]）：hash 数据 "))!=std::string::npos&&rep.find(std::string("IB|SRV|UAV ")+hbody)!=std::string::npos&&rep.find("（已记入 hash-map）")!=std::string::npos);
+    auto map=text(sharedC+"/hash-map.json");assert(map.find(std::string("\"ib\":\"")+hb+"\"")!=std::string::npos&&map.find(std::string("\"ib\":\"")+hbody+"\",\"variant\":\"as uploaded, desc DEFAULT, Bind=IB|SRV|UAV\",\"character\":\"\"")!=std::string::npos);
+    T.installed(false,"");q.shutdown();}
    Bytes px(16,0x40);write(modC+"/textures/0.rgba",px.data(),px.size());
    write(modC+"/texture.json",R"J({"format":"gibox-texture-mod","version":1,"name":"HashMod","generation":"c1","character":{"id":10000107},"variants":{"vars":[],"default":{}},
     "textures":[{"resource":"rx","file":"textures/0.rgba","width":2,"height":2}],
     "diag":{"format":"gibox-texture-diag","version":1,"name":"HashMod","character":10000107,"rules":[
-     {"section":"TextureOverrideShared","part":"Shared","hint":"shared","hash":"ab64b4cc","first":-1,"kind":"hash-unknown","textures":[{"slot":"this","resource":"rx","role":"unknown","condition":"","via":""}]}],"resources":[]}})J");
+     {"section":"TextureOverrideShared","part":"Shared","hint":"shared","hash":"ab64b4cc","first":-1,"kind":"hash-unknown","textures":[{"slot":"this","resource":"rx","role":"unknown","condition":"","via":""}]},
+     {"section":"TextureOverrideNewBody","part":"NewBody","hint":"newbody","hash":")J"+std::string(hbody)+R"J(","first":0,"kind":"segment","textures":[{"slot":"ps-t0","resource":"rx","role":"diffuse","condition":"","via":""}]}],"resources":[]}})J");
    write(sharedC+"/control.json","{\"enabled\":true,\"selected\":[\"HashMod\"],\"textureMods\":{\"strategy\":\"direct\"}}");
    {Runtime q(e,pkg,root+"/privateCap2",mediaC,false);uint64_t t=15000000;for(uint64_t end=t+4000;t<end;t+=100)q.tick(t);
     if(std::getenv("TEXMOD_PRINT")){auto l=text(logC);size_t p=0;while((p=l.find("texture-",p))!=std::string::npos){auto e2=l.find('\n',p);auto x=l.substr(p,std::min<size_t>(e2-p,500));if(x.find("texture-diag-ini")!=0)std::cerr<<"M| "<<x<<"\n";p=e2;}}
     assert(countC("PC: this = rx: role unknown by its name, diffuse by the PC slot")==1&&countC("HashMod: PC database 2039d16: Lin (by AvatarId 10000107)")==1);
     assert(countC("TextureOverrideShared hash=ab64b4cc match_first_index=- -> 确定匹配 renderer=Bang#")==1&&countC("was reproduced on this device by the upload of mesh Bang")>=1);
-    assert(f->diffuse[gmat]!=gameTex&&f->diffuse[bmat]==gameTex);q.shutdown();assert(f->diffuse[gmat]==gameTex);}}
+    // A character the PC database lacks: its mod's hash is found through this device's upload of Body (one submesh at
+    // 0 like Bang, and a part name that names nothing: without the map nothing would decide).
+    assert(countC(std::string("TextureOverrideNewBody hash=")+hbody+" match_first_index=0 -> 确定匹配 renderer=Body#")==1);
+    assert(f->diffuse[gmat]!=gameTex&&f->diffuse[bmat]!=gameTex);q.shutdown();assert(f->diffuse[gmat]==gameTex&&f->diffuse[bmat]==gameTex);}}
   f->world(0);}
  // Game 7.2: the manager's and the entity's ID fields are found by what they hold (offsets.hpp candidates). Two entity
  // fields in the config range with different values: nothing is taken and the candidates are logged; once one of them

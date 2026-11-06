@@ -1024,59 +1024,76 @@ struct Runtime::Impl {
 
  // ---------------------------------------------------------------- every character's index buffers against the PC (0.7.82)
  // control.json textureMods.capture (on at the game's start, like ibHash): every character mesh shown is read (name,
- // vertices, submesh starts and counts) and each index upload tied to the one mesh with its index and vertex counts.
- // An upload whose hash the PC database knows names that PC component: recorded in hash-map.json (the matcher then
- // finds the component by its mesh in later sessions, without the capture) and compared in hash-report.txt with the
- // PC draw starts; meshes with no PC hash are listed with their own hashes. Read-only: nothing is written to the game.
- struct CapMesh {std::string renderer,mesh,avatar;unsigned vertices=0,bones=0;bool lod=false;std::vector<std::pair<uint32_t,uint32_t>> subs;uint64_t indices=0;};
+ // vertices, submesh starts and counts; not GIBox's own meshes) and each index upload tied to the one mesh with its
+ // index and vertex counts (an upload that came before its mesh was read is tied once it is). Every tied upload goes to
+ // hash-map.json: one whose hash the PC database knows names that PC component (and is compared with its PC draw
+ // starts in hash-report.txt); any other with its as-uploaded hashes, since Android's index data is the PC's byte for
+ // byte and a mod for a character the database lacks names one of them. The matcher finds the mesh by it in later
+ // sessions, without the capture. Read-only: nothing is written to the game.
+ struct CapMesh {std::string renderer,mesh,avatar;unsigned vertices=0,bones=0;bool lod=false;std::vector<std::pair<uint32_t,uint32_t>> subs;uint64_t indices=0;std::vector<std::string> hashes;};
  struct CapTie {std::string ib,variant,character,component,meshKey,note;uint64_t seq=0;std::vector<std::string> meshes;};
- std::map<std::string,CapMesh> capMeshes;std::set<std::pair<Ptr,Ptr>> capRead;std::map<std::string,CapTie> capTies,capOpen;uint64_t capSeq=0;
- uint64_t capAt=0,capReportAt=0,capUploads=0;bool capDirty=false,capSaid=false;std::string capLast;
+ std::map<std::string,CapMesh> capMeshes;std::multimap<std::pair<uint64_t,uint64_t>,std::string> capShape;std::set<std::pair<Ptr,Ptr>> capRead;std::map<std::string,CapTie> capTies,capOpen;
+ std::set<uint64_t> capPending;uint64_t capSeq=0,capAt=0,capReportAt=0,capOther=0;unsigned capSkippedOurs=0;bool capDirty=false,capSaid=false;std::string capLast;
  static std::string capKey(const std::string& mesh,unsigned vertices,uint64_t indices){return mesh+"|"+std::to_string(vertices)+"|"+std::to_string(indices);}
- // The meshes whose index and vertex counts an upload has, read with the index width its hash variant was taken with.
- std::vector<const CapMesh*> capShapes(uint32_t bytes,uint32_t max16,uint32_t max32,uint8_t variant){std::vector<std::pair<uint64_t,uint64_t>> shapes;uint8_t format=variant>>2;
+ static std::string capKind(uint8_t v){return (v&3)==0?"数据":(v&3)==1?"IB":(v&3)==2?"IB|SRV|UAV":"IMMUTABLE";}
+ // The meshes whose index and vertex counts an upload has, read with the index width its hash variant was taken with
+ // (as uploaded: either width).
+ std::vector<CapMesh*> capShapes(uint32_t bytes,uint32_t max16,uint32_t max32,uint8_t variant){std::vector<std::pair<uint64_t,uint64_t>> shapes;uint8_t format=variant>>2;
   if(format!=2){shapes.push_back({bytes/2,uint64_t(max16)+1});}if(format!=1&&bytes%4==0)shapes.push_back({bytes/4,uint64_t(max32)+1});
-  std::vector<const CapMesh*> out;for(auto& kv:capMeshes)for(auto& sh:shapes)if(kv.second.indices==sh.first&&kv.second.vertices==sh.second){out.push_back(&kv.second);break;}return out;}
+  std::vector<CapMesh*> out;for(auto& sh:shapes){auto r=capShape.equal_range(sh);for(auto it=r.first;it!=r.second;++it){auto m=capMeshes.find(it->second);if(m!=capMeshes.end()&&std::find(out.begin(),out.end(),&m->second)==out.end())out.push_back(&m->second);}}return out;}
  // hash-map.json: at most every 5 s; what is matched is matched again with it.
  void devMapSave(uint64_t now){if(!devMap||!devMapDirty||now<devMapSaveAt)return;devMapDirty=false;devMapSaveAt=now+5000;auto file=shared+"/hash-map.json",body=pcdb::writeMap(*devMap);
   worker.post([file,body]{try{writeAtomic(file,body);}catch(...){}});texQuickNo.clear();texWaitUntil.clear();texDiagMatched.clear();}
+ void devMapPut(const std::string& ib,const std::string& variant,const std::string& character,const std::string& component,const CapMesh& m){auto& e=devMap->byIb[ib];
+  if(e.mesh==m.mesh&&e.vertices==m.vertices&&e.subs==m.subs&&e.character==character)return;
+  e=pcdb::Mesh{};e.ib=ib;e.variant=variant;e.character=character;e.component=component;e.renderer=normalize(m.renderer);e.mesh=m.mesh;e.avatar=m.avatar;e.build=abi::buildId;e.vertices=m.vertices;e.bones=m.bones;e.subs=m.subs;devMapDirty=true;}
+ // One upload: tied to its mesh when exactly one read mesh has its counts; false while it is not (tried again later).
+ bool capTie(const vkcap::Blob& b){const vkcap::Hash* pc=nullptr;const pcdb::Component* comp=nullptr;
+  if(pcDb)for(auto& h:b.hashes){auto it=pcDb->byIb.find(hex8(h.value));if(it!=pcDb->byIb.end()){pc=&h;comp=&pcDb->comps[it->second[0]];break;}}
+  auto ms=capShapes(b.bytes,b.max16,b.max32,pc?pc->variant:0);
+  if(pc){auto ib=hex8(pc->value);CapTie t;t.ib=ib;t.variant=vkcap::variantName(pc->variant);t.character=comp->character;t.component=comp->name;t.seq=b.seq;
+   if(ms.size()!=1){for(auto* m:ms)t.meshes.push_back(m->avatar+" "+m->renderer+" "+m->mesh);
+    t.note=ms.empty()?"no character mesh read with its "+std::to_string(b.bytes/2)+" (16-bit) or "+std::to_string(b.bytes/4)+" (32-bit) indices and matching vertex count":std::to_string(ms.size())+" meshes have its index and vertex counts";
+    if(!capTies.count(ib)){auto& o=capOpen[ib];if(o.note!=t.note)capDirty=true;o=t;}return false;}
+   CapMesh& m=*ms[0];t.meshKey=capKey(m.mesh,m.vertices,m.indices);capOpen.erase(ib);auto old=capTies.find(ib);if(old!=capTies.end()&&old->second.meshKey==t.meshKey)return true;capTies[ib]=t;capDirty=true;
+   devMapPut(ib,t.variant,comp->character,comp->name,m);
+   log("hash-capture",ib+" = PC "+comp->character+" "+comp->name+" (upload #"+std::to_string(b.seq)+", "+t.variant+"): mesh "+m.mesh+" of "+m.avatar+" / "+m.renderer+" ("+std::to_string(m.vertices)+" vertices, "+std::to_string(m.indices)+" indices); submesh starts "+capStarts(m.subs)+(pcdb::startsEqual(m.subs,comp->indexes)?" = the PC draw starts":" vs the PC draw starts "+texdiag::joined(comp->indexes)));
+   return true;}
+  if(ms.size()!=1)return false;
+  CapMesh& m=*ms[0];bool fresh=m.hashes.empty();
+  for(auto& h:b.hashes){if((h.variant>>2)!=0)continue;if(fresh)m.hashes.push_back(capKind(h.variant)+" "+hex8(h.value));if(h.variant&3)devMapPut(hex8(h.value),vkcap::variantName(h.variant),"","",m);}
+  if(fresh){capOther++;capDirty=true;}return true;}
  void captureTick(uint64_t now){auto& T=vkcap::tracker();if(!ctl.tex.capture||!T.enabled)return;if(now<capAt)return;capAt=now+1000;
   if(!capSaid){capSaid=true;log("hash-capture","on: every character mesh shown is read and each index upload tied to it; compared with the PC database ("+(pcDb?pcDb->commit.substr(0,7):std::string("not installed"))+"), written to "+shared+"/hash-report.txt and hash-map.json"+(ctl.enabled?std::string():"; model replacement is off, so only the controlled character's renderers are read (switch it on for the whole scene)"));}
   if(!devMap)devMap=std::make_shared<pcdb::DeviceMap>();
-  // 1. Meshes: what discovery and the controlled character show, at most 16 new ones a second.
+  // 1. Meshes: what discovery and the controlled character show, at most 16 new ones a second; not a renderer GIBox
+  //    has taken over (its mesh is GIBox's, not the game's upload).
   std::vector<Ptr> pool;try{pool=worldRenderers();}catch(const std::exception&){}for(auto& sn:seen)pool.push_back(sn.renderer);unsigned reads=0;size_t before=capMeshes.size();
-  for(Ptr r:pool){if(reads>=16)break;try{if(!alive(r))continue;Ptr native=load<Ptr>(r+0x10);Ptr mesh=e.get(abi::getMesh,r);if(!alive(mesh))continue;if(!capRead.insert({native,load<Ptr>(mesh+0x10)}).second)continue;reads++;
+  for(Ptr r:pool){if(reads>=16)break;try{if(!alive(r))continue;if(attachments.count(r)){if(capRead.insert({load<Ptr>(r+0x10),0}).second)capSkippedOurs++;continue;}
+    Ptr native=load<Ptr>(r+0x10);Ptr mesh=e.get(abi::getMesh,r);if(!alive(mesh))continue;if(!capRead.insert({native,load<Ptr>(mesh+0x10)}).second)continue;reads++;
     auto info=texLightRead(r);if(info.avatar.empty()||!info.known())continue;CapMesh c;c.renderer=info.name;c.mesh=info.meshName;c.avatar=info.avatar;c.vertices=info.vertices;c.bones=info.bones;c.lod=info.lod;
-    for(auto& sb:info.layout.subs){c.subs.push_back({uint32_t(sb.start),uint32_t(sb.count)});}c.indices=pcdb::indices(c.subs);if(!c.indices)continue;capMeshes.emplace(capKey(c.mesh,c.vertices,c.indices),c);}
+    for(auto& sb:info.layout.subs){c.subs.push_back({uint32_t(sb.start),uint32_t(sb.count)});}c.indices=pcdb::indices(c.subs);if(!c.indices)continue;
+    auto key=capKey(c.mesh,c.vertices,c.indices);if(capMeshes.emplace(key,c).second)capShape.insert({{c.indices,uint64_t(c.vertices)},key});}
    catch(const std::exception&){}}
   if(capRead.size()>20000)capRead.clear();
   bool newMeshes=capMeshes.size()!=before;if(newMeshes)capDirty=true;
-  // 2. Uploads: each new one whose hash the PC knows; those not tied yet again when new meshes came.
-  auto tie=[&](const vkcap::Blob& b){for(auto& h:b.hashes){auto ib=hex8(h.value);if(!pcDb)break;auto pc=pcDb->byIb.find(ib);if(pc==pcDb->byIb.end())continue;capUploads++;
-    const auto& comp=pcDb->comps[pc->second[0]];auto ms=capShapes(b.bytes,b.max16,b.max32,h.variant);CapTie t;t.ib=ib;t.variant=vkcap::variantName(h.variant);t.character=comp.character;t.component=comp.name;t.seq=b.seq;
-    if(ms.size()!=1){for(auto* m:ms)t.meshes.push_back(m->avatar+" "+m->renderer+" "+m->mesh);t.note=ms.empty()?"no mesh read yet with its "+std::to_string(b.bytes/2)+" (16-bit) or "+std::to_string(b.bytes/4)+" (32-bit) indices and matching vertex count":std::to_string(ms.size())+" meshes have its index and vertex counts";
-     if(!capTies.count(ib)){auto& o=capOpen[ib];if(o.note!=t.note)capDirty=true;o=t;}return;}
-    const CapMesh& m=*ms[0];t.meshKey=capKey(m.mesh,m.vertices,m.indices);capOpen.erase(ib);auto old=capTies.find(ib);if(old!=capTies.end()&&old->second.meshKey==t.meshKey)return;capTies[ib]=t;capDirty=true;
-    pcdb::Mesh e;e.ib=ib;e.variant=t.variant;e.character=comp.character;e.component=comp.name;e.renderer=normalize(m.renderer);e.mesh=m.mesh;e.avatar=m.avatar;e.build=abi::buildId;e.vertices=m.vertices;e.bones=m.bones;e.subs=m.subs;
-    devMap->byIb[ib]=e;devMapDirty=true;
-    log("hash-capture",ib+" = PC "+comp.character+" "+comp.name+" (upload #"+std::to_string(b.seq)+", "+t.variant+"): mesh "+m.mesh+" of "+m.avatar+" / "+m.renderer+" ("+std::to_string(m.vertices)+" vertices, "+std::to_string(m.indices)+" indices); submesh starts "+capStarts(m.subs)+(pcdb::startsEqual(m.subs,comp.indexes)?" = the PC draw starts":" vs the PC draw starts "+texdiag::joined(comp.indexes)));
-    return;}};
-  for(auto& b:ibBlobs)if(b.seq>capSeq){tie(b);capSeq=b.seq;}
-  if(newMeshes&&!capOpen.empty()){std::set<uint64_t> want;for(auto& kv:capOpen)want.insert(kv.second.seq);for(auto& b:ibBlobs)if(want.count(b.seq))tie(b);}
+  // 2. Uploads: each new one; those not tied yet again when new meshes came (an upload usually comes first).
+  for(auto& b:ibBlobs)if(b.seq>capSeq){capSeq=b.seq;if(!capTie(b))capPending.insert(b.seq);}
+  if(newMeshes&&!capPending.empty())for(auto& b:ibBlobs)if(capPending.count(b.seq)&&capTie(b))capPending.erase(b.seq);
+  while(capPending.size()>60000)capPending.erase(capPending.begin());
   devMapSave(now);
-  // 3. The map (for the matcher, also after a restart) and the report.
+  // 3. The report.
   if(capDirty&&now>=capReportAt){capDirty=false;capReportAt=now+5000;auto file=shared+"/hash-report.txt",body=captureReport();worker.post([file,body]{try{writeAtomic(file,body);}catch(...){}});
-   std::string sum=std::to_string(capMeshes.size())+" character meshes read, "+std::to_string(capTies.size())+" PC index-buffer hashes tied to a mesh, "+std::to_string(capOpen.size())+" not (yet)";
+   std::string sum=std::to_string(capMeshes.size())+" character meshes read, "+std::to_string(capTies.size())+" PC index-buffer hashes tied to a mesh, "+std::to_string(capOpen.size())+" not (yet), "+std::to_string(capOther)+" other meshes recorded by their own hashes";
    if(sum!=capLast){capLast=sum;log("hash-capture",sum+"; report "+file);}}}
  static std::string capStarts(const std::vector<std::pair<uint32_t,uint32_t>>& subs){std::string o;for(auto& s:subs)o+=(o.empty()?"":",")+std::to_string(s.first);return "["+o+"]";}
  std::string captureReport(){std::string o="GIBox hash 对比报告：安卓采集的索引缓冲 vs PC（GI-Model-Importer-Assets）\n";
   o+="游戏版本 "+std::string(abi::buildId).substr(0,8)+"；PC 数据库 "+(pcDb?pcDb->source+" @"+pcDb->commit.substr(0,7)+"（"+pcDb->date+"）":std::string("未安装（打开一次 GIBox App 会装上）"))+"\n";
-  o+="本次读到角色网格 "+std::to_string(capMeshes.size())+" 个；与 PC 索引缓冲 hash 相同的上传对应到网格 "+std::to_string(capTies.size())+" 个，未对应 "+std::to_string(capOpen.size())+" 个；hash-map.json 共 "+std::to_string(devMap?devMap->byIb.size():0)+" 条（含之前几次）\n";
+  o+="本次读到角色网格 "+std::to_string(capMeshes.size())+" 个；与 PC 索引缓冲 hash 相同的上传对应到网格 "+std::to_string(capTies.size())+" 个，未对应 "+std::to_string(capOpen.size())+" 个；hash-map.json 共 "+std::to_string(devMap?devMap->byIb.size():0)+" 个 hash（含之前几次；PC 没有的网格按三种上传方式各记一条）\n";
   o+="说明：hash 相同 = 安卓上传的索引数据逐字节等于 PC 的；“起点”是各子网格的 indexStart，PC 的是各段 match_first_index。\n";
-  if(!pcDb)return o;
   // Per PC character with something tied (this session or earlier): every component, tied or not.
-  std::map<std::string,std::vector<size_t>> chars;std::set<std::string> any;for(auto& kv:capTies)any.insert(kv.second.character);if(devMap)for(auto& kv:devMap->byIb)any.insert(kv.second.character);
-  for(size_t i=0;i<pcDb->comps.size();i++)if(any.count(pcDb->comps[i].character))chars[pcDb->comps[i].character].push_back(i);
+  std::map<std::string,std::vector<size_t>> chars;std::set<std::string> any;for(auto& kv:capTies)any.insert(kv.second.character);if(devMap)for(auto& kv:devMap->byIb)if(!kv.second.character.empty())any.insert(kv.second.character);
+  if(pcDb)for(size_t i=0;i<pcDb->comps.size();i++)if(any.count(pcDb->comps[i].character))chars[pcDb->comps[i].character].push_back(i);
   o+="\n== 和 PC 对上的角色（"+std::to_string(chars.size())+" 个）\n";
   std::set<std::string> tiedMeshes;
   for(auto& kv:chars){unsigned av=pcDb->characters.count(kv.first)?pcDb->characters.at(kv.first):0;o+=kv.first+(av?"（AvatarId "+std::to_string(av)+"）":"（没有对应的 AvatarId）")+"\n";
@@ -1090,15 +1107,24 @@ struct Runtime::Impl {
     auto op=capOpen.find(c.ib);if(op!=capOpen.end()){o+="      本次见到上传（#"+std::to_string(op->second.seq)+"，"+op->second.variant+"）但没对上唯一网格："+op->second.note;for(auto& x:op->second.meshes)o+="；"+x;o+="\n";continue;}
     if(dm){o+="      之前采集过（版本 "+dm->build.substr(0,8)+"）："+dm->avatar+" / "+dm->renderer+" / 网格 "+dm->mesh+"（"+std::to_string(dm->vertices)+" 顶点）起点 "+capStarts(dm->subs)+(pcdb::startsEqual(dm->subs,c.indexes)?" 与 PC 一致 ✓":" 与 PC 不同 ✗")+"\n";continue;}
     o+="      本次没见到与它 hash 相同的上传（这件衣服/部件没出现，或安卓的索引数据与 PC 不同）\n";}}
-  // Character meshes with no PC hash: their own hashes, for comparing by hand.
+  // PC hashes uploaded but tied to no single mesh, of characters not above (a character GIBox replaces by a mesh mod
+  // shows GIBox's mesh, not the game's).
+  {std::string open;for(auto& kv:capOpen){if(chars.count(kv.second.character))continue;open+="  "+kv.second.character+" "+kv.second.component+"  ib "+kv.first+"（上传 #"+std::to_string(kv.second.seq)+"）："+kv.second.note;
+    for(auto& x:kv.second.meshes){open+="；"+x;}open+="\n";}
+   if(!open.empty())o+="\n== PC 数据库里有、本次见到上传但没对上网格的（多半是这个角色正被 GIBox 的模型 MOD 替换，读不到游戏原网格）\n"+open;}
+  // Character meshes with no PC hash, per character: their own hashes (in hash-map.json, so a mod naming one is found).
   std::map<uint32_t,std::vector<const vkcap::Blob*>> bySize;for(auto& b:ibBlobs)bySize[b.bytes].push_back(&b);
-  std::string rest;unsigned n=0,lods=0;
-  for(auto& kv:capMeshes){if(tiedMeshes.count(kv.first))continue;auto& x=kv.second;if(x.lod){lods++;continue;}if(n>=400)break;n++;
-   rest+="  "+x.avatar+" / "+x.renderer+" / 网格 "+x.mesh+"（"+std::to_string(x.vertices)+" 顶点，"+std::to_string(x.indices)+" 索引，起点 "+capStarts(x.subs)+"）";
-   std::string hs;for(uint64_t w:{uint64_t(2),uint64_t(4)}){auto it=bySize.find(uint32_t(x.indices*w));if(it==bySize.end())continue;for(auto* b:it->second){uint32_t mx=w==2?b->max16:b->max32;if(uint64_t(mx)+1!=x.vertices)continue;
-     for(auto& h:b->hashes){if((h.variant>>2)==0)hs+=(hs.empty()?"":"，")+std::string((h.variant&3)==0?"数据":(h.variant&3)==1?"IB":(h.variant&3)==2?"IB|SRV|UAV":"IMMUTABLE")+" "+hex8(h.value);}break;}if(!hs.empty())break;}
-   rest+=hs.empty()?"：没见到它的上传\n":"：hash "+hs+"（PC 数据库里没有）\n";}
-  o+="\n== 安卓角色网格里没和 PC 对上的（"+std::to_string(n)+" 个完整模型"+(lods?"，另有 "+std::to_string(lods)+" 个低精度 LOD 未列出（PC 没有）":"")+"）\n"+rest;
+  std::map<std::string,std::vector<const CapMesh*>> byAvatar;unsigned lods=0;for(auto& kv:capMeshes){if(tiedMeshes.count(kv.first))continue;if(kv.second.lod){lods++;continue;}byAvatar[kv.second.avatar].push_back(&kv.second);}
+  std::string rest;unsigned n=0,recorded=0;
+  for(auto& av:byAvatar){rest+=av.first+"\n";for(auto* x:av.second){if(n>=600)break;n++;
+    rest+="  "+x->renderer+" / 网格 "+x->mesh+"（"+std::to_string(x->vertices)+" 顶点，"+std::to_string(x->indices)+" 索引，起点 "+capStarts(x->subs)+"）";
+    std::string hs;for(auto& h:x->hashes)hs+=(hs.empty()?"":"，")+h;
+    if(hs.empty())for(uint64_t w:{uint64_t(2),uint64_t(4)}){auto it=bySize.find(uint32_t(x->indices*w));if(it==bySize.end())continue;for(auto* b:it->second){uint32_t mx=w==2?b->max16:b->max32;if(uint64_t(mx)+1!=x->vertices)continue;
+      for(auto& h:b->hashes){if((h.variant>>2)==0)hs+=(hs.empty()?"":"，")+capKind(h.variant)+" "+hex8(h.value);}break;}if(!hs.empty())break;}
+    if(!x->hashes.empty())recorded++;
+    rest+=hs.empty()?"：没见到它的上传\n":"：hash "+hs+(x->hashes.empty()?"（同样大小的网格不止一个，没记入 hash-map）\n":"（已记入 hash-map）\n");}}
+  o+="\n== 安卓角色网格里 PC 数据库没有的（"+std::to_string(byAvatar.size())+" 个角色，"+std::to_string(n)+" 个完整模型，"+std::to_string(recorded)+" 个已按自己的 hash 记入 hash-map："
+   +"MOD 用到这些 hash 时直接认出网格）"+(lods?"；另有 "+std::to_string(lods)+" 个低精度 LOD 未列出":"")+(capSkippedOurs?"；跳过 "+std::to_string(capSkippedOurs)+" 个正被 GIBox 模型替换的渲染器":"")+"\n"+rest;
   return o;}
 
  // ---------------------------------------------------------------- switch-in glow trace (debug + experiments.glowTrace)

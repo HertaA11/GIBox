@@ -110,7 +110,7 @@ fun DebugScreen(state: AppState) {
                     SettingsSwitch(
                         state = capture,
                         title = { Text("采集所有角色的 hash") },
-                        subtitle = { Text("重启游戏后生效。出现过的角色都和 PC 比对，结果用于以后自动识别；采完可关掉") },
+                        subtitle = { Text("重启游戏后生效。在图鉴里点过的角色都会采到，用于以后自动识别；采完可关掉") },
                         shapes = ListItemDefaults.segmentedShapes(3, 6),
                         onCheckedChange = { state.setTextureModsFlag("capture", it) },
                     )

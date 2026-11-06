@@ -68,7 +68,7 @@ struct Mesh {std::string ib,variant,character,component,renderer,mesh,avatar,bui
 struct DeviceMap {std::map<std::string,Mesh> byIb;};
 inline DeviceMap parseMap(const std::string& text){Json j=JsonParser(text).parse();DeviceMap m;
  require(j.type==Json::Object&&j.at("format").string=="gibox-hash-map"&&j.at("version").type==Json::Number&&j.at("version").number==1,"not a GIBox hash map");
- const auto& a=j.at("meshes");require(a.type==Json::Array&&a.array.size()<=8192,"hash map meshes");
+ const auto& a=j.at("meshes");require(a.type==Json::Array&&a.array.size()<=65536,"hash map meshes");
  for(auto& x:a.array){require(x.type==Json::Object,"hash map mesh");Mesh e;e.ib=lower(x.at("ib").string);require(hex8(e.ib),"hash map ib");
   e.variant=x.at("variant").string;e.character=x.at("character").string;e.component=x.at("component").string;e.renderer=x.at("renderer").string;e.mesh=x.at("mesh").string;e.avatar=x.at("avatar").string;e.build=x.at("build").string;
   e.vertices=unsigned(count(x.at("vertices"),"vertices"));e.bones=x.at("bones").type==Json::Number?unsigned(count(x.at("bones"),"bones")):0;require(!e.mesh.empty()&&e.vertices>0,"hash map mesh "+e.ib);

@@ -561,7 +561,7 @@ class AppState(private val activity: Activity) {
     /** The hash comparison report the game writes in capture mode (GIBox/hash-report.txt). */
     fun shareHashReport() {
         val file = File(Control.shared(game), "hash-report.txt")
-        if (!file.isFile) { toast("还没有报告：打开“采集所有角色的 hash”，重启游戏，让角色出现一次"); return }
+        if (!file.isFile) { toast("还没有报告：打开“采集所有角色的 hash”，重启游戏，在图鉴里点一下角色"); return }
         try {
             val uri = DocumentsContract.buildDocumentUri(DirectoryProvider.AUTHORITY, "$game:shared/${file.name}")
             fun grant(i: Intent) = i.apply { clipData = ClipData.newRawUri("hash 对比报告", uri); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION) }
