@@ -142,17 +142,20 @@ public final class Characters {
         a(10000124, "雅珂达", "", "jahoda"),
         a(10000125, "哥伦比娅", "", "columbina"),
         a(10000126, "兹白", "", "zibai"),
-        a(10000127, "叶洛亚", "", ""),
+        // 10000127 on: internal names from the game data (AvatarExcelConfigData iconName UI_AvatarIcon_<name>, as in the
+        // GuraFoundation/YuanShenResources extraction); on the device the same names in the skeleton roots (lohen, nicole,
+        // marionettenew, vodyanitsa, vesna, linnea).
+        a(10000127, "叶洛亚", "illuga", ""),
         a(10000128, "法尔伽", "", "varka"),
-        a(10000129, "洛恩", "", ""),
+        a(10000129, "洛恩", "lohen", ""),
         a(10000130, "莉奈娅", "linnea", ""),
-        a(10000131, "尼可", "", ""),
-        a(10000132, "布伦妮", "", ""),
-        a(10000133, "桑多涅", "", "sandrone"),
-        a(10000140, "沃雅妮莎", "", ""),
-        a(10000143, "薇斯纳", "", ""),
-        a(10000148, "阿罗夏", "", ""),
-        a(10000150, "奥黛塔", "", "")
+        a(10000131, "尼可", "nicole", ""),
+        a(10000132, "布伦妮", "prune", ""),
+        a(10000133, "桑多涅", "marionettenew", "sandrone"),
+        a(10000140, "沃雅妮莎", "vodyanitsa", ""),
+        a(10000143, "薇斯纳", "vesna", ""),
+        a(10000148, "阿罗夏", "alyosha", ""),
+        a(10000150, "奥黛塔", "odette", "")
     };
 
     public static List<Avatar> all() { return Collections.unmodifiableList(Arrays.asList(ALL)); }
