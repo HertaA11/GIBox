@@ -143,8 +143,11 @@ inline CodeCheck bindChecks[]={{lodBind,"ff8304d1e9230b6dfd7b0ca9fc6f0da9"},{mes
 //  findObjectsNative 0x5b53dcc: FindObjectsOfType's MOV W1,#1; B. wrapperFor 0x5b4da54: get_whiteTexture's tail call.
 //  classFromType 0x43b2868: the CN entry bytes, at one place only. objectNew 0x43cddec: before 3265 constructor calls (next
 //  200), every MaterialPropertyBlock..ctor call. arrayNew 0x43bef58: what Guid.ToByteArray and BitConverter.GetBytes call
-//  with W1 = their length. nativeAlloc 0x517af94 / nativeAllocator 0x1566c640: X0 = *(that global) at 2691 calls, aligned
-//  W3, label 15; managerActive 0xc4e as in CN. manager 0x157d53a0 / managerSlot 0x90e0: the accessor above.
+//  with W1 = their length. nativeAlloc 0x517af94: aligned W3 and label 15 at its calls. nativeAllocator 0x15d5df20 (not
+//  0x1566c640, the global most of those calls read, as in 0.7.99-0.7.101: that one is CN's 0x156a0840, the manager's
+//  static storage pointer, while GIBox's CN value is 0x15d92120, the instance): both CN globals sit 0x34200 lower in
+//  this build, as manager does (0x158095a0 -> 0x157d53a0), and nativeAlloc reads byte 0x15d5df80 = it + 0x60, as the
+//  CN one reads 0x15d92180. managerActive 0xc4e as in CN. manager 0x157d53a0 / managerSlot 0x90e0: the accessor above.
 //  typeObject 0x43b1bbc: of the 443 places with its CN entry bytes the nearest to where the pairs above put it (28 bytes
 //  off), and the call right before FindObjectsOfType most often (gibox_find_global2).
 //  lodBind 0x584fc98, meshBones 0x579c768: the CN entry bytes, the hits nearest to where the pairs put them (14 and 11 bytes
@@ -162,7 +165,7 @@ inline const Profile& globalProfile(){static const Profile p{"32f920af1fd831959a
   {meshFinish,0xabc5afc},{meshUpload,0xabc5d44},{meshDynamic,0xabc5d0c},{frameCount,0x97aa9c4},{textureType,0x8f688b0},{textureInit,0x8f687dc},
   {texturePixels,0x8f68c48},{textureApply,0x8f68d6c},{setHideFlags,0x91be344},{getHideFlags,0x91bf0d0},{mainTexture,0x80e9608},{newString,0x9079290},
   {hasProperty,0x80ea104},{setTexture,0x80eabf8},{getTexture,0x80e9b50},{getShader,0x80e9568},{getTextureIds,0x80e9ea8},{propertyToId,0xa7ed1c4},
-  {nativeAlloc,0x517af94},{nativeAllocator,0x1566c640},{findObjectsOfType,0x91bef30},{findObjectsNative,0x5b53dcc},{componentsInChildren,0x97a7ec0},
+  {nativeAlloc,0x517af94},{nativeAllocator,0x15d5df20},{findObjectsOfType,0x91bef30},{findObjectsNative,0x5b53dcc},{componentsInChildren,0x97a7ec0},
   {gameObject,0x80e898c},{receive,0x9798c6c},{lodBind,0x584fc98},{meshBones,0x579c768},{wrapperFor,0x5b4da54},{typeObject,0x43b1bbc},
   {classFromType,0x43b2868},{meshSubmeshes,0xabc45a0},{meshVertices,0xabc457c},{meshReadable,0xabc4570},{meshIndexStart,0xabc4414},{meshIndexCount,0xabc445c},
   {textureWidth,0xa865694},{textureHeight,0xa8656b8},{textureFormat,0x8f688ac},{textureMips,0x8f687b4}},
