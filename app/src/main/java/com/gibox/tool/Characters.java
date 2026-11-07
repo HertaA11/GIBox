@@ -6,7 +6,7 @@ import java.nio.file.Files;
 import java.util.*;
 
 /**
- * Playable characters: AvatarId and Chinese name (124 up to 7.1 and four of 7.2, tests/avatar_ids.txt), the internal model name
+ * Playable characters: AvatarId and Chinese name (124 up to 7.1 and six of 7.2, tests/avatar_ids.txt), the internal model name
  * (skeleton root Avatar_Girl_Catalyst_Citlali → citlali) and the names mods use for them, for search and for the
  * recommended character of an imported mod.
  */
@@ -153,6 +153,10 @@ public final class Characters {
         a(10000131, "尼可", "nicole", ""),
         a(10000132, "布伦妮", "prune", ""),
         a(10000133, "桑多涅", "marionettenew", "sandrone"),
+        // 10000134 / 10000135: the travelers of the TPS mode (the data: PlayerBoy / PlayerGirl with a crossbow). No model
+        // name or alias, so a traveler mod is still guessed as 10000005 / 10000007.
+        a(10000134, "空（TPS 模式）", "", ""),
+        a(10000135, "荧（TPS 模式）", "", ""),
         a(10000136, "米提亚", "mitya", ""),
         a(10000137, "瓦列里", "valeriy", ""),
         a(10000140, "沃雅妮莎", "vodyanitsa", ""),

@@ -15,21 +15,21 @@ public class ImporterTest {
  static void zip(File zip,File dir,String prefix,boolean evil)throws Exception{try(java.util.zip.ZipOutputStream z=new java.util.zip.ZipOutputStream(new FileOutputStream(zip))){for(File f:dir.listFiles()){if(f.isDirectory())continue;z.putNextEntry(new java.util.zip.ZipEntry(prefix+f.getName()));z.write(Files.readAllBytes(f.toPath()));z.closeEntry();}if(evil){z.putNextEntry(new java.util.zip.ZipEntry("../evil.txt"));z.write(1);z.closeEntry();}}}
  public static void main(String[] a)throws Exception{
   File base=new File(a[0]),list=new File(a[1]),bones=new File(base,"骨骼"),mods=new File(base,"mods"),models=new File(base,"模型"),download=new File(base,"Download");models.mkdirs();download.mkdirs();
-  // 1. The table is the list: same 128 IDs and names, same order; model names fit model.json "character.names".
+  // 1. The table is the list: same 130 IDs and names, same order; model names fit model.json "character.names".
   List<String> want=new ArrayList<>(),have=new ArrayList<>();for(String l:read(list).split("\\r?\\n"))if(l.matches("[0-9]{8}\t.+"))want.add(l);for(Characters.Avatar x:Characters.all())have.add(x.id+"\t"+x.name);
-  ok(want.size()==128&&want.equals(have),"character table differs from tests/avatar_ids.txt");
+  ok(want.size()==130&&want.equals(have),"character table differs from tests/avatar_ids.txt");
   for(Characters.Avatar x:Characters.all()){for(String n:x.aliases)ok(n.matches("[a-z0-9]{3,40}"),"alias "+n);ok(Characters.byId(x.id)==x,"byId "+x.id);}
   // 2. Search by ID, Chinese name, English or internal name.
   ok(ids(Characters.search("10000107")).equals(Collections.singletonList(10000107))&&ids(Characters.search("茜特")).equals(Collections.singletonList(10000107)),"search id/name");
   ok(ids(Characters.search("旅行者")).equals(Arrays.asList(10000005,10000007))&&ids(Characters.search("Raiden")).equals(Collections.singletonList(10000052))&&ids(Characters.search("shougun")).equals(Collections.singletonList(10000052)),"search aliases");
-  ok(Characters.search("1000010").size()==10&&Characters.search(" ").size()==128&&Characters.search("没有这个人").isEmpty(),"search edge cases");
+  ok(Characters.search("1000010").size()==10&&Characters.search(" ").size()==130&&Characters.search("没有这个人").isEmpty(),"search edge cases");
   ok(Characters.words("TextureOverrideHuTaoBody2").equals(Arrays.asList("texture","override","hu","tao","body","2")),"words: "+Characters.words("TextureOverrideHuTaoBody2"));
   // 3. The recommended character: from the import name, folder, INI sections and resource names.
   character(bones,"10000107",10000107,"Avatar_Girl_Catalyst_Citlali");character(bones,"10000150",10000150,"Avatar_Girl_Sword_Odette(Clone)");character(bones,"10000107-123",10000107,"Old_Export");
   ok(ModLibrary.library(bones).size()==2&&ModLibrary.recorded(bones,10000107).bones.getName().equals("10000107"),"library prefers the per-character folder");
   File citlali=GimiPatternsTest.mod(download,"Citlali Summer",GimiPatternsTest.ini("global $creditinfo = 0\n","","",""));
   Characters.Guess g=Characters.guess(citlali,"Citlali Summer",ModLibrary.library(bones));
-  ok(ids(g.recommended).equals(Collections.singletonList(10000107))&&Characters.ordered(g,"").get(0).id==10000107&&Characters.ordered(g,"").size()==128,"citlali recommended first: "+g.evidence);
+  ok(ids(g.recommended).equals(Collections.singletonList(10000107))&&Characters.ordered(g,"").get(0).id==10000107&&Characters.ordered(g,"").size()==130,"citlali recommended first: "+g.evidence);
   ok(Characters.ordered(g,"琴").get(0).id==10000003,"a search keeps only matches");
   File raiden=renamed(download,"RaidenShogun Kimono","RaidenShogun"),hutao=renamed(download,"hu tao","HuTao"),odette=renamed(download,"odette_v2","Odette"),hero=renamed(download,"Mystery","Hero");
   ok(ids(Characters.guess(raiden,"RaidenShogun Kimono",null).recommended).equals(Collections.singletonList(10000052)),"raiden");
