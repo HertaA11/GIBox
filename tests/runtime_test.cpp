@@ -41,7 +41,8 @@ struct Fake {
  void breakPairs(){for(auto& kv:kinds)std::memset(reinterpret_cast<void*>(kv.second+0x40),0,16);}
  Ptr typed(const std::string& kind,Ptr element){Ptr a=array(8,1,&element),cls=load<Ptr>(a);typedClasses.push_back({cls,kind});linkArray(cls,kind);return a;}
  Ptr alloc(size_t n){auto p=std::calloc(1,n);assert(p);allocated.push_back(p);return reinterpret_cast<Ptr>(p);}
- Ptr array(unsigned stride,unsigned count,const void* data=nullptr){Ptr cls=alloc(0x200),p=alloc(0x20+stride*count);store<uint16_t>(cls+0xba,stride);store<Ptr>(p,cls);store<uint64_t>(p+0x18,count);if(data&&count)std::memcpy(reinterpret_cast<void*>(p+0x20),data,stride*count);return p;}
+ unsigned elemAt=0xba;   // where an array class keeps its element size (7.1 / the fake: +0xba; the global client: +0xbc)
+ Ptr array(unsigned stride,unsigned count,const void* data=nullptr){Ptr cls=alloc(0x200),p=alloc(0x20+stride*count);store<uint16_t>(cls+elemAt,stride);store<Ptr>(p,cls);store<uint64_t>(p+0x18,count);if(data&&count)std::memcpy(reinterpret_cast<void*>(p+0x20),data,stride*count);return p;}
  Ptr object(std::string kind,std::string name){Ptr p=alloc(0x20),n=alloc(0x100);store<Ptr>(p,kindClass(kind));store<Ptr>(p+0x10,n);store<uint32_t>(n+8,nextId++);obj[p]=Obj{kind,name,0,0,0,n,0,0,{}};return p;}
  Ptr mesh(std::string name="Body",unsigned vertices=3){Ptr p=object("mesh",name),shared=alloc(0x120);auto&o=obj[p];o.shared=shared;store<Ptr>(o.native+0x48,shared);store<uint32_t>(shared+0x74,vertices);store<uint32_t>(shared+0xc0,1);store<uint64_t>(shared+0xe0,1);store<uint64_t>(o.native+0x90,1);store<uint32_t>(shared+0xf8,15);store<Ptr>(shared+0xf0,alloc(32*6));store<uint64_t>(shared+0x100,3);store<uint64_t>(shared+0x108,6);
   for(auto c:{std::pair{abi::getPositions,12},std::pair{abi::getUV,8},std::pair{abi::getTriangles,4},std::pair{abi::getColors,4},std::pair{abi::getTangents,16}})o.arrays[c.first]=array(c.second,vertices);
@@ -66,7 +67,7 @@ void destroy(Ptr p,Ptr){store<Ptr>(p+0x10,0);}
 std::map<Ptr,int> hideFlags;void setHide(Ptr p,int v,Ptr){assert(load<Ptr>(p+0x10));hideFlags[p]=v;}int getHide(Ptr p,Ptr){auto it=hideFlags.find(p);return it==hideFlags.end()?0:it->second;}Ptr parent(Ptr p,Ptr){return f->obj.at(p).parent;}
 uint32_t pin(Ptr p,int,Ptr){auto h=f->nextHandle++;f->handles[h]=p;return h;}void unpin(uint32_t h){assert(f->handles.erase(h)==1);}
 unsigned gameWrites=0;void setMesh(Ptr p,Ptr m,Ptr){gameWrites++;f->obj.at(p).mesh=m;}void setMaterials(Ptr p,Ptr m,Ptr){gameWrites++;if(f->failMaterials){f->failMaterials=false;throw std::runtime_error("fake-material-failure");}f->obj.at(p).materials=m;}
-Ptr newArray(Ptr cls,uint64_t count){return f->array(load<uint16_t>(cls+0xba),count);}void op(Ptr,int,Ptr){}void action(Ptr,Ptr){}
+Ptr newArray(Ptr cls,uint64_t count){return f->array(load<uint16_t>(cls+f->elemAt),count);}void op(Ptr,int,Ptr){}void action(Ptr,Ptr){}
 void submeshCount(Ptr m,int n,Ptr){assert(n>=1);store<uint32_t>(f->obj.at(m).shared+0xc0,n);}
 void sub(Ptr m,Ptr a,int i,Ptr){assert(i>=0&&unsigned(i)<load<uint32_t>(f->obj.at(m).shared+0xc0));unsigned n=unsigned(load<uint64_t>(a+0x18));f->triangles.push_back({m,n});
  auto& v=f->submeshIndices[{m,i}];v.assign(n,0);if(n)std::memcpy(v.data(),reinterpret_cast<const void*>(a+0x20),4ull*n);}
@@ -84,7 +85,7 @@ int32_t propertyToId(Ptr name,Ptr);
 void setTex(Ptr mat,Ptr name,Ptr tex,Ptr){gameWrites++;assert(mat&&(!tex||load<Ptr>(tex+0x10))&&f->strings.count(name));f->lightProperty=f->strings[name];f->named[mat][propertyToId(name,0)]=tex;}
 void setMainTexture(Ptr mat,Ptr tex,Ptr){gameWrites++;assert(mat);f->diffuse[mat]=tex;}
 unsigned channelSets=0;std::vector<Bytes> channelData;void setChannel(Ptr,Ptr a,Ptr){assert(load<uint64_t>(a+0x18)==f->expectedVertices);channelSets++;
- unsigned stride=load<uint16_t>(load<Ptr>(a)+0xba);channelData.emplace_back(reinterpret_cast<const uint8_t*>(a+0x20),reinterpret_cast<const uint8_t*>(a+0x20)+size_t(f->expectedVertices)*stride);}void setPos(Ptr p,Ptr a,Ptr){if(f->failPosition){f->failPosition=false;throw std::runtime_error("fake-animation-channel-error");}store<uint32_t>(f->obj.at(p).shared+0x74,load<uint64_t>(a+0x18));}void setAny(Ptr,Ptr,Ptr){}
+ unsigned stride=load<uint16_t>(load<Ptr>(a)+f->elemAt);channelData.emplace_back(reinterpret_cast<const uint8_t*>(a+0x20),reinterpret_cast<const uint8_t*>(a+0x20)+size_t(f->expectedVertices)*stride);}void setPos(Ptr p,Ptr a,Ptr){if(f->failPosition){f->failPosition=false;throw std::runtime_error("fake-animation-channel-error");}store<uint32_t>(f->obj.at(p).shared+0x74,load<uint64_t>(a+0x18));}void setAny(Ptr,Ptr,Ptr){}
 Ptr classFromType(Ptr t,int init){assert(init==1&&load<uint8_t>(t+0xa)!=0);f->typeLookups++;for(auto& kv:f->kinds)if(t==kv.second+0x98)return kv.second;return f->alloc(0x10);}
 Ptr typeObject(Ptr t){if(t==f->kindClass("mesh")+0x98){if(!f->meshTypeObj){f->meshTypeObj=f->alloc(0x20);store<Ptr>(f->meshTypeObj+0x10,t);}return f->meshTypeObj;}
  assert(t==f->klass+0x98);if(!f->typeObj){f->typeObj=f->alloc(0x20);store<Ptr>(f->typeObj+0x10,t);}return f->typeObj;}
@@ -520,6 +521,13 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
   {size_t n=0;for(size_t p=log.find("lod-variant-error");p!=std::string::npos;p=log.find("lod-variant-error",p+1))n++;assert(n==1);}
   f->world(lod);f->scene={w,lod};var.tick(t+=600);write(sharedV+"/control.json","{\"enabled\":false,\"selected\":[\"Var\"]}");var.tick(t+=600);assert(meshOf(lod)==lodMesh&&meshOf(w)==full);
   var.shutdown();assert(f->handles.empty());}
+ // 27c. The global client keeps an array class's element size at +0xbc (+0xb4 and +0xba hold other things): found there
+ //      by the first array class, and the model goes on.
+ {std::string mediaE=root+"/mediaElem",sharedE=mediaE+"/"+pkg+"/GIBox";Spec s;s.withTarget(fixture::target("Body"));writeModel(sharedE+"/models/Elem",s);
+  f->elemAt=0xbc;Ptr full=f->mesh(),w=f->renderer(full);f->world(w);f->scene={w};write(sharedE+"/control.json","{\"enabled\":true,\"selected\":[\"Elem\"]}");
+  Runtime el(e,pkg,root+"/privateElem",mediaE,false);for(uint64_t t=1630000;t<1632000;t+=600)el.tick(t);
+  auto log=text(sharedE+"/GIBox Log.txt");assert(meshOf(w)!=full&&log.find("array-layout 托管数组元素大小位于 +0xbc")!=std::string::npos&&log.find("array-layout-error")==std::string::npos);
+  el.shutdown();f->elemAt=0xba;assert(f->handles.empty());}
  // 28. Only Body_LOD1 in sight from the start: built on it when its bones and bindposes are exactly the bone library's
  //     record of the full Body; without that record it waits as before.
  {std::string mediaLod=root+"/mediaLod",sharedLod=mediaLod+"/"+pkg+"/GIBox";Spec s;s.noSkeleton().withTarget(fixture::target("Body"));writeModel(sharedLod+"/models/Lod",s);

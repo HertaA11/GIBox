@@ -145,6 +145,20 @@ public class ImporterTest {
   ok(r.library&&olog.toString().contains("外观：冷花幽露（avatar_lady_pole_shenhecostumedai）；依据 INI 哈希识别：83a9116d")&&olog.toString().contains("使用骨骼库："+new File(new File(ob,"10000063"),ff.prefab))&&r.summary.startsWith("申鹤·冷花幽露（10000063）"),"converted for the skin with its library: "+olog);
   ok(ModelManifest.read(new File(omodels,"ShenheFF")).outfit.equals(ff.prefab)&&Importer.outfit(shm)==null,"model.json names the outfit");
   Outfits.use(null);
-  System.out.println("Importer: PASS (outfit table, outfit by INI hash, library per outfit, a skin mod refused as the original and converted for its skin, lower-LOD library records and models, mod names, unreadable models listed, 7.1 character table, search by ID/name, recommended character first, folder/zip staging, picker prepare/commit/discard, zip-slip guard, bone-library and ID conversion, character change, Mods list, delete, XXMI log line and levels)");
+  // Shared Mods (0.7.101): per-game Mods folders merged; same content once, a different mod of the same name renamed with its model.
+  File shared=new File(base,"library"),legA=new File(base,"legacy/a"),legB=new File(base,"legacy/b"),modelsB=new File(base,"modelsB");
+  File sa=renamed(legA,"Same","HuTao"),sb=renamed(legB,"Same","HuTao"),da=renamed(legA,"Clash","HuTao"),db=renamed(legB,"Clash","Odette");renamed(legB,"OnlyB","Odette");
+  for(File f:sb.listFiles())f.setLastModified(f.lastModified()-86400000L);
+  ok(ModLibrary.contentKey(sa).equals(ModLibrary.contentKey(sb))&&!ModLibrary.signature(sa).equals(ModLibrary.signature(sb))&&!ModLibrary.contentKey(da).equals(ModLibrary.contentKey(db)),"content key ignores mtimes");
+  new File(modelsB,"Clash").mkdirs();Files.write(new File(modelsB,"Clash/model.json").toPath(),"{}".getBytes(StandardCharsets.UTF_8));new File(legB,".pending/x").mkdirs();
+  StringBuilder ml=new StringBuilder();
+  ok(Importer.mergeMods(shared,legA,new File(base,"modelsA"),ml).isEmpty()&&!legA.exists()&&new File(shared,"Same").isDirectory()&&new File(shared,"Clash").isDirectory(),"first game's Mods moved");
+  List<Importer.Renamed> rn=Importer.mergeMods(shared,legB,modelsB,ml);
+  ok(rn.size()==1&&rn.get(0).from.equals("Clash")&&rn.get(0).to.equals("Clash (2)")&&!legB.exists(),"clash renamed: "+ml);
+  ok(new File(shared,"Clash (2)/Odette.ini").isFile()&&new File(shared,"Clash/HuTao.ini").isFile()&&new File(shared,"OnlyB/Odette.ini").isFile()&&!new File(shared,"Same (2)").exists(),"same content kept once");
+  ok(new File(modelsB,"Clash (2)/model.json").isFile()&&!new File(modelsB,"Clash").exists(),"the renamed mod's model follows it");
+  File[] lib=shared.listFiles(f->!f.getName().startsWith("."));ok(lib!=null&&lib.length==4,"four shared entries: "+Arrays.toString(lib));
+  Importer.deleteModel("Clash (2)",modelsB);ok(!new File(modelsB,"Clash (2)").exists(),"another game's model deleted");
+  System.out.println("Importer: PASS (shared Mods merge: duplicates once, clashes renamed with their model; outfit table, outfit by INI hash, library per outfit, a skin mod refused as the original and converted for its skin, lower-LOD library records and models, mod names, unreadable models listed, 7.1 character table, search by ID/name, recommended character first, folder/zip staging, picker prepare/commit/discard, zip-slip guard, bone-library and ID conversion, character change, Mods list, delete, XXMI log line and levels)");
  }
 }

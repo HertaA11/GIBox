@@ -29,7 +29,7 @@ public final class DirectoryProvider extends DocumentsProvider {
         String pkg=id.substring(0,colon), kind=id.substring(colon+1,slash<0?id.length():slash);
         if(!Control.supported(pkg)) throw new FileNotFoundException("Unknown game");
         File root;
-        if(kind.equals("mods")) root=Control.mods(getContext().getFilesDir(),pkg);
+        if(kind.equals("mods")) root=Control.mods(getContext().getFilesDir());
         else if(kind.equals("shared")) root=Control.shared(pkg);
         else throw new FileNotFoundException("Unknown document root");
         return DocumentPaths.resolve(root,slash<0?"":id.substring(slash+1));
@@ -59,12 +59,14 @@ public final class DirectoryProvider extends DocumentsProvider {
     }
     @Override public Cursor queryRoots(String[] projection) {
         MatrixCursor result=new MatrixCursor(projection==null?ROOT_COLUMNS:projection);
-        for(String pkg:new String[]{"com.miHoYo.Yuanshen","com.miHoYo.ys.bilibili","com.miHoYo.GenshinImpact"}) for(String kind:new String[]{"mods","shared"}) {
+        // The Mods folder is one for every game (0.7.101): listed once, under the first game's ID.
+        for(String pkg:Control.GAMES) for(String kind:new String[]{"mods","shared"}) {
+            if(kind.equals("mods")&&!pkg.equals(Control.GAMES[0])) continue;
             String id=pkg+":"+kind;try{if(!file(id).isDirectory())continue;}catch(FileNotFoundException e){continue;}MatrixCursor.RowBuilder row=result.newRow();
             for(String column:result.getColumnNames()) {
                 Object value=null;
                 if(column.equals(Root.COLUMN_ROOT_ID)||column.equals(Root.COLUMN_DOCUMENT_ID)) value=id;
-                else if(column.equals(Root.COLUMN_TITLE)) value="GIBox "+(pkg.endsWith("bilibili")?"B 服":pkg.endsWith("GenshinImpact")?"国际服":"官服")+(kind.equals("mods")?" Mods":" 文件");
+                else if(column.equals(Root.COLUMN_TITLE)) value=kind.equals("mods")?"GIBox Mods":"GIBox "+(pkg.endsWith("bilibili")?"B 服":pkg.endsWith("GenshinImpact")?"国际服":"官服")+" 文件";
                 else if(column.equals(Root.COLUMN_ICON)) value=android.R.drawable.ic_menu_agenda;
                 else if(column.equals(Root.COLUMN_FLAGS)) value=Root.FLAG_SUPPORTS_CREATE|Root.FLAG_SUPPORTS_IS_CHILD|Root.FLAG_LOCAL_ONLY;
                 else if(column.equals(Root.COLUMN_MIME_TYPES)) value="*/*";

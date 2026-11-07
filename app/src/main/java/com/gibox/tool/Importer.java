@@ -211,9 +211,44 @@ public final class Importer {
         }
         return new ArrayList<>(byName.values());
     }
+    /** One Mods entry the merge renamed because another game's Mods folder had a different mod of that name. */
+    public static final class Renamed { public final String from, to; Renamed(String from, String to) { this.from = from; this.to = to; } }
+    /**
+     * Moves the entries of a pre-0.7.101 per-game Mods folder (`legacy`) into the shared one (`modsRoot`). An entry
+     * the shared folder lacks is moved; one it holds with the same content (ModLibrary.contentKey) is dropped as a
+     * duplicate; a different mod of the same name is moved under a free name, and that game's converted model (in
+     * `modelsRoot`) is renamed with it. `legacy` is removed once empty. Returns the renames; `log` gets one line each.
+     */
+    public static List<Renamed> mergeMods(File modsRoot, File legacy, File modelsRoot, StringBuilder log) throws Exception {
+        List<Renamed> renamed = new ArrayList<>();
+        if (!legacy.isDirectory()) return renamed;
+        if (!modsRoot.isDirectory() && !modsRoot.mkdirs()) throw new IllegalStateException("无法创建 Mods 文件夹：" + modsRoot);
+        discard(pendingRoot(legacy));
+        File[] entries = legacy.listFiles(f -> f.isDirectory() && !f.getName().startsWith(".")); if (entries == null) entries = new File[0];
+        Arrays.sort(entries, Comparator.comparing(File::getName));
+        for (File d : entries) {
+            File dest = new File(modsRoot, d.getName());
+            if (!dest.exists()) { Files.move(d.toPath(), dest.toPath()); log.append("迁移：").append(d.getName()).append('\n'); continue; }
+            if (dest.isDirectory() && ModLibrary.contentKey(d).equals(ModLibrary.contentKey(dest))) { ModelConverter.remove(d); log.append("重复，保留一份：").append(d.getName()).append('\n'); continue; }
+            Map<String, String> o = ModLibrary.overrides(d); String model = ModLibrary.modelName(o.containsKey("name") ? o.get("name") : d.getName());
+            String free = freeName(modsRoot, modelsRoot, d.getName());
+            dest = new File(modsRoot, free); Files.move(d.toPath(), dest.toPath());
+            if (o.containsKey("name")) ModLibrary.setOverride(dest, "name", free);
+            File oldModel = new File(modelsRoot, model), newModel = new File(modelsRoot, free);
+            if (oldModel.isDirectory() && !newModel.exists()) Files.move(oldModel.toPath(), newModel.toPath());
+            renamed.add(new Renamed(model, free)); log.append("同名但内容不同，改名：").append(d.getName()).append(" → ").append(free).append('\n');
+        }
+        File[] left = legacy.listFiles(); if (left == null || left.length == 0) legacy.delete();
+        return renamed;
+    }
     /** GIBox/texture-diag, next to the models folder: read-only diagnostics of texture-only mods (TextureDiag). */
     public static File textureDiagDir(File modelsRoot) { return new File(modelsRoot.getAbsoluteFile().getParentFile(), TextureDiag.DIR); }
     /** Removes the mod's copy in the Mods folder, its converted model and a texture-only diagnostic of that name. */
     public static void delete(Mod m) throws Exception { if (m.model != null) ModelConverter.remove(m.model); if (m.source != null) ModelConverter.remove(m.source); }
     public static void delete(Mod m, File modelsRoot) throws Exception { delete(m); TextureDiag.remove(textureDiagDir(modelsRoot), m.name); }
+    /** Another game's converted model of a deleted mod, and its texture-only diagnostic. */
+    public static void deleteModel(String name, File modelsRoot) throws Exception {
+        File d = new File(modelsRoot, ModLibrary.modelName(name)); if (d.isDirectory() && inside(d, modelsRoot)) ModelConverter.remove(d);
+        TextureDiag.remove(textureDiagDir(modelsRoot), name);
+    }
 }

@@ -1292,11 +1292,14 @@ struct Runtime::Impl {
  // +0xb4. The first class whose element size is known (a game array of a known element type) settles which: the one
  // that holds it and the other does not (logged); until then either counts. Neither: the halfwords around are logged.
  unsigned elemOff=0;bool elemSaid=false,skinLabelSaid=false;
+ // The global client's build has it at +0xbc (0.7.100 device log: +0xb4 / +0xba held 65535 / 0 on a Vector3[] class, +0xbc 12).
+ // Once one candidate is taken, every later array class must hold its own element size there (4, 8, 12 or 16), or
+ // building stops with "托管数组元素大小不符".
  bool elementSize(Ptr cls,unsigned stride){if(!cls)return false;if(elemOff)return load<uint16_t>(cls+elemOff)==stride;
-  bool a=load<uint16_t>(cls+0xb4)==stride,b=load<uint16_t>(cls+0xba)==stride;
-  if(a!=b){elemOff=a?0xb4:0xba;log("array-layout","托管数组元素大小位于 +"+hex(elemOff)+"（依据：元素为 "+std::to_string(stride)+" 字节的类）");return true;}
-  if(!a&&!elemSaid){elemSaid=true;std::string s;for(unsigned off=0xa0;off<0xd0;off+=2)s+=hex(off)+"="+std::to_string(load<uint16_t>(cls+off))+" ";log("array-layout-error","+0xb4 和 +0xba 处都不是元素大小 "+std::to_string(stride)+"："+s);}
-  return a;}
+  std::vector<unsigned> hit;for(unsigned off:{0xb4u,0xbau,0xbcu})if(load<uint16_t>(cls+off)==stride)hit.push_back(off);
+  if(hit.size()==1){elemOff=hit[0];log("array-layout","托管数组元素大小位于 +"+hex(elemOff)+"（依据：元素为 "+std::to_string(stride)+" 字节的类）");return true;}
+  if(hit.empty()&&!elemSaid){elemSaid=true;std::string s;for(unsigned off=0xa0;off<0xd0;off+=2)s+=hex(off)+"="+std::to_string(load<uint16_t>(cls+off))+" ";log("array-layout-error","+0xb4、+0xba、+0xbc 处都不是元素大小 "+std::to_string(stride)+"："+s);}
+  return !hit.empty();}
  Ptr arrayOf(Owned& o,Ptr cls,const void* data,size_t n,unsigned stride){require(elementSize(cls,stride),"托管数组元素大小不符");Ptr p=e.call<Ptr>(abi::arrayNew,cls,uint64_t(n));require(p!=0,"托管数组分配失败");pin(o,p);if(n)std::memcpy(reinterpret_cast<void*>(p+0x20),data,n*stride);return p;}
  Ptr array(Owned& o,Ptr templ,const void* data,size_t n,unsigned stride){require(templ!=0,"缺少托管数组模板");return arrayOf(o,load<Ptr>(templ),data,n,stride);}
  // Managed array classes for the mesh setters (Vector3[], Vector2[], int[], Color32[], Vector4[]), taken once from the

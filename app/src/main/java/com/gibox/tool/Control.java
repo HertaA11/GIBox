@@ -19,8 +19,13 @@ public final class Control {
     public static File shared(String pkg) { return new File("/storage/emulated/0/Android/media/" + pkg + "/GIBox"); }
     public static File models(String pkg) { return new File(shared(pkg), "models"); }
     public static File bones(String pkg) { return new File(shared(pkg), "skeletons"); }
-    /** The Mods folder: imported PC mods, only ever read by the app, in GIBox's private storage (filesDir/mods/<pkg>). */
-    public static File mods(File filesDir, String pkg) { return new File(new File(filesDir, "mods"), pkg); }
+    /** The Mods folder: imported PC mods, only ever read by the app, in GIBox's private storage. One copy for every
+     *  game (filesDir/library, 0.7.101); each game gets its own converted model in its media folder. */
+    public static File mods(File filesDir) { return new File(filesDir, "library"); }
+    /** Before 0.7.101: one Mods folder per game (filesDir/mods/<pkg>), merged into mods() at the app's start. */
+    public static File legacyMods(File filesDir, String pkg) { return new File(new File(filesDir, "mods"), pkg); }
+    /** The games GIBox supports, official first. */
+    public static final String[] GAMES = {"com.miHoYo.Yuanshen", "com.miHoYo.ys.bilibili", "com.miHoYo.GenshinImpact"};
     public static JSONObject load(String pkg) {
         try { return new JSONObject(new String(Files.readAllBytes(new File(shared(pkg), "control.json").toPath()), StandardCharsets.UTF_8)); }
         catch (Exception e) { JSONObject j = new JSONObject(); try { j.put("enabled", false); j.put("selected", new JSONArray()); j.put("exportBones", 0); j.put("logLevel", "info"); } catch (Exception ignored) {} return j; }
@@ -51,6 +56,12 @@ public final class Control {
         JSONObject j = load(pkg); JSONArray a = j.optJSONArray("selected"), keep = new JSONArray();
         if (a != null) for (int i = 0; i < a.length(); i++) if (!model.equals(a.optString(i))) keep.put(a.optString(i));
         j.put("selected", keep); save(pkg, j);
+    }
+    /** A selected model renamed (the Mods merge of 0.7.101); the master switch is left as it is. */
+    public static synchronized void rename(String pkg, String from, String to) throws Exception {
+        JSONObject j = load(pkg); JSONArray a = j.optJSONArray("selected"), out = new JSONArray(); boolean hit = false;
+        if (a != null) for (int i = 0; i < a.length(); i++) { String n = a.optString(i); if (n.equals(from)) { n = to; hit = true; } out.put(n); }
+        if (hit) { j.put("selected", out); save(pkg, j); }
     }
     public static boolean selected(String pkg, String model) {
         JSONArray a = load(pkg).optJSONArray("selected"); if (a != null) for (int i = 0; i < a.length(); i++) if (model.equals(a.optString(i))) return true; return false;

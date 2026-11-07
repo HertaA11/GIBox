@@ -95,12 +95,13 @@ class AppState(private val activity: Activity) {
         private set
     val stack = mutableStateListOf<Screen>(Screen.Home)
 
-    /** Imported mods: GIBox's private storage. Models, skeletons, control/status and the log: the game's media folder. */
-    val modsRoot: File get() = Control.mods(activity.filesDir, game)
+    /** Imported mods: GIBox's private storage, one copy for every game. Models, skeletons, control/status and the log:
+     *  each game's media folder (a mod is converted for every game it is used in). */
+    val modsRoot: File get() = Control.mods(activity.filesDir)
     val modelsRoot: File get() = Control.models(game)
     val boneRoot: File get() = Control.bones(game)
     val logFile: File get() = AppLog.file(game)
-    private val labelsFile: File get() = File(activity.filesDir, "labels/$game.json")
+    private val labelsFile: File get() = File(activity.filesDir, "labels/library.json")
 
     /** The game the PC hash database was installed for this run (installPcHashes, called from refresh). */
     private var pcHashesFor = ""
@@ -114,8 +115,50 @@ class AppState(private val activity: Activity) {
         // File access is asked for once, at the first start after installing; later a feature that needs it asks again.
         if (!hasStorage() && readPrivate("storage-asked.txt").isEmpty()) { writePrivate("storage-asked.txt", "1"); grantStorage() }
         runCatching { Control.retireExperiments(game) }
+        mergeMods()
         Importer.discardAll(modsRoot)
         refresh()
+    }
+    /** Before 0.7.101 each game had its own Mods folder and labels: merged into the shared ones, this game's first. */
+    private fun mergeMods() {
+        for (pkg in listOf(game) + Control.GAMES.filter { it != game }) {
+            val legacy = Control.legacyMods(activity.filesDir, pkg)
+            val oldLabels = File(activity.filesDir, "labels/$pkg.json")
+            if (!legacy.isDirectory && !oldLabels.isFile) continue
+            try {
+                val log = StringBuilder()
+                val renamed = Importer.mergeMods(modsRoot, legacy, Control.models(pkg), log)
+                val names = renamed.associate { it.from to it.to }
+                for ((name, text) in Labels.read(oldLabels)) { val n = names[name] ?: name; if (Labels.read(labelsFile)[n] == null) Labels.set(labelsFile, n, text) }
+                oldLabels.delete()
+                for (r in renamed) runCatching { Control.rename(pkg, r.from, r.to) }
+                if (log.isNotEmpty()) AppLog.info(game, LOGGER, "mods-merge ${serverName(pkg)}的 Mods 已并入共享 Mods：" + log.toString().trim().replace("\n", "；"))
+            } catch (e: Throwable) { AppLog.warning(game, LOGGER, "mods-merge-error ${serverName(pkg)}的 Mods 迁移失败：$e") }
+        }
+        File(activity.filesDir, "mods").let { if (it.list()?.isEmpty() == true) it.delete() }
+    }
+    /** The other installed games GIBox has run in (its media folder exists): a conversion is made for them too. */
+    private fun otherGames(): List<String> = Control.GAMES.filter { it != game && packageInfo(it) != null && Control.shared(it).isDirectory }
+    /**
+     * The same mod converted for the other games, each with its own bone library and models folder; a new model there
+     * is switched on unless another mod of that character already is. A failure there only shows in the summary.
+     */
+    private fun convertOthers(source: File, id: Int): List<String> = otherGames().map { pkg ->
+        val log = StringBuilder()
+        try {
+            val r = Importer.convert(source, id, Control.models(pkg), Control.bones(pkg), decoder, log)
+            AppLog.debug(pkg, "converter", "conversion-log\n" + log.toString().trim())
+            val model = r.model.name
+            AppLog.info(pkg, LOGGER, "converted $model：${r.summary.replace('\n', ' ')}（随${serverName(game)}的转换一并生成）")
+            val taken = Importer.list(modsRoot, Control.models(pkg)).any { it.name != model && it.id == r.id && it.converted && Control.selected(pkg, it.name) }
+            if (!taken && !Control.selected(pkg, model)) { Control.enable(pkg, model); AppLog.info(pkg, LOGGER, "mod-enable $model") }
+            "${serverName(pkg)}：已转换" + if (taken) "（该角色已有开启的 MOD，此 MOD 未开启）" else ""
+        } catch (e: Throwable) {
+            AppLog.debug(pkg, "converter", "conversion-log\n" + log.toString().trim())
+            AppLog.warning(pkg, LOGGER, "convert-error ${source.name}：${e.message ?: e}")
+            AppLog.warning(game, LOGGER, "convert-other-error ${serverName(pkg)}：${e.message ?: e}")
+            "${serverName(pkg)}：转换失败（${e.message ?: e}）"
+        }
     }
 
     // ---------------------------------------------------------------- navigation
@@ -399,19 +442,21 @@ class AppState(private val activity: Activity) {
     }
     private fun convertJob(name: String, job: (StringBuilder) -> Importer.Result) {
         work("转换", "正在转换 $name…\n大的 MOD 可能要一分钟。", { log ->
-            try { job(log).also { AppLog.debug(game, "converter", "conversion-log\n" + log.toString().trim()) } }
+            val r = try { job(log).also { AppLog.debug(game, "converter", "conversion-log\n" + log.toString().trim()) } }
             catch (e: Throwable) { AppLog.debug(game, "converter", "conversion-log\n" + log.toString().trim()); throw e }
-        }) { r ->
+            Pair(r, convertOthers(File(modsRoot, name), r.id))
+        }) { (r, others) ->
             val model = r.model.name
             AppLog.info(game, LOGGER, "converted $model：${r.summary.replace('\n', ' ')}")
+            val summary = if (others.isEmpty()) r.summary else r.summary + "\n\n" + others.joinToString("\n")
             refresh()
-            val others = enabledWith(model, r.id)
-            if (others.isEmpty()) {
+            val enabled = enabledWith(model, r.id)
+            if (enabled.isEmpty()) {
                 try { enable(model, emptyList()) } catch (e: Throwable) { AppLog.warning(game, LOGGER, "enable-error 启用失败：$e") }
                 refresh()
-                prompt = Prompt("导入完成", "${label(model)}\n${r.summary}\n\n已启用。游戏运行中也会自动载入。")
+                prompt = Prompt("导入完成", "${label(model)}\n$summary\n\n已启用。游戏运行中也会自动载入。")
             } else {
-                prompt = bothPrompt("导入完成", "${label(model)}\n${r.summary}\n\n", model, r.id, others, "先不开启")
+                prompt = bothPrompt("导入完成", "${label(model)}\n$summary\n\n", model, r.id, enabled, "先不开启")
             }
         }
     }
@@ -431,7 +476,8 @@ class AppState(private val activity: Activity) {
                         activity.runOnUiThread { busy = Busy("重新转换", "${i + 1} / ${list.size}：$name") }
                         val log = StringBuilder()
                         try { Importer.convert(mod.source, mod.id, modelsRoot, boneRoot, decoder, log); AppLog.debug(game, "converter", "conversion-log\n" + log.toString().trim()) }
-                        catch (e: Throwable) { AppLog.debug(game, "converter", "conversion-log\n" + log.toString().trim()); AppLog.warning(game, LOGGER, "reconvert-error ${mod.name}：$e"); failed.add("$name：${e.message ?: e}") }
+                        catch (e: Throwable) { AppLog.debug(game, "converter", "conversion-log\n" + log.toString().trim()); AppLog.warning(game, LOGGER, "reconvert-error ${mod.name}：$e"); failed.add("$name：${e.message ?: e}"); return@forEachIndexed }
+                        for (note in convertOthers(mod.source, mod.id)) if (note.contains("失败")) failed.add("$name（$note）")
                     }
                     failed
                 }) { failed ->
@@ -472,10 +518,14 @@ class AppState(private val activity: Activity) {
 
     fun delete(mod: Importer.Mod) {
         prompt = Prompt(
-            title = "删除 ${label(mod.name)}", text = "删除 Mods 里的这份 MOD 和转换好的模型？导入时选的原文件不受影响。",
+            title = "删除 ${label(mod.name)}", text = "删除 Mods 里的这份 MOD 和转换好的模型（各服务器的都删）？导入时选的原文件不受影响。",
             confirm = "删除", dismiss = "取消", destructive = true,
             onConfirm = {
-                try { Control.disable(game, mod.name); Importer.delete(mod, modelsRoot); Labels.set(labelsFile, mod.name, null); AppLog.info(game, LOGGER, "mod-delete ${mod.name}") }
+                try {
+                    Control.disable(game, mod.name); Importer.delete(mod, modelsRoot); Labels.set(labelsFile, mod.name, null); AppLog.info(game, LOGGER, "mod-delete ${mod.name}")
+                    // The shared Mods copy is gone: the other games' models of it go too.
+                    for (pkg in otherGames()) runCatching { Control.disable(pkg, mod.name); Importer.deleteModel(mod.name, Control.models(pkg)); AppLog.info(pkg, LOGGER, "mod-delete ${mod.name}（在${serverName(game)}删除）") }
+                }
                 catch (e: Throwable) { fail("删除", e, null) }
                 if (stack.lastOrNull() == Screen.Detail(mod.name)) closeTop()
                 refresh()

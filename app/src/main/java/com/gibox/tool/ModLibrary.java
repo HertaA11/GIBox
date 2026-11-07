@@ -105,6 +105,14 @@ public final class ModLibrary {
         for (File f : files) md.update((f.getPath().substring(base.length()) + "|" + f.length() + "|" + f.lastModified() + "\n").getBytes(StandardCharsets.UTF_8));
         StringBuilder s = new StringBuilder(); for (byte b : md.digest()) s.append(String.format("%02x", b)); return s.toString();
     }
+    /** Signature without modification times (relative path and size of every file): the same mod imported twice, as
+     *  the per-game Mods folders before 0.7.101 held it, has the same content key. */
+    public static String contentKey(File mod) throws Exception {
+        MessageDigest md = MessageDigest.getInstance("SHA-1"); List<File> files = new ArrayList<>(); walk(mod, files, 0);
+        files.sort(Comparator.comparing(File::getPath)); String base = mod.getPath();
+        for (File f : files) md.update((f.getPath().substring(base.length()).replace('\\', '/') + "|" + f.length() + "\n").getBytes(StandardCharsets.UTF_8));
+        StringBuilder s = new StringBuilder(); for (byte b : md.digest()) s.append(String.format("%02x", b)); return s.toString();
+    }
     private static void walk(File d, List<File> out, int depth) {
         File[] a = d.listFiles(); if (a == null || depth > 8) return;
         for (File f : a) { if (f.isDirectory()) walk(f, out, depth + 1); else if (out.size() < 5000 && !f.getName().equals("modelswap.txt") && !f.getName().equals(".gibox.tmp")) out.add(f); }
