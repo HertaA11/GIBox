@@ -145,11 +145,13 @@ inline CodeCheck bindChecks[]={{lodBind,"ff8304d1e9230b6dfd7b0ca9fc6f0da9"},{mes
 //  200), every MaterialPropertyBlock..ctor call. arrayNew 0x43bef58: what Guid.ToByteArray and BitConverter.GetBytes call
 //  with W1 = their length. nativeAlloc 0x517af94 / nativeAllocator 0x1566c640: X0 = *(that global) at 2691 calls, aligned
 //  W3, label 15; managerActive 0xc4e as in CN. manager 0x157d53a0 / managerSlot 0x90e0: the accessor above.
-// typeObject, lodBind and meshBones: their CN entry bytes occur at many places in this image; pending until one is
-// confirmed (the runtime does not start without typeObject; the two binding hooks are skipped).
+//  typeObject 0x43b1bbc: of the 443 places with its CN entry bytes the nearest to where the pairs above put it (28 bytes
+//  off), and the call right before FindObjectsOfType most often (gibox_find_global2).
+//  lodBind 0x584fc98, meshBones 0x579c768: the CN entry bytes, the hits nearest to where the pairs put them (14 and 11 bytes
+//  off), 0xb3530 apart exactly as in CN; the hooks still check these 16 bytes before installing.
 struct Profile {const char* buildId;const char* pending;uintptr_t managerActive,managerSlot,entityVisual,visualRenderers;
  std::vector<uint16_t> managerLists,managerIds,entityIds;std::vector<std::pair<Offset,uintptr_t>> rvas;std::vector<std::pair<Offset,const char*>> checks;};
-inline const Profile& globalProfile(){static const Profile p{"32f920af1fd831959a440d294fa996a09657afb8","typeObject",0xc4e,0x90e0,0xc8,0x68,
+inline const Profile& globalProfile(){static const Profile p{"32f920af1fd831959a440d294fa996a09657afb8","",0xc4e,0x90e0,0xc8,0x68,
  {0x18,0x28,0x90,0xb0,0xf8,0x110,0x128,0x158,0x1a8,0x1b8,0x1d0,0x1e8},{0x238,0x254,0x260,0x27c,0x2c4},
  {0x368,0x36c,0x384,0x3ec,0x404,0x428,0x440,0x458,0x460,0x484,0x48c,0x4d8},
  {{tick,0x7e90b3c},{manager,0x157d53a0},{getMesh,0x903ef50},{setMesh,0x903f130},{getBones,0x903ee88},{getMaterials,0x90a5214},{setMaterials,0x90a5270},
@@ -161,7 +163,7 @@ inline const Profile& globalProfile(){static const Profile p{"32f920af1fd831959a
   {texturePixels,0x8f68c48},{textureApply,0x8f68d6c},{setHideFlags,0x91be344},{getHideFlags,0x91bf0d0},{mainTexture,0x80e9608},{newString,0x9079290},
   {hasProperty,0x80ea104},{setTexture,0x80eabf8},{getTexture,0x80e9b50},{getShader,0x80e9568},{getTextureIds,0x80e9ea8},{propertyToId,0xa7ed1c4},
   {nativeAlloc,0x517af94},{nativeAllocator,0x1566c640},{findObjectsOfType,0x91bef30},{findObjectsNative,0x5b53dcc},{componentsInChildren,0x97a7ec0},
-  {gameObject,0x80e898c},{receive,0x9798c6c},{lodBind,notFound+0x10},{meshBones,notFound+0x20},{wrapperFor,0x5b4da54},{typeObject,notFound+0x30},
+  {gameObject,0x80e898c},{receive,0x9798c6c},{lodBind,0x584fc98},{meshBones,0x579c768},{wrapperFor,0x5b4da54},{typeObject,0x43b1bbc},
   {classFromType,0x43b2868},{meshSubmeshes,0xabc45a0},{meshVertices,0xabc457c},{meshReadable,0xabc4570},{meshIndexStart,0xabc4414},{meshIndexCount,0xabc445c},
   {textureWidth,0xa865694},{textureHeight,0xa8656b8},{textureFormat,0x8f688ac},{textureMips,0x8f687b4}},
  {{componentsInChildren,"e403022ae2031f2a23008052e5031f2a"},{gameObject,"9274261791742617c00000b4080840f9"},{receive,"fe4fbfa968ff0590e50304aae403032a"},
