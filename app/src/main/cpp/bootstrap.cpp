@@ -54,7 +54,7 @@ uint32_t codeMask(uint32_t w){
  if((w&0x3B000000)==0x39000000&&((w>>5)&31)!=31)return 0xFFC003FF;
  if((w&0x7F800000)==0x11000000&&((w>>5)&31)!=31)return 0xFFC003FF;
  return 0xFFFFFFFF;}
-bool codeMatches(uintptr_t base,const ms::abi::CodeCheck& c){auto* p=reinterpret_cast<const unsigned char*>(base+c.rva);auto digit=[](char x){return x<='9'?x-'0':x-'a'+10;};
+bool codeMatches(uintptr_t base,const ms::abi::CodeCheck& c){auto* p=reinterpret_cast<const unsigned char*>(base+ms::abi::at(c.rva));auto digit=[](char x){return x<='9'?x-'0':x-'a'+10;};
  for(size_t i=0;i<16;i+=4){uint32_t want=0,got=0;for(size_t b=0;b<4;b++){want|=uint32_t(digit(c.hex[2*(i+b)])*16+digit(c.hex[2*(i+b)+1]))<<(8*b);got|=uint32_t(p[i+b])<<(8*b);}
   uint32_t m=codeMask(want);if((want&m)!=(got&m))return false;}
  return true;}
@@ -69,7 +69,7 @@ void bootLog(const std::string& pkg,const std::string& state,const std::string& 
 void bootStatus(const std::string& pkg,const std::string& state,const std::string& detail){auto dir=sharedDir(pkg);try{std::filesystem::create_directories(dir);auto s="{\"state\":"+ms::quote(state)+",\"detail\":"+ms::quote(detail)+",\"characterId\":0,\"model\":\"\"}";ms::write(dir+"/status.json.tmp",s);std::filesystem::rename(dir+"/status.json.tmp",dir+"/status.json");}catch(const std::exception&){}bootLog(pkg,state,detail);}
 }
 extern "C" JNIEXPORT void JNICALL Java_com_gibox_tool_NativeBridge_start(JNIEnv* env,jclass,jstring jp,jstring jd){try{
- auto pkg=jstringValue(env,jp),priv=jstringValue(env,jd);ms::require(pkg=="com.miHoYo.Yuanshen"||pkg=="com.miHoYo.ys.bilibili","不支持的包名");if(started.exchange(true))return;
+ auto pkg=jstringValue(env,jp),priv=jstringValue(env,jd);ms::require(pkg=="com.miHoYo.Yuanshen"||pkg=="com.miHoYo.ys.bilibili"||pkg=="com.miHoYo.GenshinImpact","不支持的包名");if(started.exchange(true))return;
  // The index-buffer hash diagnostic (vk_capture.hpp) hooks the Vulkan loader now, before the game makes its device;
  // only when control.json textureMods.ibHash or capture (every character against the PC) is true at this start
  // (switching it later takes a restart).
@@ -77,26 +77,26 @@ extern "C" JNIEXPORT void JNICALL Java_com_gibox_tool_NativeBridge_start(JNIEnv*
    for(auto* k:{"ibHash","capture"})on=on||(t.type==ms::Json::Object&&t.at(k).type==ms::Json::Bool&&t.at(k).boolean);}catch(const std::exception&){}
   if(on){std::string detail;bool ok=false;try{ok=ms::vkhook::install(detail);}catch(const std::exception& e){detail=e.what();}bootLog(pkg,ok?"vulkan-capture":"vulkan-capture-disabled",ok?"已安装："+detail+"（只读索引缓冲 hash）":detail);}}
  std::thread([pkg,priv]{try{bootStatus(pkg,"waiting","等待 libyuanshen.so");Image image;for(unsigned n=0;n<480&&!image.base;n++){dl_iterate_phdr(findImage,&image);if(!image.base)std::this_thread::sleep_for(std::chrono::milliseconds(500));}ms::require(image.base!=0,"等待 libyuanshen.so 加载超时");
- auto actual=ms::loadedBuildId(image.base,image.ph,image.count,sizeof(ElfW(Phdr)));if(actual!=ms::abi::buildId){bootStatus(pkg,"buildid-mismatch","实际 Build ID："+actual);return;}
+ auto actual=ms::loadedBuildId(image.base,image.ph,image.count,sizeof(ElfW(Phdr)));if(!ms::abi::select(actual)){bootStatus(pkg,"buildid-mismatch","实际 Build ID："+actual);return;}
  // Offsets of this build not found yet (offsets.hpp pendingRequired): nothing is hooked or called.
  if(*ms::abi::pendingRequired){bootStatus(pkg,"offsets-pending",std::string("此版本还缺偏移：")+ms::abi::pendingRequired);return;}
  ms::Engine engine(image.base);
  auto rt=std::make_unique<ms::Runtime>(std::move(engine),pkg,priv);
  // Publish before Dobby makes Tick executable through its trampoline.
  runtime=std::move(rt);published.store(runtime.get(),std::memory_order_release);
- int result=DobbyInstrument(reinterpret_cast<void*>(image.base+ms::abi::tick),onTick);
+ int result=DobbyInstrument(reinterpret_cast<void*>(image.base+ms::abi::at(ms::abi::tick)),onTick);
  if(result!=0){published.store(nullptr,std::memory_order_release);runtime.reset();throw std::runtime_error("DobbyInstrument 失败："+std::to_string(result));}bootStatus(pkg,"ready","模型运行时已就绪");
  // Replacement at the hand-off; without it the scan still replaces, just not before activation.
- {std::string bad;for(auto& c:ms::abi::handoffChecks)if(!codeMatches(image.base,c)){char b[24];std::snprintf(b,sizeof(b),"0x%llx ",static_cast<unsigned long long>(c.rva));bad+=b;}
+ {std::string bad;for(auto& c:ms::abi::handoffChecks)if(!codeMatches(image.base,c)){char b[24];std::snprintf(b,sizeof(b),"0x%llx ",static_cast<unsigned long long>(ms::abi::at(c.rva)));bad+=b;}
   if(!bad.empty())bootLog(pkg,"spawn-hook-disabled","代码不符："+bad);
-  else if(DobbyHook(reinterpret_cast<void*>(image.base+ms::abi::receive),reinterpret_cast<dobby_dummy_func_t>(onReceive),reinterpret_cast<dobby_dummy_func_t*>(&receiveOriginal))!=0||!receiveOriginal)bootLog(pkg,"spawn-hook-disabled","DobbyHook 失败");
+  else if(DobbyHook(reinterpret_cast<void*>(image.base+ms::abi::at(ms::abi::receive)),reinterpret_cast<dobby_dummy_func_t>(onReceive),reinterpret_cast<dobby_dummy_func_t*>(&receiveOriginal))!=0||!receiveOriginal)bootLog(pkg,"spawn-hook-disabled","DobbyHook 失败");
   else bootLog(pkg,"spawn-hook","已安装");}
  // Mesh + bone binding: each entry is hooked only when its own code bytes match.
  for(size_t i=0;i<std::size(ms::abi::bindChecks);i++){auto& c=ms::abi::bindChecks[i];const bool lod=i==0;const char* what=lod?"lod-bind-hook":"mesh-bones-hook";
-  if(!ms::abi::found(c.rva)){bootLog(pkg,std::string(what)+"-disabled","本版本尚未找到偏移");continue;}
+  if(!ms::abi::found(ms::abi::at(c.rva))){bootLog(pkg,std::string(what)+"-disabled","本版本尚未找到偏移");continue;}
   if(!codeMatches(image.base,c)){bootLog(pkg,std::string(what)+"-disabled","代码不符");continue;}
   auto replacement=lod?reinterpret_cast<dobby_dummy_func_t>(onLodBind):reinterpret_cast<dobby_dummy_func_t>(onMeshBones);auto* original=reinterpret_cast<dobby_dummy_func_t*>(lod?&lodBindOriginal:&meshBonesOriginal);
-  if(DobbyHook(reinterpret_cast<void*>(image.base+c.rva),replacement,original)!=0||!*original)bootLog(pkg,std::string(what)+"-disabled","DobbyHook 失败");else bootLog(pkg,what,"已安装");}
+  if(DobbyHook(reinterpret_cast<void*>(image.base+ms::abi::at(c.rva)),replacement,original)!=0||!*original)bootLog(pkg,std::string(what)+"-disabled","DobbyHook 失败");else bootLog(pkg,what,"已安装");}
  }catch(const std::exception& e){bootStatus(pkg,"error",e.what());}}).detach();
  }catch(const std::exception& e){exception(env,e);} }
 // The converter's 3DMigoto backend: what the INI draws (logic_import.hpp drawsJson), UTF-8 JSON in and out.

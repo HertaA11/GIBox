@@ -10,7 +10,7 @@ template<class T>void store(Ptr p,T v){require(p!=0,"原生指针为空");std::m
 struct Engine {
  Ptr base;std::function<Ptr(abi::Offset)> resolver;
  explicit Engine(Ptr b):base(b){}
- template<class R,class... A>R call(abi::Offset o,A... a){Ptr p=resolver?resolver(o):base+o;require(p!=0,"引擎函数未解析");return reinterpret_cast<R(*)(A...)>(p)(a...);}
+ template<class R,class... A>R call(abi::Offset o,A... a){Ptr p=resolver?resolver(o):base+abi::at(o);require(p!=0,"引擎函数未解析");return reinterpret_cast<R(*)(A...)>(p)(a...);}
  Ptr get(abi::Offset o,Ptr p){return call<Ptr>(o,p,Ptr(0));}
  void set(abi::Offset o,Ptr p,Ptr v){call<void>(o,p,v,Ptr(0));}
  void op(abi::Offset o,Ptr p,int v){call<void>(o,p,v,Ptr(0));}

@@ -305,5 +305,12 @@ int main(int argc,char**argv){
    assert(old->logic.present()&&why.find("0.7.34 版的 logic 数据")!=std::string::npos);}
   refused(root+"/swap-original",[](Spec& x){x.edit=[](std::string& j){replaceIn(j,",\"parts\":[",",\"textures\":[{\"renderer\":\"Face\",\"material\":\"Material0\"}],\"parts\":[");};},"贴图替换的材质无效");}
  std::filesystem::remove_all(root);
- std::cout<<"Native core: PASS (GIBox model format: manifest, model.bin views, CRC-32, value/range/reference checks, variants, on-demand textures, learned.json, skeleton.json; bones, JSON, ELF notes, DDS, targets)\n";
+ // The global client's build picks its own table: Unity methods by MethodIndex, the game's fields, the native finds;
+ // what is still pending stays unusable (notFound) and is named. Another build ID picks nothing.
+ {assert(!abi::select("0000")&&abi::at(abi::getMesh)==0x8f4217c&&abi::managerSlot==0x9070);
+  assert(abi::select("32f920af1fd831959a440d294fa996a09657afb8")&&std::string(abi::buildId).substr(0,8)=="32f920af");
+  assert(abi::at(abi::getMesh)==0x903ef50&&abi::at(abi::manager)==0x157d53a0&&abi::at(abi::nativeAlloc)==0x517af94&&abi::at(abi::receive)==0x9798c6c);
+  assert(abi::managerSlot==0x90e0&&abi::entityVisual==0xc8&&abi::visualRenderers==0x68&&abi::managerLists.size()==12&&abi::entityIds.front()==0x368);
+  assert(std::string(abi::pendingRequired)=="typeObject"&&abi::at(abi::typeObject)>=abi::notFound&&std::string(abi::handoffChecks[2].hex)=="fe4fbfa968ff0590e50304aae403032a");}
+ std::cout<<"Native core: PASS (global client build table selected by Build ID; GIBox model format: manifest, model.bin views, CRC-32, value/range/reference checks, variants, on-demand textures, learned.json, skeleton.json; bones, JSON, ELF notes, DDS, targets)\n";
 }

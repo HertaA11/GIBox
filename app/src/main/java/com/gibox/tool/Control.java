@@ -11,7 +11,7 @@ import org.json.JSONObject;
 
 public final class Control {
     private Control() {}
-    public static boolean supported(String pkg) { return "com.miHoYo.Yuanshen".equals(pkg) || "com.miHoYo.ys.bilibili".equals(pkg); }
+    public static boolean supported(String pkg) { return "com.miHoYo.Yuanshen".equals(pkg) || "com.miHoYo.ys.bilibili".equals(pkg) || "com.miHoYo.GenshinImpact".equals(pkg); }
     /**
      * Everything the game reads or writes: the game's own media folder, since the game process cannot open GIBox's
      * private storage. models/ (converted models), skeletons/ (skeleton library), control.json, status.json, the log.

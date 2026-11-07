@@ -1,24 +1,28 @@
 #pragma once
+#include <algorithm>
 #include <atomic>
 #include <cstdint>
+#include <string>
+#include <utility>
+#include <vector>
 namespace ms::abi {
-inline constexpr const char* buildId="6d85e3141bcd6b508f3e853bab508cc407278eac";
+inline const char* buildId="6d85e3141bcd6b508f3e853bab508cc407278eac";   // the build in use (select() below); 7.2 CN by default
 // RVAs valid only for the above GNU Build ID (game 7.2). Every method RVA below was carried over from the 7.1 build
 // (2b4dd731...) by its declaration in the two dump.cs files: by name and signature where names are not obfuscated, by the
 // class's shape and the method's signature where they are (tick: LFEMMJADHPE.Tick, receive: GCGEJOPPGAE's only
 // (ulong, bool, uint, GameObject) method, the material proxy DCCKGJFKIID at shape score 1.0). Native code
 // and data that no dump declares are notFound+n here until found in this build's libyuanshen.so (pendingRequired):
 // distinct values no RVA of this image reaches, never called (the runtime does not start, an optional hook is skipped).
-inline constexpr const char* pendingRequired="";
+inline const char* pendingRequired="";
 // The engine allocation for the skin weights: on (0.7.79 had it off after the 0.7.78 crash, whose cause was the wrong
 // nativeAllocator, see below). Off: the mesh's own skin block is reused when it has room. A variable so host tests run both.
 inline bool allocVerified=true;
 // MemoryManager: its "initialised" byte (Allocate takes the label's allocator only when it is 1).
-inline constexpr uintptr_t managerActive=0xc4e;
+inline uintptr_t managerActive=0xc4e;
 // The entity manager: *(base + manager) + managerSlot (7.1: 0x159c1638, 0x8c00). Read from the 7.2 accessor that
 // returns it, NKIIBJKODNH.POKJNBEFKHA() at 0xc887d04 (7.1: AHJIDBJFIJE.MKFJCCPNOAC()):
 // ADRP X8, 0x15809000; MOV W9, #0x9070; LDR X8, [X8, #0x5a0]; LDR X0, [X8, X9]; RET.
-inline constexpr uintptr_t managerSlot=0x9070;
+inline uintptr_t managerSlot=0x9070;
 // Found in the 7.2 libyuanshen.so (gibox_find_72 over the user's copy), each checked two ways:
 //  typeObject 0x43b1824: the 7.1 entry bytes, and the call right before FindObjectsOfType / GetComponentsInChildren.
 //  classFromType 0x43b24b4: the 7.1 entry bytes, at one place only.
@@ -42,14 +46,14 @@ inline constexpr uintptr_t managerSlot=0x9070;
 //   next dynamic array, the skin, is +0xf0 / label +0xf8 / size +0x100 / capacity +0x108 as before).
 // GCGEJOPPGAE (7.1 JDIIHHFJKBM, the entity): its MonoVisualEntityTool backing field (the only field of that type; 7.1:
 // 0xf8); MonoVisualEntityTool's SkinnedMeshRenderer[] (the only one; 0x68 in both builds).
-inline constexpr uintptr_t entityVisual=0x320,visualRenderers=0x68;
+inline uintptr_t entityVisual=0x320,visualRenderers=0x68;
 // Fields 7.2 reshuffled among others of the same type, so the dump alone cannot tell them apart: the runtime picks them
 // from these candidates (every field of that type in the 7.2 classes) by what they hold in the game (Runtime::calibrate):
 // the manager's List<GCGEJOPPGAE> (7.1: 0x10) and current avatar's runtime ID (uint, 7.1: 0x288); the entity's config
 // ID (uint, 7.1: 0x3a4) and runtime ID (uint, 7.1: 0x430).
-inline constexpr uint16_t managerLists[]={0x18,0x30,0x60,0x70,0x98,0x160,0x170,0x180,0x188,0x1e0,0x1f0,0x1f8};
-inline constexpr uint16_t managerIds[]={0x230,0x234,0x260,0x2a8,0x2c0};
-inline constexpr uint16_t entityIds[]={0x330,0x374,0x3a4,0x3cc,0x3ec,0x3f4,0x448,0x45c,0x464,0x468,0x49c,0x4a4};
+inline std::vector<uint16_t> managerLists={0x18,0x30,0x60,0x70,0x98,0x160,0x170,0x180,0x188,0x1e0,0x1f0,0x1f8};
+inline std::vector<uint16_t> managerIds={0x230,0x234,0x260,0x2a8,0x2c0};
+inline std::vector<uint16_t> entityIds={0x330,0x374,0x3a4,0x3cc,0x3ec,0x3f4,0x448,0x45c,0x464,0x468,0x49c,0x4a4};
 // The entity's config and runtime ID fields once the runtime has found them (0 before), for the hand-off diagnostics.
 inline std::atomic<uint16_t> liveConfig{0},liveRuntime{0};
 // The entity's root GameObject field (7.1: 0x278; 7.2: one of 0x1e0 / 0x268, not identified yet): 0 = not read.
@@ -125,7 +129,56 @@ enum Offset:uintptr_t {
 // First 16 code bytes of the hand-off and binding entries (from the handoff and locator captures);
 // the hand-off hook is installed only when all match.
 struct CodeCheck {Offset rva;const char* hex;};
-inline constexpr CodeCheck handoffChecks[]={{componentsInChildren,"e403022ae2031f2a23008052e5031f2a"},
+inline CodeCheck handoffChecks[]={{componentsInChildren,"e403022ae2031f2a23008052e5031f2a"},
  {gameObject,"614d1c16604d1c16c00000b4080840f9"},{receive,"fe4fbfa9288706f0e50304aae403032a"}};
-inline constexpr CodeCheck bindChecks[]={{lodBind,"ff8304d1e9230b6dfd7b0ca9fc6f0da9"},{meshBones,"ff8304d1e85b00fdfd7b0ca9fc6f0da9"}};
+inline CodeCheck bindChecks[]={{lodBind,"ff8304d1e9230b6dfd7b0ca9fc6f0da9"},{meshBones,"ff8304d1e85b00fdfd7b0ca9fc6f0da9"}};
+
+// ---------------------------------------------------------------- the global client (com.miHoYo.GenshinImpact, 7.2)
+// Build ID 32f920af... Its il2cpp metadata numbers every method as the CN build does: each Unity method above was carried
+// over by MethodIndex and checked by class and signature in the two dump.cs files. The game's own classes keep their
+// obfuscated names but not their field order: Tick (LFEMMJADHPE), receive (GCGEJOPPGAE.BEBHBDFCIOK) and the manager
+// accessor (NKIIBJKODNH.POKJNBEFKHA, 0xb80253c: ADRP; MOV W9,#0x90e0; LDR; LDR X0,[X8,X9]) by name and signature, the
+// fields by their type (the same extraction gives the CN values above from the CN dump). The native code and data were
+// found in the user's libyuanshen.so by gibox_find_global (gibox_offsets_global.txt), each checked two ways:
+//  findObjectsNative 0x5b53dcc: FindObjectsOfType's MOV W1,#1; B. wrapperFor 0x5b4da54: get_whiteTexture's tail call.
+//  classFromType 0x43b2868: the CN entry bytes, at one place only. objectNew 0x43cddec: before 3265 constructor calls (next
+//  200), every MaterialPropertyBlock..ctor call. arrayNew 0x43bef58: what Guid.ToByteArray and BitConverter.GetBytes call
+//  with W1 = their length. nativeAlloc 0x517af94 / nativeAllocator 0x1566c640: X0 = *(that global) at 2691 calls, aligned
+//  W3, label 15; managerActive 0xc4e as in CN. manager 0x157d53a0 / managerSlot 0x90e0: the accessor above.
+// typeObject, lodBind and meshBones: their CN entry bytes occur at many places in this image; pending until one is
+// confirmed (the runtime does not start without typeObject; the two binding hooks are skipped).
+struct Profile {const char* buildId;const char* pending;uintptr_t managerActive,managerSlot,entityVisual,visualRenderers;
+ std::vector<uint16_t> managerLists,managerIds,entityIds;std::vector<std::pair<Offset,uintptr_t>> rvas;std::vector<std::pair<Offset,const char*>> checks;};
+inline const Profile& globalProfile(){static const Profile p{"32f920af1fd831959a440d294fa996a09657afb8","typeObject",0xc4e,0x90e0,0xc8,0x68,
+ {0x18,0x28,0x90,0xb0,0xf8,0x110,0x128,0x158,0x1a8,0x1b8,0x1d0,0x1e8},{0x238,0x254,0x260,0x27c,0x2c4},
+ {0x368,0x36c,0x384,0x3ec,0x404,0x428,0x440,0x458,0x460,0x484,0x48c,0x4d8},
+ {{tick,0x7e90b3c},{manager,0x157d53a0},{getMesh,0x903ef50},{setMesh,0x903f130},{getBones,0x903ee88},{getMaterials,0x90a5214},{setMaterials,0x90a5270},
+  {clone,0x91bf5c4},{destroy,0x91bee44},{getName,0x91bef38},{getParent,0x91c06bc},{arrayNew,0x43bef58},{objectNew,0x43cddec},{pin,0xc130fdc},{unpin,0xc130ff4},
+  {setReadable,0xabc4574},{setIndexFormat,0xabc4410},{getBindposes,0xabc456c},{getPositions,0xabc49b4},{setPositions,0xabc49c4},{setNormals,0xabc49e4},
+  {getUV,0xabc4a10},{setUV,0xabc4a20},{setUV2,0xabc4a40},{setUV3,0xabc4a60},{setUV4,0xabc4a80},{getColors,0xabc4aac},{setColors,0xabc4ac0},
+  {getTangents,0xabc49f4},{setTangents,0xabc4a00},{getTriangles,0xabc4ddc},{setTriangles,0xabc4e80},{setSubmeshCount,0xabc45c4},{setSubmeshTriangles,0xabc5388},
+  {meshFinish,0xabc5afc},{meshUpload,0xabc5d44},{meshDynamic,0xabc5d0c},{frameCount,0x97aa9c4},{textureType,0x8f688b0},{textureInit,0x8f687dc},
+  {texturePixels,0x8f68c48},{textureApply,0x8f68d6c},{setHideFlags,0x91be344},{getHideFlags,0x91bf0d0},{mainTexture,0x80e9608},{newString,0x9079290},
+  {hasProperty,0x80ea104},{setTexture,0x80eabf8},{getTexture,0x80e9b50},{getShader,0x80e9568},{getTextureIds,0x80e9ea8},{propertyToId,0xa7ed1c4},
+  {nativeAlloc,0x517af94},{nativeAllocator,0x1566c640},{findObjectsOfType,0x91bef30},{findObjectsNative,0x5b53dcc},{componentsInChildren,0x97a7ec0},
+  {gameObject,0x80e898c},{receive,0x9798c6c},{lodBind,notFound+0x10},{meshBones,notFound+0x20},{wrapperFor,0x5b4da54},{typeObject,notFound+0x30},
+  {classFromType,0x43b2868},{meshSubmeshes,0xabc45a0},{meshVertices,0xabc457c},{meshReadable,0xabc4570},{meshIndexStart,0xabc4414},{meshIndexCount,0xabc445c},
+  {textureWidth,0xa865694},{textureHeight,0xa8656b8},{textureFormat,0x8f688ac},{textureMips,0x8f687b4}},
+ {{componentsInChildren,"e403022ae2031f2a23008052e5031f2a"},{gameObject,"9274261791742617c00000b4080840f9"},{receive,"fe4fbfa968ff0590e50304aae403032a"},
+  {lodBind,"ff8304d1e9230b6dfd7b0ca9fc6f0da9"},{meshBones,"ff8304d1e85b00fdfd7b0ca9fc6f0da9"}}};return p;}
+// The selected build's table, CN value -> this build's (empty for the CN build, whose values are the enum's).
+inline std::vector<std::pair<uintptr_t,uintptr_t>>& table(){static std::vector<std::pair<uintptr_t,uintptr_t>> t;return t;}
+inline uintptr_t at(Offset o){auto& t=table();if(t.empty())return uintptr_t(o);
+ size_t lo=0,hi=t.size();while(lo<hi){size_t m=(lo+hi)/2;if(t[m].first<uintptr_t(o))lo=m+1;else hi=m;}return lo<t.size()&&t[lo].first==uintptr_t(o)?t[lo].second:notFound+0x40;}
+// Picks the table for the loaded game's Build ID; false when GIBox has none for it.
+inline bool select(const std::string& id){
+ static const std::string cn=buildId;if(id==cn)return true;
+ const Profile& g=globalProfile();if(id!=g.buildId)return false;
+ buildId=g.buildId;pendingRequired=g.pending;managerActive=g.managerActive;managerSlot=g.managerSlot;entityVisual=g.entityVisual;visualRenderers=g.visualRenderers;
+ managerLists=g.managerLists;managerIds=g.managerIds;entityIds=g.entityIds;
+ auto& t=table();t.clear();for(auto& r:g.rvas)t.push_back({uintptr_t(r.first),r.second});
+ std::sort(t.begin(),t.end());
+ for(auto& c:handoffChecks){for(auto& x:g.checks)if(x.first==c.rva)c.hex=x.second;}
+ for(auto& c:bindChecks){for(auto& x:g.checks)if(x.first==c.rva)c.hex=x.second;}
+ return true;}
 }

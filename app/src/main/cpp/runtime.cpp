@@ -269,7 +269,7 @@ struct Runtime::Impl {
  Worker worker;  // last member: destroyed (joined) first, while everything it touches still exists
 
  Impl(Engine x,std::string p,std::string d,std::string media,bool threaded):e(std::move(x)),pkg(std::move(p)),priv(std::move(d)),worker(threaded){
-  require(pkg=="com.miHoYo.Yuanshen"||pkg=="com.miHoYo.ys.bilibili","不支持的包名");shared=media+"/"+pkg+"/GIBox";modelRoot=shared+"/models";boneRoot=shared+"/skeletons";
+  require(pkg=="com.miHoYo.Yuanshen"||pkg=="com.miHoYo.ys.bilibili"||pkg=="com.miHoYo.GenshinImpact","不支持的包名");shared=media+"/"+pkg+"/GIBox";modelRoot=shared+"/models";boneRoot=shared+"/skeletons";
   for(auto& s:{priv,shared,modelRoot,boneRoot})std::filesystem::create_directories(s);
   logLevel.store(logThresholdOf(shared));
   // A completed request is acknowledged across game restarts; an uncompleted request in control.json is replayed.
@@ -1353,7 +1353,7 @@ struct Runtime::Impl {
    log("layout","已按字段内容确定本版本的实体字段："+s);return;}
   if(lay.left.empty()){lay.seeded=false;s="没有符合的组合（之前符合的已不再符合），重新开始";}
   if(s!=lay.said){lay.said=s;log("layout-wait","仍有 "+std::to_string(lay.left.size())+" 种字段组合符合，等待只剩一种："+s);}}
- Character current(){Ptr root=load<Ptr>(e.base+abi::manager);if(!root)return {};Ptr m=load<Ptr>(root+abi::managerSlot);if(!m)return {};
+ Character current(){Ptr root=load<Ptr>(e.base+abi::at(abi::manager));if(!root)return {};Ptr m=load<Ptr>(root+abi::managerSlot);if(!m)return {};
   if(!lay.known){calibrate(m);if(!lay.known)return {};}
   unsigned id=load<uint32_t>(m+lay.current);if(!id)return {};for(Ptr ent:managerEntities(m,lay.list)){if(load<uint32_t>(ent+lay.runtime)==id){unsigned config=load<uint32_t>(ent+lay.config);if(config>=10000000&&config<=10001999)return {ent,id,config};}}return {};}
  // The renderer owner is null while the character is still loading: no renderers yet, not an error.
@@ -1723,7 +1723,7 @@ struct Runtime::Impl {
    if(!abi::allocVerified){
     require(have&&room>=geo.n,"该部件 "+std::to_string(geo.n)+" 个顶点，游戏网格的权重数组只容得下 "+std::to_string(room)+" 个；7.2 的引擎分配调用还没核实，暂不另行分配（不会闪退）");
     weight=have;if(!skinLabelSaid){skinLabelSaid=true;log("skin-label","权重写入网格自带的蒙皮数据块（容量 "+std::to_string(room)+"）；7.2 的引擎分配在验证前不使用");}}
-   else{Ptr allocator=load<Ptr>(e.base+abi::nativeAllocator);require(allocator!=0,"缺少引擎分配器");
+   else{Ptr allocator=load<Ptr>(e.base+abi::at(abi::nativeAllocator));require(allocator!=0,"缺少引擎分配器");
     require(load<uint8_t>(allocator+abi::managerActive)==1,"引擎内存管理器未就绪（初始化标志不是 1），不分配权重（不会闪退）");
     if(!skinLabelSaid){skinLabelSaid=true;log("skin-label","权重按标签 "+std::to_string(label)+" 分配"+(own>=1&&own<0x200?"（取自网格自带的蒙皮数组）":"（7.1 的标签；网格自带的读数为 "+std::to_string(own)+"）"));}
     weight=e.call<Ptr>(abi::nativeAlloc,allocator,Ptr(0),uint64_t(weights.data.size()),16,label,0,"gibox-weights",1);require(weight!=0,"权重缓冲分配失败");room=geo.n;}

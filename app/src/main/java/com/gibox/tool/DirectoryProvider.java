@@ -59,12 +59,12 @@ public final class DirectoryProvider extends DocumentsProvider {
     }
     @Override public Cursor queryRoots(String[] projection) {
         MatrixCursor result=new MatrixCursor(projection==null?ROOT_COLUMNS:projection);
-        for(String pkg:new String[]{"com.miHoYo.Yuanshen","com.miHoYo.ys.bilibili"}) for(String kind:new String[]{"mods","shared"}) {
+        for(String pkg:new String[]{"com.miHoYo.Yuanshen","com.miHoYo.ys.bilibili","com.miHoYo.GenshinImpact"}) for(String kind:new String[]{"mods","shared"}) {
             String id=pkg+":"+kind;try{if(!file(id).isDirectory())continue;}catch(FileNotFoundException e){continue;}MatrixCursor.RowBuilder row=result.newRow();
             for(String column:result.getColumnNames()) {
                 Object value=null;
                 if(column.equals(Root.COLUMN_ROOT_ID)||column.equals(Root.COLUMN_DOCUMENT_ID)) value=id;
-                else if(column.equals(Root.COLUMN_TITLE)) value="GIBox "+(pkg.endsWith("bilibili")?"B 服":"官服")+(kind.equals("mods")?" Mods":" 文件");
+                else if(column.equals(Root.COLUMN_TITLE)) value="GIBox "+(pkg.endsWith("bilibili")?"B 服":pkg.endsWith("GenshinImpact")?"国际服":"官服")+(kind.equals("mods")?" Mods":" 文件");
                 else if(column.equals(Root.COLUMN_ICON)) value=android.R.drawable.ic_menu_agenda;
                 else if(column.equals(Root.COLUMN_FLAGS)) value=Root.FLAG_SUPPORTS_CREATE|Root.FLAG_SUPPORTS_IS_CHILD|Root.FLAG_LOCAL_ONLY;
                 else if(column.equals(Root.COLUMN_MIME_TYPES)) value="*/*";
