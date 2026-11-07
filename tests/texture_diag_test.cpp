@@ -161,6 +161,10 @@ int main(){
    auto x=match(d2,two,&back);auto& b2=of(x,d2,"TextureOverrideLinneaBangs");assert(b2.verdict==Verdict::Confirmed&&b2.renderer==1&&has(matchLine(d2,b2,two),"was reproduced on this device by the upload of mesh BangMesh"));}
   // The database the App installs parses, and ties Linnea to her AvatarId.
   {std::ifstream f("app/src/main/assets/pc-hashes.json");std::string text((std::istreambuf_iterator<char>(f)),std::istreambuf_iterator<char>());auto real=ms::pcdb::parse(text);
-   assert(real.comps.size()>300&&real.characters.at("Linnea")==10000130&&real.byIb.at("e282f691").size()==1&&real.commit=="2039d16d4b64696098ba53cd69888ce967397be9");}}
+   assert(real.comps.size()>300&&real.characters.at("Linnea")==10000130&&real.byIb.at("e282f691").size()==1&&real.commit=="2039d16d4b64696098ba53cd69888ce967397be9");}
+  // The device hash map the App ships (the maintainer's capture, build 6d85e314): parses, and holds Linnea's Bangs as
+  // the device read it (4000 vertices, one draw of 14517 indices from 0).
+  {std::ifstream f("app/src/main/assets/device-hashes.json");std::string text((std::istreambuf_iterator<char>(f)),std::istreambuf_iterator<char>());auto map=ms::pcdb::parseMap(text);
+   const auto& bang=map.byIb.at("773fbe7b");assert(map.byIb.size()>1000&&bang.mesh=="Bang"&&bang.vertices==4000&&bang.subs.size()==1&&bang.subs[0].first==0&&bang.subs[0].second==14517&&bang.character=="Linnea");}}
  std::cout<<"Texture-only diagnostics: PASS (conditions and write plan, texture.json, document, index-start / group / name / count / order evidence, merged PC segments, unreadable layouts never confirmed, texture-hash candidates by size, shared slots)\n";
 }
