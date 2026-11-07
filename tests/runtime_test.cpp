@@ -499,6 +499,27 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
   Ptr other=f->renderer(f->mesh("Body_LOD1",2),"BoneZ");f->scene={w,copy,lod,other};f->world(other);slot.tick(1610800);slot.tick(1611400);assert(meshOf(other)!=meshOf(w));
   write(sharedSlot+"/control.json","{\"enabled\":false,\"selected\":[\"Slot\"]}");slot.tick(1612000);assert(meshOf(lod)==lodMesh&&meshOf(w)==full);
   slot.shutdown();assert(f->handles.empty());}
+ // 27b. The controlled character's Body_LOD1 with another bone list than Body (Alyosha in the world: 149 bones, Body 148):
+ //      the part is built once more on that LOD from the model file, its weights mapped to the LOD's bones by name
+ //      (BoneA is index 0 on Body, 1 on the LOD) with the same bindpose; restore puts the LOD back. A LOD whose bone has
+ //      another bindpose is left alone, and not tried again.
+ {std::string mediaV=root+"/mediaLodVariant",sharedV=mediaV+"/"+pkg+"/GIBox";Spec s;s.noSkeleton().withTarget(fixture::target("Body"));writeModel(sharedV+"/models/Var",s);
+  Ptr full=f->mesh(),w=f->renderer(full);f->world(w);f->scene={w};write(sharedV+"/control.json","{\"enabled\":true,\"selected\":[\"Var\"]}");
+  Runtime var(e,pkg,root+"/privateLodVariant",mediaV,false);uint64_t t=1620000;for(uint64_t end=t+1800;t<end;t+=600)var.tick(t);assert(meshOf(w)!=full);
+  auto lodRenderer=[&](const char* extra,float scale){Ptr m=f->mesh("Body_LOD1",3);auto& o=f->obj[m];Bytes binds(128,0);for(int i=0;i<4;i++){std::memcpy(binds.data()+i*20,&scale,4);float one=1;std::memcpy(binds.data()+64+i*20,&one,4);}
+   o.arrays[abi::getBindposes]=f->array(64,2,binds.data());store<uint64_t>(o.shared+0xe0,2);Ptr r=f->renderer(m);Ptr bx=f->object("bone",extra),ba=f->object("bone","BoneA");f->obj[bx].parent=f->obj[ba].parent=f->skeletonRoot;
+   Ptr two[2]={bx,ba};Ptr arr=f->array(8,2,two);store<Ptr>(arr,load<Ptr>(f->obj[r].bones));f->obj[r].bones=arr;return std::make_pair(r,m);};
+  auto [lod,lodMesh]=lodRenderer("BoneLod",2);f->world(lod);f->scene={w,lod};for(uint64_t end=t+3000;t<end;t+=600)var.tick(t);
+  auto log=text(sharedV+"/GIBox Log.txt");Ptr shown=meshOf(lod);
+  assert(shown!=lodMesh&&shown!=meshOf(w)&&log.find("lod-variant Var/Part0：在低精度网格 Body_LOD1（2 根骨骼，完整网格 1 根）上按骨骼名重建")!=std::string::npos&&log.find("attached-lod Var/Part0：挂载在低精度网格 Body_LOD1 上（按该网格的 2 根骨骼重建）")!=std::string::npos);
+  {Ptr skin=load<Ptr>(f->obj[shown].shared+0xf0);for(unsigned v=0;v<3;v++){float wt=f32(reinterpret_cast<const uint8_t*>(skin+32*v));assert(wt>0&&u32(reinterpret_cast<const uint8_t*>(skin+32*v+16))==1);}}
+  // Another LOD renderer whose BoneA has another bindpose: refused once, said why, not attached.
+  auto [bad,badMesh]=lodRenderer("BoneOther",1);store<float>(f->obj[badMesh].arrays[abi::getBindposes]+0x20+64,3.f);
+  f->world(bad);f->scene={w,bad};for(uint64_t end=t+3000;t<end;t+=600)var.tick(t);log=text(sharedV+"/GIBox Log.txt");
+  assert(meshOf(bad)==badMesh&&log.find("骨骼 BoneA 在低精度网格上的绑定矩阵与完整网格不同；该低精度网格不替换")!=std::string::npos);
+  {size_t n=0;for(size_t p=log.find("lod-variant-error");p!=std::string::npos;p=log.find("lod-variant-error",p+1))n++;assert(n==1);}
+  f->world(lod);f->scene={w,lod};var.tick(t+=600);write(sharedV+"/control.json","{\"enabled\":false,\"selected\":[\"Var\"]}");var.tick(t+=600);assert(meshOf(lod)==lodMesh&&meshOf(w)==full);
+  var.shutdown();assert(f->handles.empty());}
  // 28. Only Body_LOD1 in sight from the start: built on it when its bones and bindposes are exactly the bone library's
  //     record of the full Body; without that record it waits as before.
  {std::string mediaLod=root+"/mediaLod",sharedLod=mediaLod+"/"+pkg+"/GIBox";Spec s;s.noSkeleton().withTarget(fixture::target("Body"));writeModel(sharedLod+"/models/Lod",s);
