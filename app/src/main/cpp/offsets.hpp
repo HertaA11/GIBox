@@ -81,6 +81,9 @@ enum Offset:uintptr_t {
  mainTexture=0x80e67cc,
  // newString(null, const char*) returns a managed System.String*; the two Material calls take that pointer (a property NAME), not an int ID.
  newString=0x8ed74ac,hasProperty=0x80e72c8,setTexture=0x80e7dbc,
+ // Material read-back (dump.cs of this build): private GetTextureImpl(int nameID) -> Texture, get_shader(),
+ // GetTexturePropertyNameIDs() -> int[]; static Shader.PropertyToID(string). Until 0.7.93 they sat in the glow trace.
+ getTexture=0x80e6d14,getShader=0x80e672c,getTextureIds=0x80e706c,propertyToId=0x9dd6d14,
  // Engine allocator: alloc(*(B+nativeAllocator), 0, bytes, 16, label 15, 0, name, 1); the skin-weight block of a built mesh.
  nativeAlloc=0x517b2b4,nativeAllocator=0x15d92120,
  // Object.FindObjectsOfType(Type): managed entry is "MOV W1,#1 (active scene objects); B 0x5a982c0".
@@ -109,8 +112,8 @@ enum Offset:uintptr_t {
  typeObject=0x43b1824,
  // il2cpp Class::FromIl2CppType(const Il2CppType*, bool) -> Il2CppClass*; reads the type enum at +0xA.
  classFromType=0x43b24b4,
- // Texture-only diagnostics (texture_diag.hpp), read-only getters from dump.cs of this build. This build exports no il2cpp_*
- // API (0.7.49 device log: "missing export il2cpp_domain_get"), so the named-method path cannot reach them.
+ // Texture-only diagnostics (texture_diag.hpp), read-only getters from dump.cs of this build (it exports no il2cpp_* API,
+ // 0.7.49 device log: "missing export il2cpp_domain_get").
  //   Mesh: get_subMeshCount(), get_vertexCount(), get_isReadable(), and the icalls behind GetIndexStart(int) /
  //   GetIndexCount(int), GetIndexStartImpl / GetIndexCountImpl (no managed check that could throw through our frames; called
  //   only for 0 <= submesh < get_subMeshCount()). The build has no Mesh.GetTopology, GetBaseVertex or get_indexFormat.

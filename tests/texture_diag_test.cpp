@@ -28,8 +28,8 @@ const char* doc=R"J({"format":"gibox-texture-diag","version":1,"name":"Mod","ini
  "variables":[{"name":"$colour","initial":0,"values":[0,1],"persist":true,"keys":["KeySwap"]}],"otherInis":[{"ini":"DISABLED/Other.ini","sharedHashes":["d5ae71a3"]}],"notes":[]})J";
 Texture tex(const char* prop,const char* name,const char* w,const char* h){Texture t;t.property=prop;t.texture=0x1000;t.name=name;t.width=w;t.height=h;t.format="4 (RGBA32)";return t;}
 Renderer renderer(const char* name,Ptr native,std::vector<std::pair<uint32_t,uint32_t>> subs,unsigned materials,bool readable=true){Renderer r;r.name=name;r.native=native;r.renderer=native+1;r.meshName=std::string(name)+"Mesh";
- r.submeshes=unsigned(subs.size());r.layout.submeshes=int(subs.size());r.layout.submeshCount=std::to_string(subs.size());r.layout.status=readable?"read":"未采集: missing export il2cpp_runtime_invoke";
- if(readable)for(auto& s:subs){ms::renderprobe::UnityReader::Submesh x;x.known=true;x.start=s.first;x.count=s.second;x.base="0";x.topology="0 (Triangles)";r.layout.subs.push_back(x);}
+ r.submeshes=unsigned(subs.size());r.layout.submeshes=int(subs.size());r.layout.submeshCount=std::to_string(subs.size());r.layout.status=readable?"read":"未采集: engine Mesh getters: fake failure";
+ if(readable)for(auto& s:subs){ms::texdiag::Submesh x;x.known=true;x.start=s.first;x.count=s.second;r.layout.subs.push_back(x);}
  for(unsigned i=0;i<materials;i++){Material m;m.material=native*16+i;m.name=std::string(name)+"Mat"+std::to_string(i);m.shader="miHoYo/Character";m.textures.push_back(tex("_MainTex","Tex","2048","2048"));m.textures.push_back(tex("_LightMapTex","Light","2048","2048"));r.materials.push_back(m);}
  return r;}
 const Match& of(const std::vector<Match>& all,const Doc& d,const char* section){for(auto& m:all)if(d.rules[m.rule].section==section)return m;assert(false);return all[0];}
@@ -64,7 +64,7 @@ int main(){
  // Two rules on one slot are not both confirmed.
  Doc twice=d;twice.rules[2].first=0;twice.rules[2].section="TextureOverrideModBodyA2";auto t=match(twice,rs);assert(of(t,twice,"TextureOverrideModBodyA").verdict!=Verdict::Confirmed&&has(matchLine(twice,of(t,twice,"TextureOverrideModBodyA"),rs),"rules on the same slot"));
  // The lines the Runtime writes.
- assert(has(rendererLine(rs[3],10000107),"layout=未采集: missing export il2cpp_runtime_invoke")&&has(submeshLines(rs[0])[1],"submesh=1 indexStart=25002 indexCount=3000 baseVertex=0 topology=0 (Triangles) material-slot-by-position=1 (BodyMat1)"));
+ assert(has(rendererLine(rs[3],10000107),"layout=未采集: engine Mesh getters: fake failure")&&has(submeshLines(rs[0])[1],"submesh=1 indexStart=25002 indexCount=3000 material-slot-by-position=1 (BodyMat1)"));
  assert(has(materialLines(rs[0])[0],"slot=0 material=BodyMat0#0x100 shader=miHoYo/Character textures=[_MainTex=Tex 2048x2048 4 (RGBA32)"));
  assert(has(ruleLine(d,d.rules[1]),"kind=segment part=body letter=A textures=[resource\\gimi\\diffuse=rbody1[diffuse] if $colour == 0"));
  // The device log of 0.7.49 (anemolumine, Lumine 10000007): one Body renderer (Body_LOD1 at the time) with the materials

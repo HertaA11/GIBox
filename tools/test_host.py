@@ -10,7 +10,6 @@ def run(cmd):
 flags=['-std=c++17','-Wall','-Wextra','-Werror','-DGIBOX_HOST_TEST','-Iapp/src/main/cpp','-Ithird_party/bcdec']
 run(['g++',*flags,'tests/core_test.cpp','app/src/main/cpp/runtime.cpp','app/src/main/cpp/dds.cpp','-o',out/'core_test'])
 run([out/'core_test'])
-run(['g++',*flags,'-pthread','tests/glow_test.cpp','-o',out/'glow_test'])
 run(['g++',*flags,'tests/texture_diag_test.cpp','-o',out/'texture_diag_test'])
 run([out/'texture_diag_test'])
 run(['g++',*flags,'tests/vk_capture_test.cpp','-o',out/'vk_capture_test'])
@@ -20,7 +19,6 @@ run([out/'vk_hook_test'])
 run(['g++',*flags,'tests/migoto_test.cpp','-o',out/'migoto_test'])
 run([out/'migoto_test'])
 run(['g++',*flags,'tests/migoto_parity.cpp','-o',out/'migoto_parity'])
-run([out/'glow_test'])
 if (root/'tests/runtime_test.cpp').exists():
     run(['g++',*flags,'-pthread','tests/runtime_test.cpp','app/src/main/cpp/runtime.cpp','-o',out/'runtime_test'])
     run([out/'runtime_test'])

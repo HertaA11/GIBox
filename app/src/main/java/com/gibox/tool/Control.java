@@ -63,17 +63,16 @@ public final class Control {
     public static String logLevel(String pkg) { String s = load(pkg).optString("logLevel", "info"); for (String l : LOG_LEVELS) if (l.equals(s)) return s; return "info"; }
     public static int logThreshold(String pkg) { return AppLog.threshold(logLevel(pkg)); }
     public static synchronized void setLogLevel(String pkg, String level) throws Exception { JSONObject j = load(pkg); j.put("logLevel", level); save(pkg, j); }
-    /** A monotonically increasing marker; game retains the preceding 30 seconds only while logLevel=debug. */
-    /** Material experiments (control.json "experiments"; read by the game, debug only): glowTrace, gameMaterials,
-     *  neutralColors, noUv2, separateDraws (booleans), firstRefreshMs (0 = default 1.5 s); for animations
-     *  animationMode (0 cached frame meshes, 1 dynamic, 2 paused) and logicCore (boolean: the mod's own INI logic picks
-     *  the frame shown). slotTextures is retired (below) and no longer read by the game (0.7.92). */
+    /** Experiments (control.json "experiments"; read by the game): animationMode (0 cached frame meshes, 1 dynamic,
+     *  2 paused) and logicCore (boolean: the mod's own INI logic picks the frame shown), keySteps for the App. The rest
+     *  are retired (below); slotTextures, gameMaterials and glowTrace are no longer read by the game (0.7.92, 0.7.93). */
     public static boolean experiment(String pkg, String key) { JSONObject x = load(pkg).optJSONObject("experiments"); return x != null && x.optBoolean(key, false); }
     public static int experimentInt(String pkg, String key) { JSONObject x = load(pkg).optJSONObject("experiments"); return x == null ? 0 : x.optInt(key, 0); }
-    /** Experiments the App no longer offers (0.7.47): slot textures, the first material re-copy time, neutral vertex
-     *  colours, zeroed UV2, unmerged draws. A value left in control.json by an earlier version is taken out, so none
-     *  stays on without a switch to turn it off; the runtime then keeps their defaults. */
-    static final String[] RETIRED_EXPERIMENTS = {"slotTextures", "firstRefreshMs", "neutralColors", "noUv2", "separateDraws"};
+    /** Experiments the App no longer offers: slot textures, the first material re-copy time, neutral vertex colours,
+     *  zeroed UV2, unmerged draws (0.7.47); the game's own materials on the model and the material write trace (0.7.93).
+     *  A value left in control.json by an earlier version is taken out, so none stays on without a switch to turn it
+     *  off; the runtime then keeps their defaults. */
+    static final String[] RETIRED_EXPERIMENTS = {"slotTextures", "firstRefreshMs", "neutralColors", "noUv2", "separateDraws", "gameMaterials", "glowTrace"};
     public static synchronized void retireExperiments(String pkg) throws Exception {
         if (!new File(shared(pkg), "control.json").isFile()) return;
         JSONObject j = load(pkg); JSONObject x = j.optJSONObject("experiments"); if (x == null) return; boolean changed = false;

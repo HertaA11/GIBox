@@ -2,9 +2,7 @@
 #include "runtime.hpp"
 #include "model.hpp"
 #include "logfmt.hpp"
-#include "render_probe.hpp"
 #include "texture_diag.hpp"
-#include "glow_trace.hpp"
 #include "logic_game.hpp"
 #include "vk_capture.hpp"
 #include <chrono>
@@ -32,14 +30,12 @@ uint64_t clockMs(){return std::chrono::duration_cast<std::chrono::milliseconds>(
 std::string hex(uint64_t v){char b[24];std::snprintf(b,sizeof(b),"0x%llx",static_cast<unsigned long long>(v));return b;}
 
 // ---------------------------------------------------------------- files (worker side)
-// Debug experiments for the switch-in glow (control.json "experiments"), each off by default. The App no longer offers
-// firstRefreshMs, neutralColors / noUv2, slotTextures and separateDraws (0.7.47) and takes them out of control.json
-// (slotTextures is no longer read at all, 0.7.92);
+// Debug experiments (control.json "experiments"), each off by default. The App no longer offers firstRefreshMs,
+// neutralColors / noUv2, slotTextures and separateDraws (0.7.47) and takes them out of control.json (slotTextures is no
+// longer read at all, 0.7.92; gameMaterials and glowTrace neither, 0.7.93);
 // they stay readable here for the tests that still compare against them:
-//   gameMaterials  the game's own materials on our mesh (no clones): is the glow in our copied materials?
-//   firstRefreshMs first material re-copy after attaching (default 1500): does the glow end with it?
+//   firstRefreshMs first material re-copy after attaching (default 1500)
 //   neutralColors / noUv2  mesh data: vertex colours set to the original's usual value, UV2 zeroed (rebuilds the model)
-//   glowTrace      record every write to the tracked materials and renderers (glow_trace.hpp); changes nothing itself
 //   separateDraws  every draw in effect its own submesh, as before 0.7.23 (mergeDraws, model.hpp): for comparing the
 //                  picture and the draw count (rebuilds the model)
 //   logicCore      a model's own INI logic (3DMigoto logic core, logic_game.hpp) picks the animation frame or the
@@ -47,11 +43,11 @@ std::string hex(uint64_t v){char b[24];std::snprintf(b,sizeof(b),"0x%llx",static
 //                  values are its input; the App's key presses, control.json "keys", are its key events, and its
 //                  persist variables are kept in logic-persist/); FrameLoop or the App's choice when there is no logic
 //                  data or it fails
-struct Experiments {bool gameMaterials=false,neutralColors=false,noUv2=false,glowTrace=false,separateDraws=false,logicCore=false;int firstRefreshMs=0,animationMode=0;
+struct Experiments {bool neutralColors=false,noUv2=false,separateDraws=false,logicCore=false;int firstRefreshMs=0,animationMode=0;
  std::string meshKey(bool animated=false)const{return std::string(neutralColors?"c":"-")+(noUv2?"u":"-")+(separateDraws?"s":"-")+(animated?"a"+std::to_string(animationMode):"");}
- bool operator==(const Experiments& o)const{return gameMaterials==o.gameMaterials&&neutralColors==o.neutralColors&&noUv2==o.noUv2&&glowTrace==o.glowTrace&&separateDraws==o.separateDraws&&firstRefreshMs==o.firstRefreshMs&&animationMode==o.animationMode&&logicCore==o.logicCore;}
- bool any()const{return gameMaterials||neutralColors||noUv2||glowTrace||separateDraws||firstRefreshMs||animationMode||logicCore;}
- std::string text()const{return std::string("gameMaterials=")+(gameMaterials?"on":"off")+" firstRefreshMs="+(firstRefreshMs?std::to_string(firstRefreshMs):"default")+" neutralColors="+(neutralColors?"on":"off")+" noUv2="+(noUv2?"on":"off")+" glowTrace="+(glowTrace?"on":"off")+" separateDraws="+(separateDraws?"on":"off")+" animationMode="+std::to_string(animationMode)+" logicCore="+(logicCore?"on":"off");}};
+ bool operator==(const Experiments& o)const{return neutralColors==o.neutralColors&&noUv2==o.noUv2&&separateDraws==o.separateDraws&&firstRefreshMs==o.firstRefreshMs&&animationMode==o.animationMode&&logicCore==o.logicCore;}
+ bool any()const{return neutralColors||noUv2||separateDraws||firstRefreshMs||animationMode||logicCore;}
+ std::string text()const{return std::string("firstRefreshMs=")+(firstRefreshMs?std::to_string(firstRefreshMs):"default")+" neutralColors="+(neutralColors?"on":"off")+" noUv2="+(noUv2?"on":"off")+" separateDraws="+(separateDraws?"on":"off")+" animationMode="+std::to_string(animationMode)+" logicCore="+(logicCore?"on":"off");}};
 // keys: the App's presses of a model's [Key] sections (model.json logic.keys), numbered; each is taken once, by number.
 // select: a cycle's preset by index (the App's direct choice); hold: 1 down, 2 up (a hold key as an on / off switch).
 struct KeyPress {long long seq=0;size_t file=0;std::string section;bool back=false;int select=-1,hold=0;bool operator==(const KeyPress& o)const{return seq==o.seq&&file==o.file&&section==o.section&&back==o.back&&select==o.select&&hold==o.hold;}};
@@ -86,7 +82,7 @@ ControlState parseControl(const std::string& raw){
   const auto& ts=t.at("testStrategies");if(ts.type==Json::Array){s.tex.testStrategies.clear();for(auto& v:ts.array)if(v.type==Json::String&&(v.string=="auto"||v.string=="direct"||v.string=="clone")&&s.tex.testStrategies.size()<4)s.tex.testStrategies.push_back(v.string);if(s.tex.testStrategies.empty())s.tex.testStrategies={"auto","direct","clone"};}
   auto ms=integerOf(t.at("observeMs"));if(ms)s.tex.observeMs=int(std::min<long long>(60000,std::max<long long>(1000,ms)));}
  const auto& x=c.at("experiments");if(x.type==Json::Object){auto flag=[&](const char* k){return x.at(k).type==Json::Bool&&x.at(k).boolean;};
-  s.exp.gameMaterials=flag("gameMaterials");s.exp.neutralColors=flag("neutralColors");s.exp.noUv2=flag("noUv2");s.exp.glowTrace=flag("glowTrace");s.exp.separateDraws=flag("separateDraws");s.exp.logicCore=flag("logicCore");
+  s.exp.neutralColors=flag("neutralColors");s.exp.noUv2=flag("noUv2");s.exp.separateDraws=flag("separateDraws");s.exp.logicCore=flag("logicCore");
   auto ms=integerOf(x.at("firstRefreshMs"));require(ms>=0&&ms<=10000,"experiments.firstRefreshMs");s.exp.firstRefreshMs=int(ms);
   auto animation=integerOf(x.at("animationMode"));require(animation>=0&&animation<=2,"experiments.animationMode");s.exp.animationMode=int(animation);}
  return s;
@@ -252,8 +248,6 @@ struct Runtime::Impl {
  int scanWorld=0,scanAll=-1;unsigned scanSkipped=0;uint64_t scanCount=0;unsigned shownCharacter=~0u;uint64_t idleMs=60000,idleBudget=256ull<<20;bool controlSeen=false;std::map<std::string,long long> keySeen;std::string exportWait;
  struct WaitWhy {uint64_t scan=~0ull;std::string reason,context;bool plain=false;std::string logged;uint64_t loggedAt=0;};std::map<std::string,WaitWhy> waitWhy,targetWaitWhy;
  struct LegacyLodProbe {std::string stamp,note;uint64_t at=0;};std::map<std::string,LegacyLodProbe> legacyLodProbes;
- std::unique_ptr<renderprobe::UnityReader> renderReader;std::unique_ptr<renderprobe::Recorder> renderRecorder;
- long long renderMarkSeen=0;bool renderControlSeen=false;uint64_t renderIdentityAt=0,renderFollowEndAt=0;
  // Texture-only mods, phase 1 (texture_diag.hpp): files read by the worker, handed over under sm; the rest on Tick.
  struct TexDiagFile {std::string stamp,error;size_t content=0;std::shared_ptr<texdiag::Doc> doc;std::shared_ptr<texdiag::TextureMod> mod;std::string dir,mapping;};
  std::map<std::string,std::string> texRecordsGen;
@@ -270,9 +264,6 @@ struct Runtime::Impl {
  const pcdb::DeviceMap* deviceMap(){if(matchDirty){matchDirty=false;auto m=std::make_shared<pcdb::DeviceMap>();if(bundledMap)*m=*bundledMap;if(devMap)for(auto& kv:devMap->byIb)m->byIb[kv.first]=kv.second;matchMap=m;}
   return matchMap&&!matchMap->byIb.empty()?matchMap.get():nullptr;}
  struct TexDiagSeen {std::string key;texdiag::Renderer info;};std::map<Ptr,TexDiagSeen> texDiagSeen;std::map<std::string,std::string> texDiagLogged,texDiagMatched;
- std::unique_ptr<renderprobe::UnityReader> texDiagReader;
- struct RenderBones {std::vector<std::pair<Ptr,uint32_t>> bones;std::string error;};
- struct RenderBind {RenderBones before;unsigned depth=0;};std::map<Ptr,RenderBind> renderBinding;
  Worker worker;  // last member: destroyed (joined) first, while everything it touches still exists
 
  Impl(Engine x,std::string p,std::string d,std::string media,bool threaded):e(std::move(x)),pkg(std::move(p)),priv(std::move(d)),worker(threaded){
@@ -379,117 +370,57 @@ struct Runtime::Impl {
  void saveLearned(const ModelInfo& m){Learned l=m.learned;auto s=learned.find(m.path);if(s!=learned.end())for(auto& kv:s->second)l.targets[kv.first]=kv.second;
   auto id=learnedId.find(m.path);if(id!=learnedId.end())l.id=id->second;auto file=m.path+"/learned.json",body=learnedJson(l);worker.post([file,body]{writeAtomic(file,body);});}
 
- // ---------------------------------------------------------------- first-stage render readback (debug only)
- bool renderDebug()const{return logLevel.load(std::memory_order_relaxed)==int(Level::Debug);}
- uint64_t renderNow()const{return worker.background()?clockMs():bindingNow;}
- void renderSetup(){
-  if(!renderDebug()){renderBinding.clear();renderRecorder.reset();renderReader.reset();renderIdentityAt=0;renderFollowEndAt=0;return;}
-  if(!renderRecorder){renderReader=std::make_unique<renderprobe::UnityReader>(e.namedExport);
-   renderRecorder=std::make_unique<renderprobe::Recorder>([this](const std::string& line){auto dir=shared;worker.post([dir,line]{appendLog(dir,line);});});}
- }
- std::string renderKey(const Attachment& a)const{return a.set->name+"/"+a.set->parts[a.part].name+"/renderer="+hex(a.native);}
- void renderSnapshot(Attachment& a,const std::string& phase){if(!renderDebug())return;
-  try{renderSetup();if(!alive(a.renderer)||load<Ptr>(a.renderer+0x10)!=a.native)return;
-   Ptr arr=e.get(abi::getMaterials,a.renderer);if(!arr)return;
-   // Own all returned managed arrays across the named engine calls, which can trigger GC.
-   auto started=std::chrono::steady_clock::now();Owned roots;try{pin(roots,arr);auto original=pointers(a.originalMaterials,64),current=pointers(arr,64);std::vector<unsigned> slots;
-    for(auto& row:a.set->parts[a.part].rows){unsigned slot=row.slot;if(slot>=original.size())for(size_t k=original.size();k-->0;)if(alive(original[k])){slot=unsigned(k);break;}slots.push_back(slot);}
-    auto data=renderReader->sample(a.renderer,original,current,slots);data["modelCharacter"]=std::to_string(a.set->id);data["controlledCharacter"]=std::to_string(ch.config);
-    data["skinId"]=renderprobe::missing("no verified skin identity reader");data["visualStatus"]="unconfirmed";
-    data["readbackDurationUs"]=std::to_string(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now()-started).count());
-    renderRecorder->schema(renderReader->descriptions());renderRecorder->capture(renderNow(),renderKey(a),phase,std::move(data),true);
-   }catch(...){freeOwned(roots);throw;}freeOwned(roots);
-  }catch(const std::exception& ex){if(renderRecorder)renderRecorder->capture(renderNow(),renderKey(a),phase,{{"status",renderprobe::missing(ex.what())}},true);}
- }
- void renderIdentities(uint64_t now){if(!renderDebug()||!renderRecorder||now<renderIdentityAt)return;renderIdentityAt=now+500;
-  for(auto& kv:attachments){auto& a=*kv.second;try{if(!alive(a.renderer)||load<Ptr>(a.renderer+0x10)!=a.native)continue;renderprobe::State data;
-    data["controlledCharacter"]=std::to_string(ch.config);data["modelCharacter"]=std::to_string(a.set->id);data["mesh"]=hex(e.get(abi::getMesh,a.renderer));
-    Ptr arr=e.get(abi::getMaterials,a.renderer);std::string mats;if(arr)for(Ptr m:pointers(arr,64))mats+=(mats.empty()?"":" ")+hex(m);data["materials"]=mats;
-    data["parameters"]="event-only readback; not polled";
-    renderRecorder->capture(now,renderKey(a)+"/identity","identity",std::move(data));
-   }catch(const std::exception& ex){renderRecorder->capture(now,renderKey(a)+"/identity","identity",{{"status",renderprobe::missing(ex.what())}});}}
- }
- RenderBones renderBones(Ptr r){RenderBones b;try{Ptr a=e.get(abi::getBones,r);if(a){for(Ptr bone:pointers(a,512)){Ptr native=bone?load<Ptr>(bone+0x10):0;b.bones.push_back({native,native?load<uint32_t>(native+8):0});}}else b.error="bone array unavailable";}catch(const std::exception& ex){b.error=ex.what();}return b;}
- void renderBindBefore(Ptr native)noexcept{if(!renderDebug()||!renderRecorder)return;
-  try{for(auto& kv:attachments)if(kv.second->native==native){auto& b=renderBinding[native];if(!b.depth)b.before=renderBones(kv.first);b.depth++;return;}}catch(...){}}
- void renderBindAfter(Ptr native){if(!renderDebug()||!renderRecorder)return;auto before=renderBinding.find(native);if(before==renderBinding.end())return;
-  if(--before->second.depth){return;}auto old=std::move(before->second.before);renderBinding.erase(before);
-  for(auto& kv:attachments)if(kv.second->native==native){auto after=renderBones(kv.first);renderprobe::State data;
-   data["arrayIdentity"]="get_bones returns snapshots; compare ordered native bone pointer + instance id, not the allocated array address";data["countBefore"]=std::to_string(old.bones.size());data["countAfter"]=std::to_string(after.bones.size());
-   data["elementsChanged"]=old.bones!=after.bones?"true":"false";
-   auto boneList=[](const auto& list){std::string s;for(auto b:list)s+=(s.empty()?"":" ")+hex(b.first)+"#"+std::to_string(b.second);return s;};
-   data["bonesBefore"]=boneList(old.bones);data["bonesAfter"]=boneList(after.bones);
-   std::string changed;for(size_t i=0;i<std::max(old.bones.size(),after.bones.size());i++){std::pair<Ptr,uint32_t> x=i<old.bones.size()?old.bones[i]:std::pair<Ptr,uint32_t>{},y=i<after.bones.size()?after.bones[i]:std::pair<Ptr,uint32_t>{};
-    if(x!=y)changed+=(changed.empty()?"":"; ")+std::to_string(i)+":"+hex(x.first)+"#"+std::to_string(x.second)+"->"+hex(y.first)+"#"+std::to_string(y.second);}
-   data["changedIndices"]=changed;if(!old.error.empty()||!after.error.empty())data["status"]=renderprobe::missing(old.error+" / "+after.error);
-   data["interpretation"]="array/element changes alone do not prove a broken skeleton";
-   renderRecorder->capture(renderNow(),renderKey(*kv.second)+"/bones","bind-before-after",std::move(data),true);return;}
- }
- void renderTick(uint64_t now){bool fresh=!renderRecorder;renderSetup();if(!renderRecorder)return;
-  if(fresh)for(auto& kv:attachments)renderSnapshot(*kv.second,"debug-enabled");
-  // Startup counters are historical, not new markers. Disabled-mode markers are acknowledged but never replayed.
-  if(renderControlSeen&&ctl.renderMark>renderMarkSeen){renderMarkSeen=ctl.renderMark;renderFollowEndAt=now+5000;renderRecorder->mark(now,uint64_t(renderMarkSeen),renderReader->descriptions());
-   if(glowOn()&&glow::trace().armed.load())glowOpen("user mark",{},true,30000,3000,{0});
-   for(auto& kv:attachments)renderSnapshot(*kv.second,"user-mark-received");}
-  if(renderFollowEndAt&&now>=renderFollowEndAt){for(auto& kv:attachments)renderSnapshot(*kv.second,"user-mark-follow-end");renderFollowEndAt=0;}
-  renderIdentities(now);renderRecorder->tick(now);
- }
-
  // ---------------------------------------------------------------- texture-only mods, phase 1: read-only diagnostics
  // For each texture diagnostic of the controlled character: the character's renderers, their game mesh and materials
  // (under a GIBox model too: the attachment's originals), matched against the INI rules and logged (texture-diag-*).
  // Only getters are called. A renderer is read again only when its key changes (renderer, mesh, materials): a
  // character switch, a rebuilt renderer, a mesh or material change; the match is logged again only when it changes.
- // Per-submesh ranges and texture sizes come through named, signature-checked IL2CPP methods (render_probe.hpp);
- // where the engine lacks them, the lines say so and matching uses names and counts (never "confirmed").
+ // Per-submesh ranges, counts and texture sizes come from the engine's own Mesh / Texture getters (abi::mesh*, texture*).
  static constexpr const char* texDiagNames[]={"_MainTex","_LightMapTex","_LightMap","_LightmapTex","_Lightmap","_BumpMap","_NormalMap","_BaseNormalMap","_NormalTex",
   "_ShadowRampTex","_RampTex","_FaceMapTex","_MaterialMasksTex","_MTMap","_MTSpecularRamp","_EmissionTex","_DissolveTex","_FaceShadowTex",
   "_PackedShadowRampTex","_ShadowRamp","_RampMap","_MaskTex","_MainMaskTex","_FaceMaskTex","_StockingsTex","_NyxStateRampTex","_NyxStateTex","_NyxRampTex"};
  Ptr texDiagTexture2D=0;   // Texture2D's class (Texture2D.whiteTexture's; abi::textureType, as makeTexture uses it)
- // What the named IL2CPP path could not read (this build exports none of it): the submesh ranges and counts through the
- // engine's own Mesh getters (abi::mesh*). Submesh indices stay below get_subMeshCount(), which GetIndexStart checks too.
- void texDiagMesh(Ptr mesh,renderprobe::UnityReader::MeshLayout& l){if(l.status=="read")return;const std::string named=l.status;
-  try{int n=e.call<int32_t>(abi::meshSubmeshes,mesh,Ptr(0));l=renderprobe::UnityReader::MeshLayout{};l.submeshCount=std::to_string(n);
+ // Submesh indices stay below get_subMeshCount(), which GetIndexStart checks too. This build has no Mesh.get_indexFormat,
+ // GetBaseVertex or GetTopology.
+ void texDiagMesh(Ptr mesh,texdiag::MeshLayout& l){
+  try{int n=e.call<int32_t>(abi::meshSubmeshes,mesh,Ptr(0));l=texdiag::MeshLayout{};l.submeshCount=std::to_string(n);
    l.vertexCount=std::to_string(e.call<int32_t>(abi::meshVertices,mesh,Ptr(0)));l.readable=(e.call<uint32_t>(abi::meshReadable,mesh,Ptr(0))&1u)?"true":"false";
-   l.indexFormat=renderprobe::missing("this build has no Mesh.get_indexFormat");l.submeshes=n;
+   l.submeshes=n;
    if(n<0||n>64){l.status="subMeshCount "+std::to_string(n)+" outside 0..64; ranges not read";return;}
-   for(int i=0;i<n;i++){renderprobe::UnityReader::Submesh sm;sm.start=e.call<uint32_t>(abi::meshIndexStart,mesh,i,Ptr(0));sm.count=e.call<uint32_t>(abi::meshIndexCount,mesh,i,Ptr(0));sm.known=true;
-    sm.base=renderprobe::missing("this build has no Mesh.GetBaseVertex");sm.topology=renderprobe::missing("this build has no Mesh.GetTopology");l.subs.push_back(sm);}
-   l.status="read";l.source="engine Mesh getters (dump.cs RVAs)";}
-  catch(const std::exception& ex){l.status=renderprobe::missing(std::string("engine Mesh getters: ")+ex.what()+"; named path: "+named);}}
- // Size of any texture, format and mips of a Texture2D, the same way.
+   for(int i=0;i<n;i++){texdiag::Submesh sm;sm.start=e.call<uint32_t>(abi::meshIndexStart,mesh,i,Ptr(0));sm.count=e.call<uint32_t>(abi::meshIndexCount,mesh,i,Ptr(0));sm.known=true;l.subs.push_back(sm);}
+   l.status="read";}
+  catch(const std::exception& ex){l.status=texdiag::missing(std::string("engine Mesh getters: ")+ex.what());}}
+ // Size of any texture, format and mips of a Texture2D.
  void texDiagTexture(texdiag::Texture& t){
   try{if(!texDiagTexture2D){Ptr w=e.call<Ptr>(abi::textureType);if(alive(w))texDiagTexture2D=load<Ptr>(w);}
    t.width=std::to_string(e.call<int32_t>(abi::textureWidth,t.texture,Ptr(0)));t.height=std::to_string(e.call<int32_t>(abi::textureHeight,t.texture,Ptr(0)));t.status.clear();
    if(texDiagTexture2D&&load<Ptr>(t.texture)==texDiagTexture2D){t.cls="UnityEngine.Texture2D";int f=e.call<int32_t>(abi::textureFormat,t.texture,Ptr(0));t.format=texdiag::textureFormat(f);
     t.mips=std::to_string(e.call<int32_t>(abi::textureMips,t.texture,Ptr(0)));}
-   else{t.format=renderprobe::missing("not a Texture2D");t.mips.clear();}}
-  catch(const std::exception& ex){t.status=renderprobe::missing(ex.what());}}
+   else{t.cls.clear();t.format=texdiag::missing("not a Texture2D");t.mips.clear();}}
+  catch(const std::exception& ex){t.status=texdiag::missing(ex.what());}}
  void texDiagLog(const std::string& state,const std::string& key,const std::string& line){auto& old=texDiagLogged[key];if(old==line)return;
   if(texDiagLogged.size()>4096){texDiagLogged.clear();}texDiagLogged[key]=line;log(state,line);}
  std::string texDiagKey(Ptr r){auto a=attachments.find(r);bool ours=a!=attachments.end()&&a->second->native==load<Ptr>(r+0x10);
   Ptr mesh=ours?a->second->original:e.get(abi::getMesh,r);std::string k=hex(load<Ptr>(r+0x10))+"|"+hex(mesh)+"|"+(alive(mesh)?hex(load<Ptr>(mesh+0x10))+":"+std::to_string(load<uint32_t>(load<Ptr>(mesh+0x10)+8)):"-");
   Ptr arr=ours?a->second->originalMaterials:e.get(abi::getMaterials,r);if(arr)for(Ptr m:pointers(arr,64))k+="|"+hex(m);return k;}
  texdiag::Renderer texDiagRead(Ptr r){texdiag::Renderer info;info.renderer=r;Owned roots;
-  if(!texDiagReader)texDiagReader=std::make_unique<renderprobe::UnityReader>(e.namedExport);
   try{info.native=load<Ptr>(r+0x10);info.name=rendererName(r);auto a=attachments.find(r);bool ours=a!=attachments.end()&&a->second->native==info.native;
    if(ours)info.takenBy=a->second->set->name+"/"+a->second->set->parts[a->second->part].name;
    auto sw=swapped.find(r);if(sw!=swapped.end()&&sw->second->set)info.swap=sw->second->set->name+" (textures read may be GIBox's)";
    try{info.avatar=avatarIdentity(r);}catch(const std::exception&){}
    Ptr mesh=ours?a->second->original:e.get(abi::getMesh,r);info.mesh=mesh;
    if(alive(mesh)){auto fp=fingerprint(mesh,true);info.meshName=fp.mesh;info.vertices=fp.vertices;info.submeshes=fp.submeshes;info.bones=fp.bones;info.lod=lowerLod(fp.mesh);
-    info.layout=texDiagReader->meshLayout(mesh);texDiagMesh(mesh,info.layout);}
+    texDiagMesh(mesh,info.layout);}
    else info.error="no live mesh";
    Ptr arr=ours?a->second->originalMaterials:e.get(abi::getMaterials,r);if(arr){pin(roots,arr);
     for(Ptr m:pointers(arr,64)){texdiag::Material mat;mat.material=m;
-     try{require(alive(m),"material destroyed");mat.name=name(m);Ptr sh=e.get(glow::rvaGetShader,m);mat.shader=alive(sh)?name(sh):"none";
+     try{require(alive(m),"material destroyed");mat.name=name(m);Ptr sh=e.get(abi::getShader,m);mat.shader=alive(sh)?name(sh):"none";
       std::map<int32_t,std::string> named;for(auto* n:texDiagNames)named[propertyId(n)]=n;
-      std::vector<int32_t> ids;Ptr idArr=e.get(glow::rvaGetTextureIds,m);
+      std::vector<int32_t> ids;Ptr idArr=e.get(abi::getTextureIds,m);
       if(idArr){pin(roots,idArr);auto n=length(idArr,64);for(uint64_t i=0;i<n;i++)ids.push_back(load<int32_t>(idArr+0x20+4*i));}
       else{mat.error="texture property list unavailable; candidate names checked instead";for(auto* n:texDiagNames)if(e.call<uint32_t>(abi::hasProperty,m,managedName(n),Ptr(0))&1u)ids.push_back(propertyId(n));}
-      for(int32_t id:ids){texdiag::Texture t;auto nm=named.find(id);auto learned=nm==named.end()?glow::trace().property(id):std::string();t.property=nm!=named.end()?nm->second:!learned.empty()?learned:"#"+std::to_string(id);t.id=id;t.texture=e.call<Ptr>(glow::rvaGetTexture,m,id,Ptr(0));
-       if(t.texture&&alive(t.texture)){t.name=name(t.texture);auto l=texDiagReader->textureLayout(t.texture);
-        t.cls=l.cls;t.width=l.width;t.height=l.height;t.mips=l.mips;t.format=l.format;if(l.status!="read"){t.status=l.status;texDiagTexture(t);}}
+      for(int32_t id:ids){texdiag::Texture t;auto nm=named.find(id);t.property=nm!=named.end()?nm->second:"#"+std::to_string(id);t.id=id;t.texture=e.call<Ptr>(abi::getTexture,m,id,Ptr(0));
+       if(t.texture&&alive(t.texture)){t.name=name(t.texture);texDiagTexture(t);}
        else if(t.texture)t.status="texture destroyed";
        mat.textures.push_back(std::move(t));}}
      catch(const std::exception& ex){mat.error=ex.what();}
@@ -641,7 +572,7 @@ struct Runtime::Impl {
  std::map<std::string,int> texVars(const texdiag::TextureMod& m){auto v=m.defaults;auto c=ctl.variables.find(m.name);if(c!=ctl.variables.end())for(auto& kv:c->second)if(v.count(kv.first))v[kv.first]=kv.second;return v;}
  std::string texDescribe(Ptr t){if(!t)return "null";if(!alive(t))return hex(t)+" (destroyed)";texdiag::Texture x;x.texture=t;try{x.name=name(t);texDiagTexture(x);}catch(const std::exception& ex){x.status=ex.what();}
   return (x.name.empty()?std::string("(unnamed)"):x.name)+"#"+hex(t)+(x.width.empty()?"":" "+x.width+"x"+x.height)+(x.format.empty()?"":" "+x.format)+(x.status.empty()?"":" ["+x.status+"]");}
- std::string texMaterial(Ptr m){if(!alive(m))return hex(m)+" (destroyed)";std::string sh;try{Ptr s=e.get(glow::rvaGetShader,m);sh=alive(s)?name(s):"none";}catch(const std::exception&){sh="?";}
+ std::string texMaterial(Ptr m){if(!alive(m))return hex(m)+" (destroyed)";std::string sh;try{Ptr s=e.get(abi::getShader,m);sh=alive(s)?name(s):"none";}catch(const std::exception&){sh="?";}
   return name(m)+"#"+hex(m)+" (instance id "+std::to_string(instanceId(m))+") shader="+sh;}
  void texSay(TexLive& L,const std::string& key,const std::string& state,const std::string& line){if(L.said.insert(key).second)log(state,line);}
  std::string texTag(const TexLive& L){return (L.test.empty()?std::string("-"):L.test)+"/"+L.strategy+" "+L.mod;}
@@ -684,7 +615,7 @@ struct Runtime::Impl {
   auto p=px.find(w.resource);require(p!=px.end(),"texture "+w.resource+" not decoded at import");
   Ptr t=texMake(*S,p->second,w.linear);S->made[key]=t;note=lost?" (made again: the earlier one was destroyed by the game)":" (made on demand, not prepared yet)";return t;}
  Ptr texMake(TexStore& S,const Texture& p,bool linear){bool k=false;Ptr x=makeTexture(S,p,linear,&k);if(k)S.kept++;return x;}
- std::vector<int32_t> texIds(Ptr m){std::vector<int32_t> ids;Owned tmp;try{Ptr a=e.get(glow::rvaGetTextureIds,m);if(a){pin(tmp,a);auto n=length(a,64);for(uint64_t i=0;i<n;i++)ids.push_back(load<int32_t>(a+0x20+4*i));}}catch(...){freeOwned(tmp);throw;}freeOwned(tmp);return ids;}
+ std::vector<int32_t> texIds(Ptr m){std::vector<int32_t> ids;Owned tmp;try{Ptr a=e.get(abi::getTextureIds,m);if(a){pin(tmp,a);auto n=length(a,64);for(uint64_t i=0;i<n;i++)ids.push_back(load<int32_t>(a+0x20+4*i));}}catch(...){freeOwned(tmp);throw;}freeOwned(tmp);return ids;}
  // A light read for matching (hand-off): names, mesh features, the submesh layout through the engine getters, the
  // material names; no texture details.
  texdiag::Renderer texLightRead(Ptr r){texdiag::Renderer info;info.renderer=r;info.native=load<Ptr>(r+0x10);info.name=rendererName(r);
@@ -746,8 +677,8 @@ struct Runtime::Impl {
   if(copy){Ptr c=clone(L,mat);s.clone=c;target=c;line+=" copy="+hex(c);}
   pin(L,mat);s.material=mat;s.materialNative=load<Ptr>(mat+0x10);bool ok=true;
   for(auto& w:plan){int32_t id=propertyId(w.property.c_str());if(std::find(ids.begin(),ids.end(),id)==ids.end()){line+=" | "+w.property+": the material has no such texture property; not written";continue;}
-   std::string note;Ptr ours=texOurs(L,px,w,note);Ptr before=e.call<Ptr>(glow::rvaGetTexture,target,id,Ptr(0));if(alive(before))pin(L,before);putTexture(target,w.property.c_str(),ours);
-   Ptr back=e.call<Ptr>(glow::rvaGetTexture,target,id,Ptr(0));ok=ok&&back==ours;s.writes.push_back({w,before,ours});
+   std::string note;Ptr ours=texOurs(L,px,w,note);Ptr before=e.call<Ptr>(abi::getTexture,target,id,Ptr(0));if(alive(before))pin(L,before);putTexture(target,w.property.c_str(),ours);
+   Ptr back=e.call<Ptr>(abi::getTexture,target,id,Ptr(0));ok=ok&&back==ours;s.writes.push_back({w,before,ours});
    line+=" | "+w.property+" ("+w.slot+" "+w.resource+(w.linear?", linear":", sRGB")+"): "+texDescribe(before)+" -> "+texDescribe(ours)+note+" readback="+(back==ours?"ok":"FAILED, now "+texDescribe(back));
    if(texOursTexture(before))line+=" (the material already carried ours: made from one we wrote; its original texture is not known here)";}
   for(auto& k:skipped)line+=" | skipped "+k;
@@ -762,13 +693,13 @@ struct Runtime::Impl {
   texPending.erase(t.renderer);return ok;}
  // Our textures on m (a material off the slot or the game's instance made from ours) back to what they replaced.
  bool texPutBack(Ptr m,const TexSlot& s,std::string& line,const std::string& what){bool ok=true;if(!alive(m)){line+=" | "+what+" "+hex(m)+": gone";return true;}
-  for(auto& w:s.writes){int32_t id=propertyId(w.write.property.c_str());Ptr now=e.call<Ptr>(glow::rvaGetTexture,m,id,Ptr(0));if(now!=w.ours)continue;
-   putTexture(m,w.write.property.c_str(),w.before);Ptr back=e.call<Ptr>(glow::rvaGetTexture,m,id,Ptr(0));bool good=back==w.before;ok=ok&&good;
+  for(auto& w:s.writes){int32_t id=propertyId(w.write.property.c_str());Ptr now=e.call<Ptr>(abi::getTexture,m,id,Ptr(0));if(now!=w.ours)continue;
+   putTexture(m,w.write.property.c_str(),w.before);Ptr back=e.call<Ptr>(abi::getTexture,m,id,Ptr(0));bool good=back==w.before;ok=ok&&good;
    line+=" | "+what+" "+w.write.property+": back to "+texDescribe(w.before)+(good?" (verified)":" FAILED, now "+texDescribe(back));}
   return ok;}
  // Every texture we wrote is on m: the game made it from our copy or from the material we wrote.
  bool texDerived(const TexSlot& s,Ptr on){if(!alive(on)||on==s.material||on==s.clone||on==s.copy||s.writes.empty())return false;
-  for(auto& w:s.writes){if(e.call<Ptr>(glow::rvaGetTexture,on,propertyId(w.write.property.c_str()),Ptr(0))!=w.ours)return false;}return true;}
+  for(auto& w:s.writes){if(e.call<Ptr>(abi::getTexture,on,propertyId(w.write.property.c_str()),Ptr(0))!=w.ours)return false;}return true;}
  // The slot follows the game's instance made from ours. Our copy it came from stays alive (the game may hold it); a
  // material we wrote that is now off the slot gets its textures back. The textures it replaced stay the ones to restore.
  bool texAdopt(TexLive& L,TexSlot& s,Ptr on,std::string& line){bool ok=true;
@@ -791,8 +722,8 @@ struct Runtime::Impl {
    if(ok&&alive(s.clone)){auto& v=L.objects;v.erase(std::remove(v.begin(),v.end(),s.clone),v.end());e.action(abi::destroy,s.clone);line+="; copy destroyed";}}
   else for(auto& w:s.writes){int32_t id=propertyId(w.write.property.c_str());
     if(!alive(s.material)||load<Ptr>(s.material+0x10)!=s.materialNative){line+=" | "+w.write.property+": material gone";continue;}
-    Ptr now=e.call<Ptr>(glow::rvaGetTexture,s.material,id,Ptr(0));if(now!=w.ours){line+=" | "+w.write.property+": now "+texDescribe(now)+" (changed by the game); left";continue;}
-    putTexture(s.material,w.write.property.c_str(),w.before);Ptr back=e.call<Ptr>(glow::rvaGetTexture,s.material,id,Ptr(0));bool good=back==w.before;ok=ok&&good;
+    Ptr now=e.call<Ptr>(abi::getTexture,s.material,id,Ptr(0));if(now!=w.ours){line+=" | "+w.write.property+": now "+texDescribe(now)+" (changed by the game); left";continue;}
+    putTexture(s.material,w.write.property.c_str(),w.before);Ptr back=e.call<Ptr>(abi::getTexture,s.material,id,Ptr(0));bool good=back==w.before;ok=ok&&good;
     line+=" | "+w.write.property+": back to "+texDescribe(w.before)+(good?" (verified)":" FAILED, now "+texDescribe(back));}
   // Our copy the game made its instance from: its textures back; destroyed only once its renderer is gone.
   if(s.copy){bool good=texPutBack(s.copy,s,line,"our earlier copy");ok=ok&&good;
@@ -815,7 +746,7 @@ struct Runtime::Impl {
    if(s.clone){if(on!=s.clone)event="the game put "+(alive(on)?texMaterial(on):hex(on))+" in place of our copy";}
    else if(on!=s.material)event="the game put "+(alive(on)?texMaterial(on):hex(on))+" in place of "+hex(s.material);
    else for(auto& w:s.writes){if(!alive(w.ours)){event="our texture for "+w.write.property+" was destroyed by the game (not by GIBox; a scene change's unused-asset unload)";break;}
-    Ptr now=e.call<Ptr>(glow::rvaGetTexture,s.material,propertyId(w.write.property.c_str()),Ptr(0));if(now!=w.ours){event=w.write.property+" overwritten by the game (now "+texDescribe(now)+")";break;}}
+    Ptr now=e.call<Ptr>(abi::getTexture,s.material,propertyId(w.write.property.c_str()),Ptr(0));if(now!=w.ours){event=w.write.property+" overwritten by the game (now "+texDescribe(now)+")";break;}}
    if(event.empty()){continue;}uint64_t noticed=texClock(),since=s.writtenAt?noticed-s.writtenAt:0;
    if(++s.again>16){s.gaveUp=true;log("texture-event",head+event+"; done again 16 times, stops here");continue;}
    unsigned again=s.again;std::string when="; noticed by "+via+" "+std::to_string(since)+" ms after our write";
@@ -824,9 +755,9 @@ struct Runtime::Impl {
    // glow): it stays on the slot and is watched in place. Copying it again would show a still of the effect.
    if(derived){std::string line;bool ok=texAdopt(L,s,on,line);log("texture-event",head+event+"; it was made from "+line+(ok?"":"; RESTORE FAILED")+when+" ("+std::to_string(again)+")");continue;}
    // The game's instance made from ours lost a texture: written again in it, not copied.
-   if(s.adopted&&on==s.material){std::string line;for(auto& w:s.writes){int32_t id=propertyId(w.write.property.c_str());Ptr now=e.call<Ptr>(glow::rvaGetTexture,s.material,id,Ptr(0));if(now==w.ours&&alive(w.ours))continue;
+   if(s.adopted&&on==s.material){std::string line;for(auto& w:s.writes){int32_t id=propertyId(w.write.property.c_str());Ptr now=e.call<Ptr>(abi::getTexture,s.material,id,Ptr(0));if(now==w.ours&&alive(w.ours))continue;
       if(!alive(w.ours)){std::string note;w.ours=texOurs(L,px,w.write,note);line+=" | "+w.write.property+note;}
-      putTexture(s.material,w.write.property.c_str(),w.ours);Ptr back=e.call<Ptr>(glow::rvaGetTexture,s.material,id,Ptr(0));line+=" | "+w.write.property+": "+texDescribe(now)+" -> "+texDescribe(w.ours)+" readback="+(back==w.ours?"ok":"FAILED, now "+texDescribe(back));}
+      putTexture(s.material,w.write.property.c_str(),w.ours);Ptr back=e.call<Ptr>(abi::getTexture,s.material,id,Ptr(0));line+=" | "+w.write.property+": "+texDescribe(now)+" -> "+texDescribe(w.ours)+" readback="+(back==w.ours?"ok":"FAILED, now "+texDescribe(back));}
     s.writtenAt=texClock();log("texture-event",head+event+"; written again in the game's instance made from ours (not copied)"+line+when+" ("+std::to_string(again)+")");continue;}
    TexTarget t{s.renderer,s.native,s.slot,s.rules,s.evidence,s.label,s.mesh,s.lod};
    bool restored=texRestore(L,s,"re-apply after the game's change");if(!restored){s.gaveUp=true;continue;}
@@ -891,16 +822,16 @@ struct Runtime::Impl {
  std::vector<TexBase> texBaseline(){std::vector<TexBase> out;
   for(auto& kv:texDiagDocs){auto& f=kv.second;if(!f.mod||!texModOn(f.mod->name)||f.mod->character!=ch.config)continue;
    for(auto& t:texTargets(kv.first,*f.mod,nullptr)){TexBase b;b.renderer=t.renderer;b.native=t.native;b.slot=t.slot;b.label=t.label;Ptr arr=e.get(abi::getMaterials,t.renderer);if(!arr)continue;auto list=pointers(arr,64);if(size_t(t.slot)>=list.size())continue;b.material=list[size_t(t.slot)];
-    for(auto* p:{"_MainTex","_LightMapTex"}){b.textures[p]=e.call<Ptr>(glow::rvaGetTexture,b.material,propertyId(p),Ptr(0));}out.push_back(b);}}
+    for(auto* p:{"_MainTex","_LightMapTex"}){b.textures[p]=e.call<Ptr>(abi::getTexture,b.material,propertyId(p),Ptr(0));}out.push_back(b);}}
   return out;}
  bool texOursTexture(Ptr t){for(auto& kv:texStores)if(kv.second)for(auto& x:kv.second->made)if(x.second==t)return true;for(auto& S:texStoresKept)for(auto& x:S->made)if(x.second==t)return true;return false;}
  bool texVerify(const std::vector<TexBase>& base,std::string& report){bool ok=true;
   for(auto& b:base){std::string r=b.label+" slot "+std::to_string(b.slot)+": ";if(!alive(b.renderer)||load<Ptr>(b.renderer+0x10)!=b.native){report+=r+"renderer gone; ";continue;}
    Ptr arr=e.get(abi::getMaterials,b.renderer);auto list=arr?pointers(arr,64):std::vector<Ptr>{};Ptr on=size_t(b.slot)<list.size()?list[size_t(b.slot)]:0;
    bool ours=false;for(auto& kv:texLive)if(kv.second)for(auto& s:kv.second->slots)ours=ours||s.clone==on;for(auto& L:texStranded)for(auto& o:L->objects)ours=ours||o==on;for(auto& o:texKept.objects)ours=ours||o==on;
-   if(on!=b.material){std::string still;if(alive(on))for(auto& kv:b.textures)if(texOursTexture(e.call<Ptr>(glow::rvaGetTexture,on,propertyId(kv.first.c_str()),Ptr(0))))still+=" "+kv.first;
+   if(on!=b.material){std::string still;if(alive(on))for(auto& kv:b.textures)if(texOursTexture(e.call<Ptr>(abi::getTexture,on,propertyId(kv.first.c_str()),Ptr(0))))still+=" "+kv.first;
     if(ours){ok=false;report+=r+"our copy is still on the slot; ";}else if(!still.empty()){ok=false;report+=r+"the game's material "+hex(on)+" in its place still carries ours:"+still+"; ";}else report+=r+"the game replaced the material ("+hex(b.material)+" -> "+hex(on)+"), not counted; ";continue;}
-   for(auto& kv:b.textures){Ptr now=e.call<Ptr>(glow::rvaGetTexture,on,propertyId(kv.first.c_str()),Ptr(0));bool mine=texOursTexture(now);
+   for(auto& kv:b.textures){Ptr now=e.call<Ptr>(abi::getTexture,on,propertyId(kv.first.c_str()),Ptr(0));bool mine=texOursTexture(now);
     if(now==kv.second){continue;}if(mine){ok=false;report+=r+kv.first+" still ours; ";}else report+=r+kv.first+" changed by the game ("+texDescribe(kv.second)+" -> "+texDescribe(now)+"), not counted; ";}
    if(ok)report+=r+"as saved; ";}
   return ok;}
@@ -1101,7 +1032,7 @@ struct Runtime::Impl {
   try{Ptr arr=e.call<Ptr>(abi::findObjectsNative,meshType(sample),int32_t(2));
    if(arr){pin(tmp,arr);for(Ptr m:pointers(arr,65536)){if(!alive(m))continue;looked++;Ptr nm=load<Ptr>(m+0x10);if(capMeshRead.count(nm))continue;
      uint64_t v=uint64_t(e.call<int32_t>(abi::meshVertices,m,Ptr(0)));if(!verts.count(v))continue;capMeshRead.insert(nm);
-     renderprobe::UnityReader::MeshLayout l;l.status="未采集: not read yet";texDiagMesh(m,l);CapMesh c;bool all=!l.subs.empty();
+     texdiag::MeshLayout l;texDiagMesh(m,l);CapMesh c;bool all=!l.subs.empty();
      for(auto& sb:l.subs){all=all&&sb.known;c.subs.push_back({uint32_t(sb.start),uint32_t(sb.count)});}c.indices=pcdb::indices(c.subs);if(!all||!want.count({c.indices,v}))continue;
      auto fp=fingerprint(m);if(fp.mesh.find("(Clone)")!=std::string::npos){capClones++;continue;}c.mesh=fp.mesh;c.vertices=unsigned(v);c.bones=fp.bones;c.lod=lowerLod(fp.mesh);
      auto k=capKey(c.mesh,c.vertices,c.indices);if(capMeshes.emplace(k,c).second){capShape.insert({{c.indices,uint64_t(c.vertices)},k});added++;}}}}
@@ -1177,124 +1108,12 @@ struct Runtime::Impl {
    +"MOD 用到这些 hash 时直接认出网格）"+(lods?"；另有 "+std::to_string(lods)+" 个低精度 LOD 未列出":"")+(capSkippedOurs?"；跳过 "+std::to_string(capSkippedOurs)+" 个正被 GIBox 模型替换的渲染器":"")+"\n"+rest;
   return o;}
 
- // ---------------------------------------------------------------- switch-in glow trace (debug + experiments.glowTrace)
- // The hooks (glow_trace.hpp) keep every write to the objects registered here: each attachment's renderer, its
- // GameObject and avatar root, the game's original materials, our clones (and retired ones) and whatever else the
- // renderer currently shows. Windows: a switch to a character with a model on (1.5 s before to 4 s after), a new
- // attachment, and a user mark (30 s before). At the window's read-back points and around each material refresh the
- // parameters the game was seen writing are read on both the current material and its original, and differences logged.
- struct GlowWindow {unsigned number=0;std::string what;uint64_t t0=0,from=0,to=0;std::set<uint16_t> owners;bool all=false;std::vector<uint64_t> reads;size_t nextRead=0;uint32_t frame=0;};
- std::vector<GlowWindow> glowWindows;unsigned glowNumber=0,glowAuto=0,glowCharacter=0;bool glowWasOn=false,glowNoHook=false;uint64_t glowRegistryAt=0;
- Recent<std::pair<Ptr,Ptr>,std::string> glowNames{4096};Recent<std::pair<Ptr,Ptr>,Ptr> glowAvatars{256};
- bool glowOn()const{return renderDebug()&&ctl.exp.glowTrace;}
- uint64_t glowNow()const{return worker.background()?clockMs():bindingNow;}
- std::string glowName(Ptr p){auto key=std::make_pair(p,load<Ptr>(p+0x10));if(auto* hit=glowNames.find(key))return *hit;return glowNames.put(key,name(p));}
- // The GameObject of the nearest "Avatar_" transform above the renderer's first bone (what the game activates on a switch).
- Ptr glowAvatarOf(Ptr r){auto key=std::make_pair(r,load<Ptr>(r+0x10));if(auto* hit=glowAvatars.find(key))return *hit;Ptr found=0;Owned tmp;
-  try{Ptr ba=e.get(abi::getBones,r);if(ba){pin(tmp,ba);auto bones=pointers(ba,512);Ptr t=bones.empty()?0:bones[0];
-    for(unsigned i=0;i<24&&alive(t);i++){if(normalize(name(t)).compare(0,7,"avatar_")==0){found=e.get(abi::gameObject,t);break;}t=e.get(abi::getParent,t);}}}
-  catch(...){freeOwned(tmp);throw;}freeOwned(tmp);return glowAvatars.put(key,found);}
- uint16_t glowOwner(const Attachment& a){return glow::trace().owner(a.set->name,a.set->parts[a.part].name,a.set->id);}
- void glowRegister(){auto& t=glow::trace();t.beginRefresh();
-  for(auto& kv:attachments){auto& a=*kv.second;
-   try{if(!alive(a.renderer)||load<Ptr>(a.renderer+0x10)!=a.native)continue;auto& bp=a.set->parts[a.part];uint16_t owner=glowOwner(a);std::string who=a.set->name+"/"+bp.name+" ";
-    t.put(a.renderer,glow::Role::Renderer,owner,-1,who+"renderer "+rendererName(a.renderer));
-    Ptr go=e.get(abi::gameObject,a.renderer);if(alive(go))t.put(go,glow::Role::GameObject,owner,-1,who+"gameobject "+glowName(go));
-    Ptr avatar=glowAvatarOf(a.renderer);if(alive(avatar))t.put(avatar,glow::Role::Avatar,owner,-1,who+"avatar "+glowName(avatar));
-    auto originals=pointers(a.originalMaterials,64);
-    for(size_t i=0;i<originals.size();i++){if(alive(originals[i]))t.put(originals[i],glow::Role::Original,owner,int16_t(i),who+"original slot "+std::to_string(i)+" "+glowName(originals[i]));}
-    for(size_t j=0;j<bp.rows.size();j++){auto it=a.clones.find(bp.rows[j].name+"#"+std::to_string(bp.rows[j].slot));
-     if(it!=a.clones.end()&&alive(it->second))t.put(it->second,glow::Role::Clone,owner,int16_t(j),who+"clone row "+std::to_string(j)+" "+glowName(it->second));}
-    for(auto& r:a.retired){if(alive(r.first))t.put(r.first,glow::Role::Retired,owner,-1,who+"retired clone "+r.second+" "+glowName(r.first));}
-    Ptr arr=e.get(abi::getMaterials,a.renderer);
-    if(arr){Owned tmp;try{pin(tmp,arr);auto current=pointers(arr,64);
-      for(size_t i=0;i<current.size();i++){Ptr m=current[i];if(!alive(m)||t.keep(m))continue;t.put(m,glow::Role::Current,owner,int16_t(i),who+"current slot "+std::to_string(i)+" "+glowName(m));}}
-     catch(...){freeOwned(tmp);throw;}freeOwned(tmp);}
-   }catch(const std::exception& ex){log("glow-note","registry: "+std::string(ex.what()));}}
-  t.endRefresh();}
- std::set<uint16_t> glowOwnersOf(unsigned character){std::set<uint16_t> out;std::set<Ptr> world;try{for(Ptr r:worldRenderers())world.insert(r);}catch(const std::exception&){}
-  for(auto& kv:attachments){auto& a=*kv.second;if((character&&a.set->id==character)||world.count(a.renderer))out.insert(glowOwner(a));}return out;}
- std::string glowOwnerNames(const std::set<uint16_t>& owners){std::string out;for(auto o:owners){glow::Trace::Owner x;if(glow::trace().ownerOfTag(glow::makeTag(glow::Role::None,o,0,0),x))out+=(out.empty()?"":", ")+x.model+"/"+x.part;}return out;}
- void glowOpen(const std::string& what,const std::set<uint16_t>& owners,bool all,uint64_t before,uint64_t after,const std::vector<uint64_t>& reads,bool merge=false){
-  uint64_t now=glowNow();
-  // Attaching the same objects again within a second (several parts at once): the open attach window is extended.
-  for(auto& w:glowWindows)if(merge&&w.what==what&&w.owners==owners&&now<w.t0+1000){w.to=std::max(w.to,now+after);return;}
-  if(!all&&++glowAuto>40){if(glowAuto==41)log("glow-note","40 automatic windows this session; from now on only marks open one");return;}
-  GlowWindow w;w.number=++glowNumber;w.what=what;w.t0=now;w.from=now>before?now-before:0;w.to=now+after;w.owners=owners;w.all=all;for(auto r:reads)w.reads.push_back(now+r);
-  auto ff=glow::trace().frameFn.load();w.frame=ff?uint32_t(ff()):0;
-  log("glow-window","#"+std::to_string(w.number)+" "+what+" at frame "+std::to_string(w.frame)+" ("+(all?std::string("all tracked objects"):glowOwnerNames(owners))+"): writes from "+std::to_string(before)+" ms before to "+std::to_string(after)+" ms after");
-  glowWindows.push_back(std::move(w));glowProcess(now);}
- void glowProcess(uint64_t now){
-  for(size_t i=0;i<glowWindows.size();){auto& w=glowWindows[i];
-   while(w.nextRead<w.reads.size()&&now>=w.reads[w.nextRead]){glowReadback(w,"+"+std::to_string(w.reads[w.nextRead]-w.t0)+"ms");w.nextRead++;}
-   if(now>=w.to&&w.nextRead>=w.reads.size()){glowSummary(w);glowWindows.erase(glowWindows.begin()+long(i));}else i++;}}
- void glowSummary(const GlowWindow& w){auto& t=glow::trace();bool truncated=false;auto events=t.collect(w.from*1000000ull,w.to*1000000ull,truncated);
-  auto keep=[&](uint64_t tag){return w.all?tag!=0:w.owners.count(glow::ownerOf(tag))>0;};std::string counts;
-  auto rows=glow::summarize(t,events,keep,w.t0*1000000ull,w.number,80,counts);
-  log("glow-window","#"+std::to_string(w.number)+" end: "+counts+(truncated?"; the oldest part was overwritten (ring full)":"")+(rows.empty()?"; nothing was written to these objects":"")
-   +(t.dropped.load()?"; "+std::to_string(t.dropped.load())+" records dropped this session":""));
-  for(auto& r:rows)log("glow-write",r);}
- void glowReadback(const GlowWindow& w,const std::string& phase){
-  for(auto& kv:attachments){auto& a=*kv.second;if(!w.all&&!w.owners.count(glowOwner(a)))continue;glowDiff(a,"#"+std::to_string(w.number)+" "+phase);}}
- struct GlowState {Ptr shader=0;int queue=0;std::set<std::string> keywords;std::map<int32_t,std::string> values;std::map<int32_t,Ptr> textures;std::string error;};
- GlowState glowRead(Ptr m,const std::map<int32_t,uint8_t>& ids,const std::vector<int32_t>& textureIds){GlowState s;Owned tmp;
-  try{require(alive(m),"material destroyed");s.shader=e.get(glow::rvaGetShader,m);s.queue=e.call<int32_t>(glow::rvaGetRenderQueue,m,Ptr(0));
-   Ptr kw=e.get(glow::rvaGetKeywords,m);if(kw){pin(tmp,kw);for(Ptr x:pointers(kw,256)){if(x)s.keywords.insert(glow::Trace::managedString(x,128));}}
-   for(auto& kv:ids){int32_t id=kv.first;uint8_t k=kv.second;if(!(e.call<uint32_t>(glow::rvaHasProperty,m,id,Ptr(0))&1u))continue;std::string v;
-    if(k&glow::KindFloat)v+=glow::number(e.call<float>(glow::rvaGetFloat,m,id,Ptr(0)));
-    if(k&glow::KindInt)v+=(v.empty()?"":" ")+std::to_string(e.call<int32_t>(glow::rvaGetInt,m,id,Ptr(0)));
-    if(k&(glow::KindColor|glow::KindVector)){float x[4]={0,0,0,0};e.call<void>((k&glow::KindColor)?glow::rvaGetColor:glow::rvaGetVector,m,id,x,Ptr(0));v+=(v.empty()?"":" ")+glow::vec(x,4);}
-    if(k&glow::KindScaleOffset){float x[4]={0,0,0,0};e.call<void>(glow::rvaGetScaleOffset,m,id,x,Ptr(0));v+=std::string(v.empty()?"":" ")+"st"+glow::vec(x,4);}
-    if(!v.empty()){s.values[id]=v;}if(k&glow::KindTexture)s.textures[id]=e.call<Ptr>(glow::rvaGetTexture,m,id,Ptr(0));}
-   for(int32_t id:textureIds){if(!s.textures.count(id))s.textures[id]=e.call<Ptr>(glow::rvaGetTexture,m,id,Ptr(0));}}
-  catch(const std::exception& ex){s.error=ex.what();}freeOwned(tmp);return s;}
- std::string glowProperty(int32_t id){auto n=glow::trace().property(id);return (n.empty()?std::string("#"):n+"#")+std::to_string(id);}
- std::string glowTexture(Ptr t){if(!t)return "none";try{if(alive(t))return glowName(t)+"@"+hex(t);}catch(const std::exception&){}return hex(t);}
- // The current material of each draw against the game material it was copied from: what differs besides our textures.
- void glowDiff(Attachment& a,const std::string& when){if(a.set->originalMaterials||!alive(a.renderer)||load<Ptr>(a.renderer+0x10)!=a.native)return;
-  auto& t=glow::trace();auto& bp=a.set->parts[a.part];std::set<Ptr> ours;
-  // Parameters the game set by name (SetFloat("_DissolveValue", ...)): their IDs come from the engine, read back by ID.
-  for(auto& n:t.unresolvedNames()){try{Ptr str=e.call<Ptr>(abi::newString,Ptr(0),n.c_str());if(str)t.learnProperty(e.call<int32_t>(glow::rvaPropertyToId,str,Ptr(0)),n);}catch(const std::exception&){}}
-  auto ids=t.materialIds();
-  for(auto& kv:a.set->textures)for(Ptr x:{kv.second.main,kv.second.light,kv.second.normal})if(x)ours.insert(x);
-  Owned tmp;
-  try{Ptr arr=e.get(abi::getMaterials,a.renderer);if(!arr){freeOwned(tmp);return;}pin(tmp,arr);auto current=pointers(arr,64),originals=pointers(a.originalMaterials,64);
-   for(size_t j=0;j<bp.rows.size()&&j<current.size();j++){Ptr cur=current[j];unsigned slot=bp.rows[j].slot;Ptr src=slot<originals.size()?originals[slot]:0;
-    if(!alive(src))for(size_t k=originals.size();k-->0;)if(alive(originals[k])){src=originals[k];slot=unsigned(k);break;}
-    if(!alive(cur)||!alive(src)){continue;}
-    std::vector<int32_t> textureIds;Ptr idArr=e.get(glow::rvaGetTextureIds,src);
-    if(idArr){pin(tmp,idArr);auto n=length(idArr,256);for(uint64_t i=0;i<n;i++)textureIds.push_back(load<int32_t>(idArr+0x20+4*i));}
-    auto x=glowRead(cur,ids,textureIds),y=glowRead(src,ids,textureIds);std::string d;unsigned equal=0,replaced=0;auto add=[&](const std::string& v){d+=(d.empty()?"":"; ")+v;};
-    if(!x.error.empty()||!y.error.empty())add("read error: "+x.error+" / "+y.error);
-    if(x.shader!=y.shader)add("shader "+hex(x.shader)+" vs "+hex(y.shader));else equal++;
-    if(x.queue!=y.queue)add("renderQueue "+std::to_string(x.queue)+" vs "+std::to_string(y.queue));else equal++;
-    std::string only,missing;for(auto& k:x.keywords)if(!y.keywords.count(k))only+=(only.empty()?"":" ")+k;for(auto& k:y.keywords)if(!x.keywords.count(k))missing+=(missing.empty()?"":" ")+k;
-    if(!only.empty()||!missing.empty())add("keywords only here ["+only+"], only on the original ["+missing+"]");else equal++;
-    for(auto& kv:x.values){auto o=y.values.find(kv.first);auto other=o==y.values.end()?std::string("absent"):o->second;if(other!=kv.second)add(glowProperty(kv.first)+" "+kv.second+" vs "+other);else equal++;}
-    for(auto& kv:y.values)if(!x.values.count(kv.first))add(glowProperty(kv.first)+" absent vs "+kv.second);
-    for(auto& kv:x.textures){auto o=y.textures.find(kv.first);Ptr other=o==y.textures.end()?0:o->second;if(other==kv.second){equal++;continue;}if(ours.count(kv.second)){replaced++;continue;}
-     add(glowProperty(kv.first)+" texture "+glowTexture(kv.second)+" vs "+glowTexture(other));}
-    auto label=t.labelOfObject(cur);
-    log("glow-diff",when+" "+a.set->name+"/"+bp.name+" row "+std::to_string(j)+" "+(label.empty()?glowName(cur)+"@"+hex(cur):label)+" vs original slot "+std::to_string(slot)+": "
-     +(d.empty()?"no difference":d)+" ("+std::to_string(equal)+" equal, "+std::to_string(replaced)+" GIBox textures, "+std::to_string(ids.size())+" parameters the game wrote, "+std::to_string(x.keywords.size())+" keywords)");}
-   std::string custom;for(auto& kv:t.customIds()){if(!(kv.second&glow::KindFloat))continue;custom+=(custom.empty()?"":", ")+glowProperty(kv.first)+"="+glow::number(e.call<float>(glow::rvaGetCustomFloat,a.renderer,kv.first,Ptr(0)));}
-   if(!custom.empty())log("glow-diff",when+" "+a.set->name+"/"+bp.name+" renderer custom floats: "+custom);}
-  catch(const std::exception& ex){log("glow-note","read-back "+a.set->name+": "+ex.what());}freeOwned(tmp);}
- void glowTick(){auto& t=glow::trace();if(!worker.background())t.testClockMs.store(bindingNow);
-  if(!glowOn()){if(glowWasOn){glowWasOn=false;t.armed.store(false);glowWindows.clear();log("glow-note","trace off: nothing is recorded; the engine entries stay hooked until the game restarts");}return;}
-  if(!t.everything&&!glowNoHook){if(!e.hook){glowNoHook=true;log("glow-note","no inline hook installer: nothing is recorded");}else log("glow-hooks",glow::install(e));}
-  if(!glowWasOn){glowWasOn=true;glowRegistryAt=0;glowCharacter=ch.config;t.armed.store(true);
-   log("glow-note","trace on: "+std::to_string(t.hooked)+" engine entries hooked; windows open on a switch to a character with a model, on attaching, and on 标记画面异常");}
-  uint64_t now=glowNow();if(now>=glowRegistryAt){glowRegistryAt=now+250;glowRegister();}
-  if(ch.config!=glowCharacter){glowCharacter=ch.config;if(ch.entity){auto owners=glowOwnersOf(ch.config);if(!owners.empty())glowOpen("switch-in "+std::to_string(ch.config),owners,false,1500,4000,{0,1500,4000});}}
-  glowProcess(now);}
-
  // ---------------------------------------------------------------- material property names
  // Shader.PropertyToID of a property name (a managed string from newString), cached per name: the direct textures and
  // texture-only mods write and read material textures by it.
  std::map<std::string,int32_t> propertyIds;
  Ptr managedName(const char* n){Ptr str=e.call<Ptr>(abi::newString,Ptr(0),n);require(str!=0,"Managed string allocation failed");return str;}
- int32_t propertyId(const char* n){auto it=propertyIds.find(n);if(it!=propertyIds.end())return it->second;int32_t id=e.call<int32_t>(glow::rvaPropertyToId,managedName(n),Ptr(0));propertyIds[n]=id;return id;}
+ int32_t propertyId(const char* n){auto it=propertyIds.find(n);if(it!=propertyIds.end())return it->second;int32_t id=e.call<int32_t>(abi::propertyToId,managedName(n),Ptr(0));propertyIds[n]=id;return id;}
 
  // ---------------------------------------------------------------- direct textures
  // The mod's textures go into the game's own material of a slot, not into a copy of it, when that material is evidently
@@ -1306,7 +1125,7 @@ struct Runtime::Impl {
  static int32_t instanceId(Ptr o){Ptr n=load<Ptr>(o+0x10);return n?int32_t(load<uint32_t>(n+8)):0;}
  bool gibTexture(Ptr t){if(!t)return false;for(auto& s:sets)for(auto& kv:s->textures)if(t==kv.second.main||t==kv.second.light||t==kv.second.normal)return true;return false;}
  const char* firstProperty(Ptr mat,std::initializer_list<const char*> properties){for(auto prop:properties)if(e.call<uint32_t>(abi::hasProperty,mat,managedName(prop),Ptr(0))&1u)return prop;return nullptr;}
- Ptr textureOf(Ptr mat,const char* property){return e.call<Ptr>(glow::rvaGetTexture,mat,propertyId(property),Ptr(0));}
+ Ptr textureOf(Ptr mat,const char* property){return e.call<Ptr>(abi::getTexture,mat,propertyId(property),Ptr(0));}
  void putTexture(Ptr mat,const char* property,Ptr tx){if(!std::strcmp(property,"_MainTex"))e.set(abi::mainTexture,mat,tx);else e.call<void>(abi::setTexture,mat,managedName(property),tx,Ptr(0));}
  void directPin(Attachment& a,Ptr p){if(alive(p)&&a.directPinned.insert(p).second)pin(a,p);}
  // Slot -> the game material that takes the mod's textures; the decision for every slot of ours goes to `report`.
@@ -2089,9 +1908,7 @@ struct Runtime::Impl {
  // until the character was loaded again); custom textures (mode 2) once the new materials are on, since the shown
  // material's own textures are written into them. AllowPerMaterialProp passes on to the next slot mode.
  void applyMaterials(Attachment& a){Set& s=*a.set;auto& bp=s.parts[a.part];directRestore(a,nullptr);
-  if(ctl.exp.gameMaterials&&!s.originalMaterials){auto originals=pointers(a.originalMaterials,64);std::vector<Ptr> mats;
-   for(auto& row:bp.rows){Ptr src=row.slot<originals.size()?originals[row.slot]:0;if(!alive(src))for(size_t k=originals.size();k-->0;)if(alive(originals[k])){src=originals[k];break;}require(alive(src),"Original material missing");mats.push_back(src);}
-   Owned tmp;try{e.set(abi::setMaterials,a.renderer,array(tmp,a.originalMaterials,mats.data(),mats.size(),8));}catch(...){freeOwned(tmp);throw;}freeOwned(tmp);return;}if(!s.originalMaterials){std::set<std::string> names;for(auto& r:bp.rows)names.insert(r.name);ensureTextures(s,names,true);}if(s.originalMaterials){e.set(abi::setMaterials,a.renderer,a.originalMaterials);return;}
+  if(!s.originalMaterials){std::set<std::string> names;for(auto& r:bp.rows)names.insert(r.name);ensureTextures(s,names,true);}if(s.originalMaterials){e.set(abi::setMaterials,a.renderer,a.originalMaterials);return;}
   auto originals=pointers(a.originalMaterials,64);std::vector<Ptr> mats;std::map<unsigned,Ptr> direct;
   // A decision that writes nothing (every slot copied, as for the party screen's loaded assets) is a debug line.
   {std::string report;direct=directPlan(a,originals,report);if(report!=a.directReport){a.directReport=report;log(direct.empty()?"direct-textures-copied":"direct-textures",s.name+"/"+bp.name+" on "+rendererName(a.renderer)+": "+report);}}
@@ -2145,9 +1962,8 @@ struct Runtime::Impl {
   catch(...){try{directRestore(*a,"attach failed");}catch(const std::exception&){}if(meshSet&&alive(r))e.set(abi::setMesh,r,mesh);freeOwned(*a);throw;}
    log("attached",s.name+"/"+bp.name+" -> "+name(r));attachments[r]=std::move(a);beginMaterialTrace(*attachments.at(r),now);s.used=now;return true;}
  // Bounded observations, not an effect-parameter fix: identify palette replacements during party hand-off versus
- // unchanged material instances. Existing INFO palette logs stay intact; debug readback uses named managed methods.
+ // unchanged material instances (material-state lines).
  void materialState(Attachment& a,const std::string& phase,uint64_t now){
-  renderSnapshot(a,phase);
   if(a.set->originalMaterials||logLevel.load(std::memory_order_relaxed)>int(Level::Info)){return;}
   try{
    if(!alive(a.renderer)||load<Ptr>(a.renderer+0x10)!=a.native)return;
@@ -2163,7 +1979,7 @@ struct Runtime::Impl {
   }catch(const std::exception& ex){log("material-state-error",a.set->name+": "+ex.what());}
  }
  void beginMaterialTrace(Attachment& a,uint64_t now){if(a.set->originalMaterials){return;}
-  if(glowOn()&&glow::trace().armed.load()){glowRegister();glow::trace().marker(a.renderer,a.adopted?"adopted":"attached");if(!a.adopted)glowOpen("attach "+a.set->name+"/"+a.set->parts[a.part].name,{glowOwner(a)},false,500,3000,{0,3000},true);}if(worker.background()){now=clockMs();}a.materialTraceStart=now;a.materialTraceAt=now+500;a.materialTraceSamples=0;
+  if(worker.background()){now=clockMs();}a.materialTraceStart=now;a.materialTraceAt=now+500;a.materialTraceSamples=0;
   a.materialCheckAt=now+50;a.materialCheckUntil=now+1500;a.materialRepairs=0;materialState(a,"attached",now);}
  static std::string materialStem(const std::string& raw){auto s=normalize(raw);auto clone=s.find("(clone)"),instance=s.find("(instance)");auto end=std::min(clone,instance);return trim(s.substr(0,end));}
  // The log confirms copies named "...(Clone) (Instance) #n" appearing after the hand-off. Only accept that layout
@@ -2196,9 +2012,7 @@ struct Runtime::Impl {
   if(!mats){log("material-refresh",s.name+": attempt "+std::to_string(a.refreshes)+" skipped (no material array)");return;}
   auto current=pointers(mats,64);bool shows=false;for(auto& c:a.clones){shows=shows||std::find(current.begin(),current.end(),c.second)!=current.end();}
   if(!shows&&!copiedPalette(a,current,mats)){log("material-refresh",s.name+": attempt "+std::to_string(a.refreshes)+" skipped (current materials are not the owned clones)");return;}
-  bool glow=glowOn()&&glow::trace().armed.load();if(glow){glow::trace().marker(a.renderer,"refresh "+std::to_string(a.refreshes));glowDiff(a,"refresh-before "+std::to_string(a.refreshes));}
-  retakeClones(a);log("material-refresh",s.name+": attempt "+std::to_string(a.refreshes)+" applied");materialState(a,"refresh-after",now);
-  if(glow){glowRegister();glowDiff(a,"refresh-after "+std::to_string(a.refreshes));}}
+  retakeClones(a);log("material-refresh",s.name+": attempt "+std::to_string(a.refreshes)+" applied");materialState(a,"refresh-after",now);}
  // A bounded early repair: first 1.5 s, at most 20 checks/s and two rebuild attempts. Do not perpetually fight the
  // game's effects, alter shader parameters, replace unrelated meshes, or destroy game-owned material instances.
  void guardMaterials(Attachment& a,uint64_t now){
@@ -2442,14 +2256,14 @@ struct Runtime::Impl {
  Ptr bindMesh(Ptr rendererNative,Ptr meshNative){
   if(!meshNative||!rendererNative||!onTickThread("mesh binding")||!ctl.enabled||inTick||attachments.empty())return meshNative;
   Attachment* a=nullptr;for(auto& kv:attachments)if(kv.second->native==rendererNative){a=kv.second.get();break;}
-  if(!a||!wantedSet(*a->set)){return meshNative;}auto& bp=a->set->parts[a->part];if(!alive(bp.mesh)){return meshNative;}Ptr ours=load<Ptr>(bp.mesh+0x10);if(a->part<a->set->animation.owned.size())for(Ptr mesh:a->set->animation.owned[a->part])if(alive(mesh)&&load<Ptr>(mesh+0x10)==meshNative)return ours;if(meshNative==ours){inTick=true;renderBindBefore(rendererNative);inTick=false;return meshNative;}
-  inTick=true;renderBindBefore(rendererNative);Ptr out=meshNative;
+  if(!a||!wantedSet(*a->set)){return meshNative;}auto& bp=a->set->parts[a->part];if(!alive(bp.mesh)){return meshNative;}Ptr ours=load<Ptr>(bp.mesh+0x10);if(a->part<a->set->animation.owned.size())for(Ptr mesh:a->set->animation.owned[a->part])if(alive(mesh)&&load<Ptr>(mesh+0x10)==meshNative)return ours;if(meshNative==ours){return meshNative;}
+  inTick=true;Ptr out=meshNative;
   try{if(!alive(a->renderer)||load<Ptr>(a->renderer+0x10)!=rendererNative){inTick=false;return meshNative;}Fingerprint fp;Ptr managed=0;bool known=knownMesh(meshNative,fp,managed);
    if(known&&meshName(fp.mesh)==meshName(bp.target.mesh)&&bindable(*a,managed)){
     // A successful interception must still remember the new game asset. Otherwise Destroy(old asset) leaves
     // restoration pointing at the expired predecessor even though a live original just passed this hook.
     if((matches(bp.target,fp)||!alive(a->original))&&a->original!=managed){pin(*a,managed);a->original=managed;}
-    out=ours;if(glowOn())glow::trace().marker(a->renderer,"bind-substituted "+fp.mesh);if(++binds<=20)log("bind-substituted",a->set->name+"/"+bp.name+": game asked for "+fp.mesh+" ("+std::to_string(fp.vertices)+" vertices)"+(binds==20?" (further binds not logged)":""));}
+    out=ours;if(++binds<=20)log("bind-substituted",a->set->name+"/"+bp.name+": game asked for "+fp.mesh+" ("+std::to_string(fp.vertices)+" vertices)"+(binds==20?" (further binds not logged)":""));}
    else if(++passes<=20)log("bind-passed",rendererName(a->renderer)+" <- "+(known?fp.mesh:std::string("unknown mesh")));}
   catch(const std::exception& ex){log("bind-error",ex.what());out=meshNative;}
   inTick=false;return out;}
@@ -2507,7 +2321,7 @@ struct Runtime::Impl {
    if(!rs.empty()){inTick=true;try{texAfter(rs,"the game's mesh binding");}catch(const std::exception& ex){log("texture-error",std::string("mesh binding: ")+ex.what());}inTick=false;}}
   if(!ctl.enabled||wantedNow.empty()||!bindingReady){if(timelineOn()){inTick=true;timelineBind("early",native);inTick=false;}return;}
   inTick=true;
-  try{renderBindAfter(native);Ptr r=e.call<Ptr>(abi::wrapperFor,native);if(!alive(r)||load<Ptr>(r+0x10)!=native){inTick=false;return;}
+  try{Ptr r=e.call<Ptr>(abi::wrapperFor,native);if(!alive(r)||load<Ptr>(r+0x10)!=native){inTick=false;return;}
    Ptr mesh=e.get(abi::getMesh,r);if(!alive(mesh)){inTick=false;return;}
    auto attached=attachments.find(r);if(attached!=attachments.end()){auto& a=*attached->second;
     if(!wantedSet(*a.set)){inTick=false;return;}
@@ -2735,12 +2549,8 @@ struct Runtime::Impl {
    boneCandidate.clear();boneBadList.clear();boneBadStreak=0;exportWait.clear();boneFullSearchAt=0;libraryWait.erase(id);log("bone-refresh-request",std::to_string(id)+": request "+std::to_string(c->refreshBones));
   }
   if(c){bool diagnosticOnly=c->enabled==ctl.enabled&&c->selected==ctl.selected&&c->variables==ctl.variables&&c->exportBones==ctl.exportBones&&c->refreshBones==ctl.refreshBones&&c->refreshBonesCharacter==ctl.refreshBonesCharacter&&(c->renderMark!=ctl.renderMark||c->logLevel!=ctl.logLevel||c->keys!=ctl.keys);
-   if(!renderControlSeen){renderControlSeen=true;renderMarkSeen=c->renderMark;}
-   if(c->logLevel!=int(Level::Debug))renderMarkSeen=c->renderMark;
-   bool expMaterials=c->exp.gameMaterials!=ctl.exp.gameMaterials;if(!(c->exp==ctl.exp))log("experiments",c->exp.text());
+   if(!(c->exp==ctl.exp))log("experiments",c->exp.text());
    ctl=*c;
-   // gameMaterials switched: every attached renderer (not an adopted copy) gets the other kind of materials now.
-   if(expMaterials)for(auto& kv:attachments){auto& a=*kv.second;try{if(!a.adopted)applyMaterials(a);}catch(const std::exception& ex){log("experiment-error",a.set->name+": "+ex.what());}}
    if(!diagnosticOnly){failed.clear();attempts.clear();skipped.clear();notes.clear();findOff=false;findFails=0;findAt=0;discoverAt=0;staleNote.clear();bindingRejected.clear();bindingStamp.clear();}}
 
   if(!cerr.empty())log("control-error",cerr);}
@@ -2749,9 +2559,8 @@ struct Runtime::Impl {
    if(!tickTid.load())tickTid.store(threadId());
    // consume() may replace `models`: hand-off pointers into it are dropped first and set again below.
    seen.erase(std::remove_if(seen.begin(),seen.end(),[&](const Seen& sn){return !seenLive(sn);}),seen.end());
-   wantedNow.clear();bindingTargets.clear();bindingReady=false;if(!worker.background()){workerTick(now);}consume();ch=current();renderTick(now);bindingStats();
+   wantedNow.clear();bindingTargets.clear();bindingReady=false;if(!worker.background()){workerTick(now);}consume();ch=current();bindingStats();
    if(ch.config!=shownCharacter){shownCharacter=ch.config;log("character",ch.entity?std::to_string(ch.config):std::string("none"));}
-   glowTick();
    try{textureDiagTick(now);}catch(const std::exception& ex){log("texture-diag-unsupported",std::string("diagnostics stopped this round: ")+ex.what());}
    try{textureModTick(now);}catch(const std::exception& ex){log("texture-error",std::string("texture-only mods this round: ")+ex.what());}
    try{ibHashTick(now);}catch(const std::exception& ex){log("ib-capture",std::string("this round: ")+ex.what());}
@@ -2828,11 +2637,10 @@ struct Runtime::Impl {
 };
 Runtime::Runtime(Engine e,std::string pkg,std::string priv,std::string media,bool threaded):p(std::make_unique<Impl>(std::move(e),std::move(pkg),std::move(priv),std::move(media),threaded)){}
 Runtime::~Runtime()=default; // Engine cleanup requires shutdown() on the game thread; the worker is joined here.
-// Every engine call below these entry points is GIBox's own (glow trace: "GIBox" rather than "game").
-void Runtime::tick(uint64_t now){glow::OwnScope own;p->tick(now);}
-void Runtime::spawned(Ptr go)noexcept{glow::OwnScope own;try{p->spawned(go);}catch(...){}}
-void Runtime::spawnedAfter()noexcept{glow::OwnScope own;try{p->spawnedAfter();}catch(...){}}
-Ptr Runtime::bindMesh(Ptr renderer,Ptr mesh)noexcept{glow::OwnScope own;try{return p->bindMesh(renderer,mesh);}catch(...){return mesh;}}
-void Runtime::meshBound(Ptr renderer)noexcept{glow::OwnScope own;try{p->meshBound(renderer);}catch(...){}}
-void Runtime::shutdown(){glow::OwnScope own;glow::trace().armed.store(false);p->renderBinding.clear();p->renderRecorder.reset();p->renderReader.reset();try{p->texRestoreEverything("shutdown");}catch(const std::exception&){}p->texDiagReader.reset();if(p->releaseAll()){p->pruneRestoreBackups(true);}}
+void Runtime::tick(uint64_t now){p->tick(now);}
+void Runtime::spawned(Ptr go)noexcept{try{p->spawned(go);}catch(...){}}
+void Runtime::spawnedAfter()noexcept{try{p->spawnedAfter();}catch(...){}}
+Ptr Runtime::bindMesh(Ptr renderer,Ptr mesh)noexcept{try{return p->bindMesh(renderer,mesh);}catch(...){return mesh;}}
+void Runtime::meshBound(Ptr renderer)noexcept{try{p->meshBound(renderer);}catch(...){}}
+void Runtime::shutdown(){try{p->texRestoreEverything("shutdown");}catch(const std::exception&){}if(p->releaseAll()){p->pruneRestoreBackups(true);}}
 }

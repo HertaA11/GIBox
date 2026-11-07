@@ -1,7 +1,6 @@
 // Fake managed objects exercise runtime state transitions without a game process.
 #include "runtime.hpp"
 #include "vk_capture.hpp"
-#include "glow_trace.hpp"
 #include "texture_diag.hpp"
 #include "json.hpp"
 #include "model_fixture.hpp"
@@ -22,7 +21,7 @@ struct Fake {
  // Each built part now clones one restoration snapshot and one mod mesh; count both engine allocations.
  unsigned clones=0,meshClones=0,textures=0,weightAllocs=0,typeLookups=0,findCalls=0,findAllCalls=0,childCalls=0,bindposeReads=0;std::map<Ptr,Ptr> goOfRenderer;std::map<Ptr,std::vector<Ptr>> goChildren;Ptr lastWeights=0;std::map<Ptr,std::string> strings;std::string lightProperty;bool failMaterials=false,failFind=false,failPosition=false;
  unsigned expectedVertices=3;std::map<Ptr,unsigned> textureBytes;
- std::map<Ptr,Ptr> diffuse;std::map<Ptr,std::map<int32_t,Ptr>> named;std::map<Ptr,float> glow;std::map<Ptr,std::map<int32_t,std::array<float,4>>> props;std::map<Ptr,std::vector<std::string>> keywords; // material properties copied by Instantiate, including copies made by the game
+ std::map<Ptr,Ptr> diffuse;std::map<Ptr,std::map<int32_t,Ptr>> named;std::map<Ptr,float> glow; // material properties copied by Instantiate, including copies made by the game
  std::map<Ptr,unsigned> nameReads,boneReads; // actual engine getter counts, used to check binding hot-path work
  std::vector<Ptr> scene,assets;/* assets: only in the everything-loaded search (prefabs, inactive pooled instances) */std::vector<std::pair<Ptr,unsigned>> triangles;std::map<std::pair<Ptr,int>,std::vector<uint32_t>> submeshIndices;Ptr skeletonRoot=0,kavehRoot=0;std::map<std::string,Ptr> kinds;
  // Il2CppClass per object kind, laid out unlike stock il2cpp: byval_arg at +0x98 with a type enum that is not the stock
@@ -61,7 +60,7 @@ struct Fake {
 // The engine reads the renderer through its own native pointer: anything else at that address crashes (0.7.83 tombstone).
 Ptr getMesh(Ptr p,Ptr){assert(load<Ptr>(p)==f->kindClass("renderer")&&"get_sharedMesh on something that is not a renderer");return f->obj.at(p).mesh;}Ptr getMaterials(Ptr p,Ptr){return f->obj.at(p).materials;}Ptr getBones(Ptr p,Ptr){f->boneReads[p]++;return f->obj.at(p).bones;}
 Ptr getName(Ptr p,Ptr){f->nameReads[p]++;auto n=f->obj.at(p).name;Ptr s=f->alloc(0x14+2*n.size());store<uint32_t>(s+0x10,n.size());for(size_t i=0;i<n.size();i++)store<uint16_t>(s+0x14+i*2,n[i]);return s;}
-Ptr clone(Ptr p,Ptr){f->clones++;auto original=f->obj.at(p);if(original.kind!="mesh"){Ptr out=f->object(original.kind,original.name);if(original.kind=="material"){f->diffuse[out]=f->diffuse[p];f->named[out]=f->named[p];f->glow[out]=f->glow[p];f->props[out]=f->props[p];f->keywords[out]=f->keywords[p];}return out;}f->meshClones++;Ptr out=f->mesh(original.name,load<uint32_t>(original.shared+0x74));auto& o=f->obj[out];o.arrays=original.arrays;store<uint64_t>(o.shared+0xe0,load<uint64_t>(original.shared+0xe0));store<uint64_t>(o.native+0x90,load<uint64_t>(original.native+0x90));return out;}
+Ptr clone(Ptr p,Ptr){f->clones++;auto original=f->obj.at(p);if(original.kind!="mesh"){Ptr out=f->object(original.kind,original.name);if(original.kind=="material"){f->diffuse[out]=f->diffuse[p];f->named[out]=f->named[p];f->glow[out]=f->glow[p];}return out;}f->meshClones++;Ptr out=f->mesh(original.name,load<uint32_t>(original.shared+0x74));auto& o=f->obj[out];o.arrays=original.arrays;store<uint64_t>(o.shared+0xe0,load<uint64_t>(original.shared+0xe0));store<uint64_t>(o.native+0x90,load<uint64_t>(original.native+0x90));return out;}
 void destroy(Ptr p,Ptr){store<Ptr>(p+0x10,0);}
 // Object.hideFlags: kept per object (HideFlags.DontUnloadUnusedAsset = 32 on a texture-only mod's textures).
 std::map<Ptr,int> hideFlags;void setHide(Ptr p,int v,Ptr){assert(load<Ptr>(p+0x10));hideFlags[p]=v;}int getHide(Ptr p,Ptr){auto it=hideFlags.find(p);return it==hideFlags.end()?0:it->second;}Ptr parent(Ptr p,Ptr){return f->obj.at(p).parent;}
@@ -80,9 +79,9 @@ void texPixels(Ptr o,Ptr data,int n,Ptr){assert(load<Ptr>(o+0x10)&&data&&n>0&&un
 Ptr newString(Ptr self,const char* s){assert(self==0&&s);Ptr p=(f->stringBase+=0x40);f->strings[p]=s;return p;}
 uint32_t hasProp(Ptr mat,Ptr name,Ptr){assert(mat&&f->strings.count(name));return f->strings[name]=="_LightMapTex"?0xffffff01u:0xffffff00u;}
 Ptr nativeAlloc(Ptr allocator,Ptr old,uint64_t size,int align,int label,int options,const char* name,int line){assert(allocator==load<Ptr>(f->base+abi::nativeAllocator)&&old==0&&size==32ull*f->expectedVertices&&align==16&&label==15&&options==0&&name&&line==1);f->weightAllocs++;return f->lastWeights=f->alloc(size);}
-int32_t glowPropertyId(Ptr name,Ptr);
+int32_t propertyToId(Ptr name,Ptr);
 // A texture by property name; null puts a property back to empty (direct textures restore what a material held).
-void setTex(Ptr mat,Ptr name,Ptr tex,Ptr){gameWrites++;assert(mat&&(!tex||load<Ptr>(tex+0x10))&&f->strings.count(name));f->lightProperty=f->strings[name];f->named[mat][glowPropertyId(name,0)]=tex;}
+void setTex(Ptr mat,Ptr name,Ptr tex,Ptr){gameWrites++;assert(mat&&(!tex||load<Ptr>(tex+0x10))&&f->strings.count(name));f->lightProperty=f->strings[name];f->named[mat][propertyToId(name,0)]=tex;}
 void setMainTexture(Ptr mat,Ptr tex,Ptr){gameWrites++;assert(mat);f->diffuse[mat]=tex;}
 unsigned channelSets=0;std::vector<Bytes> channelData;void setChannel(Ptr,Ptr a,Ptr){assert(load<uint64_t>(a+0x18)==f->expectedVertices);channelSets++;
  unsigned stride=load<uint16_t>(load<Ptr>(a)+0xba);channelData.emplace_back(reinterpret_cast<const uint8_t*>(a+0x20),reinterpret_cast<const uint8_t*>(a+0x20)+size_t(f->expectedVertices)*stride);}void setPos(Ptr p,Ptr a,Ptr){if(f->failPosition){f->failPosition=false;throw std::runtime_error("fake-animation-channel-error");}store<uint32_t>(f->obj.at(p).shared+0x74,load<uint64_t>(a+0x18));}void setAny(Ptr,Ptr,Ptr){}
@@ -96,22 +95,13 @@ Ptr wrapperFor(Ptr native){for(auto& kv:f->obj)if(kv.second.native==native)retur
 Ptr findNative(Ptr type,int mode){if(type&&type==f->meshTypeObj){assert(mode==2);f->meshFinds++;std::vector<Ptr> all;for(auto& kv:f->obj)if(kv.second.kind=="mesh"&&load<Ptr>(kv.first+0x10))all.push_back(kv.first);return f->array(8,all.size(),all.data());}
  assert(type&&type==f->typeObj&&mode==2);f->findAllCalls++;if(f->failFind)throw std::runtime_error("fake-find-failure");std::vector<Ptr> all=f->scene;all.insert(all.end(),f->assets.begin(),f->assets.end());return f->array(8,all.size(),all.data());}
 Ptr findObjects(Ptr type,Ptr){assert(type&&type==f->typeObj);f->findCalls++;if(f->failFind)throw std::runtime_error("fake-find-failure");return f->array(8,f->scene.size(),f->scene.data());}
-// Glow trace read-back (glow_trace.hpp): one colour property (#7) and one texture (#5) per material.
-int32_t glowFrame(){static int32_t n=100;return ++n;}
-Ptr glowShader(Ptr,Ptr){static Ptr s=f->object("shader","miHoYo/Character/Body");return s;}int32_t glowQueue(Ptr,Ptr){return 2000;}
-Ptr glowKeywords(Ptr m,Ptr){auto& k=f->keywords[m];std::vector<Ptr> list;for(auto& w:k){Ptr s=f->alloc(0x14+2*w.size());store<int32_t>(s+0x10,int32_t(w.size()));for(size_t i=0;i<w.size();i++)store<uint16_t>(s+0x14+2*i,uint16_t(w[i]));list.push_back(s);}return f->array(8,unsigned(list.size()),list.data());}
-uint32_t glowHas(Ptr,int32_t id,Ptr){return id==7?1u:0u;}float glowFloat(Ptr m,int32_t id,Ptr){return f->props[m][id][0];}int32_t glowInt(Ptr,int32_t,Ptr){return 0;}
-void glowColor(Ptr m,int32_t id,float* out,Ptr){std::memcpy(out,f->props[m][id].data(),16);}void glowZero(Ptr,int32_t,float* out,Ptr){std::memset(out,0,16);}
-Ptr glowTexture(Ptr m,int32_t id,Ptr){if(id==5)return f->diffuse[m];auto it=f->named.find(m);return it!=f->named.end()&&it->second.count(id)?it->second.at(id):0;}
-// Shader.PropertyToID for names made by newString (the Runtime's own lookups): _MainTex 5, _ElementRimColor 7, others above 100.
-int32_t glowPropertyId(Ptr name,Ptr){auto it=f->strings.find(name);std::string n=it!=f->strings.end()?it->second:"";if(n=="_MainTex")return 5;if(n=="_ElementRimColor")return 7;return 100+int32_t(std::hash<std::string>()(n)%1000);}Ptr glowTextureIds(Ptr,Ptr){int32_t id=5;return f->array(4,1,&id);}float glowCustom(Ptr,int32_t,Ptr){return 0;}
-Ptr resolveGlow(abi::Offset o){
- for(auto x:{std::pair{glow::rvaFrameCount,reinterpret_cast<Ptr>(&glowFrame)},{glow::rvaGetShader,reinterpret_cast<Ptr>(&glowShader)},{glow::rvaGetRenderQueue,reinterpret_cast<Ptr>(&glowQueue)},
-   {glow::rvaGetKeywords,reinterpret_cast<Ptr>(&glowKeywords)},{glow::rvaHasProperty,reinterpret_cast<Ptr>(&glowHas)},{glow::rvaGetFloat,reinterpret_cast<Ptr>(&glowFloat)},
-   {glow::rvaGetInt,reinterpret_cast<Ptr>(&glowInt)},{glow::rvaGetColor,reinterpret_cast<Ptr>(&glowColor)},{glow::rvaGetVector,reinterpret_cast<Ptr>(&glowColor)},
-   {glow::rvaGetScaleOffset,reinterpret_cast<Ptr>(&glowZero)},{glow::rvaGetTexture,reinterpret_cast<Ptr>(&glowTexture)},{glow::rvaGetTextureIds,reinterpret_cast<Ptr>(&glowTextureIds)},
-   {glow::rvaGetCustomFloat,reinterpret_cast<Ptr>(&glowCustom)},{glow::rvaPropertyToId,reinterpret_cast<Ptr>(&glowPropertyId)}})if(x.first==o)return x.second;
- return 0;}
+// Material read-back: _MainTex (#5) is the main texture, other names above 100; Time.frameCount counts up per call.
+int32_t engineFrame(){static int32_t n=100;return ++n;}
+Ptr matShader(Ptr,Ptr){static Ptr s=f->object("shader","miHoYo/Character/Body");return s;}
+Ptr matTexture(Ptr m,int32_t id,Ptr){if(id==5)return f->diffuse[m];auto it=f->named.find(m);return it!=f->named.end()&&it->second.count(id)?it->second.at(id):0;}
+Ptr matTextureIds(Ptr,Ptr){int32_t id=5;return f->array(4,1,&id);}
+// Shader.PropertyToID for names made by newString (the Runtime's own lookups).
+int32_t propertyToId(Ptr name,Ptr){auto it=f->strings.find(name);std::string n=it!=f->strings.end()?it->second:"";if(n=="_MainTex")return 5;return 100+int32_t(std::hash<std::string>()(n)%1000);}
 // Texture-only diagnostics: the engine's Mesh / Texture getters (index ranges per submesh from texRanges, else one
 // submesh 0..3); every texture 4x4, RGBA32, one mip. Read only: none of them changes anything.
 std::map<Ptr,std::vector<std::pair<uint32_t,uint32_t>>> texRanges;
@@ -120,11 +110,12 @@ int32_t meshVerts(Ptr m,Ptr){return int32_t(load<uint32_t>(f->obj.at(m).shared+0
 uint32_t meshStart(Ptr m,int32_t i,Ptr){assert(i>=0&&i<meshSubs(m,0));auto it=texRanges.find(m);return it!=texRanges.end()?it->second[size_t(i)].first:0;}
 uint32_t meshCount(Ptr m,int32_t i,Ptr){assert(i>=0&&i<meshSubs(m,0));auto it=texRanges.find(m);return it!=texRanges.end()?it->second[size_t(i)].second:3;}
 int32_t texSide(Ptr t,Ptr){assert(t&&load<Ptr>(t+0x10));return 4;}int32_t texFormat(Ptr t,Ptr){assert(load<Ptr>(t)==f->kindClass("texture"));return 4;}int32_t texMips(Ptr t,Ptr){assert(load<Ptr>(t)==f->kindClass("texture"));return 1;}
-Ptr resolve(abi::Offset o){if(Ptr g=resolveGlow(o))return g;switch(o){
+Ptr resolve(abi::Offset o){switch(o){
 #define FN(x,y) case abi::x:return reinterpret_cast<Ptr>(&y)
  FN(getMesh,getMesh);FN(getMaterials,getMaterials);FN(getBones,getBones);FN(getName,getName);FN(getParent,parent);FN(clone,clone);FN(destroy,destroy);FN(pin,pin);FN(unpin,unpin);FN(setMesh,setMesh);FN(setMaterials,setMaterials);FN(arrayNew,newArray);FN(getBindposes,getBinds);FN(getPositions,getPos);FN(getUV,getUV);FN(getTriangles,getIdx);FN(getColors,getColors);FN(getTangents,getTangents);FN(setColors,setChannel);FN(setTangents,setChannel);FN(setUV2,setChannel);FN(setPositions,setPos);FN(setNormals,setAny);FN(setUV,setAny);FN(setTriangles,setAny);FN(setReadable,op);FN(setIndexFormat,op);FN(setSubmeshCount,submeshCount);FN(meshUpload,op);FN(meshFinish,action);FN(meshDynamic,action);FN(setSubmeshTriangles,sub);FN(textureType,texType);FN(objectNew,objectNew);FN(textureInit,texInit);FN(texturePixels,texPixels);FN(textureApply,action);FN(setHideFlags,setHide);FN(getHideFlags,getHide);FN(mainTexture,setMainTexture);FN(newString,newString);FN(nativeAlloc,nativeAlloc);FN(hasProperty,hasProp);FN(setTexture,setTex);FN(classFromType,classFromType);FN(typeObject,typeObject);FN(findObjectsOfType,findObjects);FN(findObjectsNative,findNative);FN(componentsInChildren,children);FN(gameObject,goOf);FN(wrapperFor,wrapperFor);
  FN(meshSubmeshes,meshSubs);FN(meshVertices,meshVerts);FN(meshReadable,meshReadable);FN(meshIndexStart,meshStart);FN(meshIndexCount,meshCount);
  FN(textureWidth,texSide);FN(textureHeight,texSide);FN(textureFormat,texFormat);FN(textureMips,texMips);
+ FN(frameCount,engineFrame);FN(getShader,matShader);FN(getTexture,matTexture);FN(getTextureIds,matTextureIds);FN(propertyToId,propertyToId);
 #undef FN
  default:throw std::runtime_error("Unexpected fake engine call: "+std::to_string(o));}}
 bool alive(Ptr p){return p&&load<Ptr>(p+0x10);}
@@ -788,17 +779,16 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
   auto bin=text(dir+"/model.bin");bin.back()=char(bin.back()^0x5a);write(dir+"/model.bin.new",bin);std::filesystem::rename(dir+"/model.bin.new",dir+"/model.bin");
   {Runtime crc(e,pkg,root+"/privateCrc",mediaCrc,false);crc.tick(3400000);crc.tick(3400600);
    assert(meshOf(w)==original&&text(sharedCrc+"/GIBox Log.txt").find("model-error Crc: model.bin: checksum mismatch")!=std::string::npos);crc.shutdown();}}
- // 45. Glow experiments (control.json "experiments", debug only): the game's own materials on our mesh, an earlier first
- //     material re-copy, vertex colours set to the game mesh's usual value and UV2 zeroed (models rebuilt when switched).
+ // 45. Experiments (control.json "experiments", debug only): an earlier first material re-copy, vertex colours set to the
+ //     game mesh's usual value and UV2 zeroed (models rebuilt when switched). gameMaterials (0.7.93) is no longer read.
  {std::string mediaExp=root+"/mediaExp",sharedExp=mediaExp+"/"+pkg+"/GIBox";Spec s;s.textures=true;s.channels=true;s.withTarget(fixture::target("Body"));writeModel(sharedExp+"/models/Exp",s);
   Ptr original=f->mesh(),w=f->renderer(original),gameMat=load<Ptr>(f->obj[w].materials+0x20);f->world(w);f->scene={w};
   auto control=[&](std::string x){write(sharedExp+"/control.json","{\"enabled\":true,\"logLevel\":\"debug\",\"selected\":[\"Exp\"],\"experiments\":{"+x+"}}");};
-  control("\"gameMaterials\":true,\"firstRefreshMs\":300");channelData.clear();
+  control("\"gameMaterials\":true,\"glowTrace\":true,\"firstRefreshMs\":300");channelData.clear();
   Runtime exp(e,pkg,root+"/privateExp",mediaExp,false);exp.tick(3500000);exp.tick(3500600);
-  assert(meshOf(w)!=original&&load<Ptr>(f->obj[w].materials+0x20)==gameMat);   // our mesh, the game's own material
+  Ptr clone0=load<Ptr>(f->obj[w].materials+0x20);assert(meshOf(w)!=original&&clone0!=gameMat&&f->obj[clone0].kind=="material");   // our materials all the same
   bool white=false;for(auto& d:channelData)white|=d==Bytes(12,255);assert(white);   // the mod's vertex colours as converted
-  control("\"firstRefreshMs\":300");exp.tick(3501200);Ptr clone0=load<Ptr>(f->obj[w].materials+0x20);assert(clone0!=gameMat&&f->obj[clone0].kind=="material");
-  auto log=text(sharedExp+"/GIBox Log.txt");assert(log.find("experiments gameMaterials=off firstRefreshMs=300")!=std::string::npos);
+  auto log=text(sharedExp+"/GIBox Log.txt");assert(log.find("experiments firstRefreshMs=300 neutralColors=off")!=std::string::npos&&log.find("glow-")==std::string::npos);
   control("\"neutralColors\":true,\"noUv2\":true");channelData.clear();exp.tick(3501800);exp.tick(3502400);exp.tick(3503000);
   log=text(sharedExp+"/GIBox Log.txt");assert(log.find("experiment-rebuild Exp")!=std::string::npos&&log.find("experiment-mesh Exp/Part0 colours=(0,0,0,0) uv2=0")!=std::string::npos&&meshOf(w)!=original);
   bool zero=false;for(auto& d:channelData)zero|=d==Bytes(12,0);assert(zero);
@@ -820,46 +810,6 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
   assert(log.find("appearance handoff gameobject Avatar_Girl_Catalyst_Citlali_Manekin")!=std::string::npos);
   assert(log.find("appearance bind-early renderer")!=std::string::npos&&log.find("avatar avatar_girl_catalyst_citlali mesh Body (3 vertices) controlled")!=std::string::npos);
   assert(log.find("MonsterBody")==std::string::npos&&meshOf(w)==original);tl.shutdown();}
- // 47. Glow trace (debug + experiments.glowTrace): engine entries hooked once, every write to this model's materials kept
- //     with its frame and caller, a switch-in window summarised, and the clone read back against its original. Here the
- //     game turns a colour on for the clone and the original, and off for the original only: that is what must show.
- //     A game started without the trace hooks nothing; switching the trace off stops recording but unhooks nothing.
- {std::string mediaGlow=root+"/mediaGlow",sharedGlow=mediaGlow+"/"+pkg+"/GIBox";Spec s;s.textures=true;s.withTarget(fixture::target("Body"));writeModel(sharedGlow+"/models/Glow",s);
-  Ptr original=f->mesh(),w=f->renderer(original),gameMat=load<Ptr>(f->obj[w].materials+0x20);f->world(w);f->scene={w};f->keywords[gameMat]={"_NORMALMAP"};
-  auto ctlGlow=[&](const char* json){write(sharedGlow+"/control.json.tmp",json);std::filesystem::rename(sharedGlow+"/control.json.tmp",sharedGlow+"/control.json");};
-  ctlGlow("{\"enabled\":true,\"selected\":[\"Glow\"]}");
-  auto rvaOf=[](const char* n){for(auto& h:glow::kHooks)if(std::string(h.name)==n)return h.rva;std::abort();};
-  static std::map<uintptr_t,void*> hooked;static int dummy;
-  struct G {static void setColor(Ptr m,int32_t id,const float* v,Ptr){std::array<float,4> c;std::memcpy(c.data(),v,16);f->props[m][id]=c;}static int32_t toId(Ptr,Ptr){return 7;}};
-  Engine ge=e;ge.size=0x16000000;ge.hook=[&](uintptr_t rva,void* replacement,void** original){hooked[rva]=replacement;
-   *original=rva==rvaOf("Material.INTERNAL_CALL_SetColorImpl(Material,int,Color*)")?reinterpret_cast<void*>(&G::setColor):rva==rvaOf("Shader.PropertyToID(string)")?reinterpret_cast<void*>(&G::toId):static_cast<void*>(&dummy);return true;};
-  auto setColor=[&](Ptr m,std::array<float,4> c){reinterpret_cast<void(*)(Ptr,int32_t,const float*,Ptr)>(hooked.at(rvaOf("Material.INTERNAL_CALL_SetColorImpl(Material,int,Color*)")))(m,7,c.data(),0);};
-  {Runtime cold(ge,pkg,root+"/privateGlowCold",mediaGlow,false);cold.tick(3790000);cold.tick(3790600);   // the model on, no trace: no hooks
-   assert(meshOf(w)!=original&&hooked.empty()&&glow::trace().hooked==0&&!glow::trace().everything);cold.shutdown();assert(meshOf(w)==original&&f->handles.empty());}
-  ctlGlow("{\"enabled\":true,\"logLevel\":\"debug\",\"selected\":[\"Glow\"],\"experiments\":{\"glowTrace\":true}}");
-  Runtime gr(ge,pkg,root+"/privateGlow",mediaGlow,false);gr.tick(3800000);gr.tick(3800600);assert(meshOf(w)!=original);
-  for(uint64_t t=3801200;t<=3806000;t+=600)gr.tick(t);                         // both material refreshes, attach window ends
-  Ptr clone=load<Ptr>(f->obj[w].materials+0x20);assert(clone!=gameMat);
-  {Ptr name=f->alloc(0x40);std::string n="_ElementRimColor";store<int32_t>(name+0x10,int32_t(n.size()));for(size_t i=0;i<n.size();i++)store<uint16_t>(name+0x14+2*i,uint16_t(n[i]));
-   assert(reinterpret_cast<int32_t(*)(Ptr,Ptr)>(hooked.at(rvaOf("Shader.PropertyToID(string)")))(name,0)==7);}
-  Ptr entity=load<Ptr>(load<Ptr>(load<Ptr>(f->manager+kList)+0x10)+0x20);store<uint32_t>(entity+kConfig,10000200);f->world(0);gr.tick(3806600);
-  store<uint32_t>(entity+kConfig,10000107);f->world(w);gr.tick(3807200);       // switch back: window opens
-  setColor(clone,{0.2f,0.9f,1,1});setColor(gameMat,{0.2f,0.9f,1,1});gr.tick(3807800);setColor(gameMat,{0,0,0,0});
-  for(uint64_t t=3808400;t<=3811800;t+=600)gr.tick(t);
-  auto log=text(sharedGlow+"/GIBox Log.txt");
-  assert(log.find("glow-hooks ")!=std::string::npos&&log.find(" entries hooked")!=std::string::npos&&log.find("glow-note trace on:")!=std::string::npos);
-  assert(log.find("glow-window #1 attach Glow/Part0")!=std::string::npos&&log.find("glow-window #2 switch-in 10000107 at frame")!=std::string::npos&&log.find("switch-in 10000200")==std::string::npos);
-  assert(log.find("glow-write #2 +0ms f")!=std::string::npos&&log.find(" game x1 SetColor _ElementRimColor#7 on Glow/Part0 clone row 0 Material: (0.2,0.9,1,1) by 0x")!=std::string::npos);
-  assert(log.find("game x2 SetColor _ElementRimColor#7 on Glow/Part0 original slot 0 Material: (0.2,0.9,1,1) -> (0,0,0,0) (last +600ms")!=std::string::npos);
-  assert(log.find("glow-diff #2 +4000ms Glow/Part0 row 0 Glow/Part0 clone row 0 Material vs original slot 0: _ElementRimColor#7 (0.2,0.9,1,1) vs (0,0,0,0) (3 equal, 1 GIBox textures, 1 parameters the game wrote, 1 keywords)")!=std::string::npos);
-  assert(log.find("glow-diff #2 +0ms Glow/Part0 row 0 Glow/Part0 clone row 0 Material vs original slot 0: no difference")!=std::string::npos);
-  assert(log.find("glow-diff refresh-before 2 Glow/Part0 row 0")!=std::string::npos&&log.find("glow-window #2 end: 3 by the game, 0 by GIBox")!=std::string::npos);
-  assert(log.find("effect-mirror")==std::string::npos);   // no effect mirror any more
-  unsigned installed=glow::trace().hooked;size_t entries=hooked.size();assert(installed>0&&entries>0);
-  ctlGlow("{\"enabled\":true,\"logLevel\":\"debug\",\"selected\":[\"Glow\"]}");gr.tick(3812400);   // trace off: the hooks stay
-  assert(!glow::trace().armed.load()&&glow::trace().hooked==installed&&hooked.size()==entries&&glow::trace().everything);
-  assert(text(sharedGlow+"/GIBox Log.txt").find("glow-note trace off: nothing is recorded; the engine entries stay hooked until the game restarts")!=std::string::npos);
-  gr.shutdown();assert(meshOf(w)==original&&f->handles.empty()&&!glow::trace().armed.load());}
  // 50. Merged draws: neighbours with the same material row share a submesh, their index ranges joined in draw order.
  //     A draw hidden by the variant between two of them is not drawn, ranges that continue each other become one, a
  //     neighbour with another material keeps its own submesh and slot, and switching back reads the model's indices
@@ -894,12 +844,11 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
   assert(meshOf(ow)!=original&&load<uint32_t>(f->obj[meshOf(ow)].shared+0xc0)==2&&has("submeshes Orig/Part0: 2 draws in effect, 2 submeshes (not merged: original materials by position)"));
   orr.shutdown();assert(meshOf(ow)==original&&f->handles.empty());}
  // 51. Direct textures: the mod's textures go into the game's own material of a slot when it was made at runtime and no
- //     other renderer shows it; what it held goes back on every re-apply (here: the gameMaterials experiment), when the
- //     model is switched off, the renderer dies or attaching fails. A main texture the game puts back is replaced again; a game copy of the
+ //     other renderer shows it; what it held goes back when the model is switched off, the renderer dies or attaching fails. A main texture the game puts back is replaced again; a game copy of the
  //     written material is tracked and gets its own textures back too. A loaded asset, or a runtime material another
  //     renderer shows, is copied as before.
  {std::string mediaDirect=root+"/mediaDirect",sharedDirect=mediaDirect+"/"+pkg+"/GIBox";Spec s;s.textures=true;s.withTarget(fixture::target("Body"));writeModel(sharedDirect+"/models/Direct",s);
-  auto control=[&](bool enabled,bool games=false){write(sharedDirect+"/control.json.tmp",std::string("{\"enabled\":")+(enabled?"true":"false")+",\"logLevel\":\"debug\",\"selected\":[\"Direct\"]"+(games?",\"experiments\":{\"gameMaterials\":true}":"")+"}");
+  auto control=[&](bool enabled){write(sharedDirect+"/control.json.tmp",std::string("{\"enabled\":")+(enabled?"true":"false")+",\"logLevel\":\"debug\",\"selected\":[\"Direct\"]}");
    std::filesystem::rename(sharedDirect+"/control.json.tmp",sharedDirect+"/control.json");};
   auto has=[&](const std::string& x){return text(sharedDirect+"/GIBox Log.txt").find(x)!=std::string::npos;};int32_t lightId=100+int32_t(std::hash<std::string>()("_LightMapTex")%1000);
   auto runtimeMade=[&](Ptr m){store<uint32_t>(load<Ptr>(m+0x10)+8,uint32_t(-7));};
@@ -913,12 +862,10 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
   assert(f->diffuse[gameMat]==ours&&has("direct-textures-lost Direct/Part0: the game put its own main texture on Material, ours written again (1 times so far)"));
   Ptr copy=clone(gameMat,0);f->obj[copy].name="Material (Instance)";f->obj[w].materials=f->typed("material",copy);dr.tick(4302400);dr.tick(4303000);   // the game's own instance
   assert(shown()==copy&&f->diffuse[copy]==ours&&has("direct-textures Direct/Part0: the game's copy Material (Instance) of Material carries our textures"));
-  control(true,true);dr.tick(4303600);                                                                         // re-applied as the game's own materials
-  assert(shown()==gameMat&&f->diffuse[gameMat]==gameTex&&f->named[gameMat][lightId]==0&&f->diffuse[copy]==gameTex&&f->named[copy][lightId]==0);
-  control(true);dr.tick(4304200);assert(shown()==gameMat&&f->diffuse[gameMat]==ours&&f->named[gameMat][lightId]==light);   // and back
   control(false);dr.tick(4304800);dr.tick(4305400);                                                            // the model off
   assert(meshOf(w)==original&&f->obj[w].materials==gameArray&&f->diffuse[gameMat]==gameTex&&f->named[gameMat][lightId]==0);
-  assert(has("direct-textures Direct/Part0 (restore): own textures written back into 1 game materials"));dr.shutdown();assert(f->handles.empty());
+  assert(f->diffuse[copy]==gameTex&&f->named[copy][lightId]==0);                                             // the game's copy too
+  assert(has("direct-textures Direct/Part0 (restore): own textures written back into 2 game materials (1 of them game copies)"));dr.shutdown();assert(f->handles.empty());
   // A loaded asset (positive instance id) and a runtime material on another renderer as well: copied, the game's untouched.
   Ptr w2=f->renderer(original),asset=load<Ptr>(f->obj[w2].materials+0x20);f->diffuse[asset]=gameTex;f->world(w2);f->scene={w2};control(true);
   {Runtime d2(e,pkg,root+"/privateDirect2",mediaDirect,false);d2.tick(4400000);d2.tick(4400600);Ptr on=load<Ptr>(f->obj[w2].materials+0x20);
@@ -1172,9 +1119,9 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
   assert(gameWrites==writes&&f->clones==clones&&f->diffuse[mat]==tex&&load<Ptr>(f->obj[body].materials+0x20)==mat);
   assert(count("texture-diag-ini Mod: TextureOverrideModBodyA hash=d5ae71a3 match_first_index=0 priority=0 kind=segment part=body letter=A")==1);
   // No IL2CPP exports here, as in the game: the engine's own Mesh / Texture getters give the layout and the sizes.
-  assert(count("texture-diag-renderer character=10000107 renderer=Body#")==1&&count("lod=full (by name) vertices=3 submeshes(native)=1 subMeshCount=1 vertexCount=3 bones=1 readable=false indexFormat=未采集: this build has no Mesh.get_indexFormat")==1);
-  assert(count("layout-source=engine Mesh getters (dump.cs RVAs)")==1&&count("texture-diag-unsupported Body#")==0);
-  assert(count("texture-diag-submesh Body#")==1&&count("submesh=0 indexStart=0 indexCount=3 baseVertex=未采集: this build has no Mesh.GetBaseVertex topology=未采集: this build has no Mesh.GetTopology material-slot-by-position=0 (Material)")==1);
+  assert(count("texture-diag-renderer character=10000107 renderer=Body#")==1&&count("lod=full (by name) vertices=3 submeshes(native)=1 subMeshCount=1 vertexCount=3 bones=1 readable=false materials=")==1);
+  assert(count(" layout=")==0&&count("texture-diag-unsupported Body#")==0);
+  assert(count("texture-diag-submesh Body#")==1&&count("submesh=0 indexStart=0 indexCount=3 material-slot-by-position=0 (Material)")==1);
   assert(count("texture-diag-material Body#")==1&&count("shader=miHoYo/Character/Body textures=[_MainTex=Avatar_Tex_Body_Diffuse 4x4 4 (RGBA32) mips 1]")==1);
   assert(count("texture-diag-match Mod: TextureOverrideModBodyA hash=d5ae71a3 match_first_index=0 -> 确定匹配 renderer=Body#")==1&&count("-> _MainTex (material has it; current Avatar_Tex_Body_Diffuse 4x4 4 (RGBA32))")==1);
   assert(count("texture-diag-match Mod: 1 renderers of 10000107: 1 确定匹配, 0 高可信候选, 0 存在歧义, 0 无法匹配, 1 without textures; nothing was replaced (phase 1)")==1&&count("TextureOverrideModPos ->")==0);
@@ -1487,5 +1434,5 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
   for(uint64_t now=9100000;now<9110000;now+=200){lr2.tick(now);}
   l=text(ll2);assert(l.find("layout-wait 2 field combinations still fit")!=std::string::npos&&l.find("runtime ID fields 0x3f4, 0x464 held the same values on every entity 30 times in a row: taken as one (0x3f4)")!=std::string::npos);
   lr2.shutdown();store<uint32_t>(ent+0x3f4,0);store<uint32_t>(ent+kConfig,was);}
- std::cout<<"Native runtime: PASS (7.2 entity fields found by what they hold, waiting while two fit; texture-only diagnostics read-only and cached; logic core: outfits by what the logic selects, App value as input, off, not finite and missing variable refused; App key presses as core key events (cycle, toggle, back, taken once, not replayed at start, refused when not a cycle/toggle key or the core is off), persist saved atomically per model and restored over the App table, not for another INI; driven outfit models (the program picks by clock and keys, the App table not pushed); frames by what the draws select, as FrameLoop, a selection no frame has keeps the frame, no match at the start keeps FrameLoop, switch off; face texture swaps: written, copies tracked, fresh materials, restored, assets copied; direct textures: written, put back, game copies tracked, assets and shared materials copied; merged draws: hidden and non-contiguous ranges, variant switches, separateDraws rebuild; slot textures by property block and custom texture, glow trace windows and read-back, structural capture exit after 30 s preserved, replacement-off restores originals and says so, missing renderer logged once, preload and per-variant textures, glow experiments, appearance timeline, hidden party members by library identity, model.bin checked once per file, extra material slots borrow a shader, paired restoration after game material copies, clean palette backups, inherited refresh schedule, temporary material readiness, clones retaken after switch-in, lower-LOD world mesh with the same bones (attach, and build checked against the bone library), indexed skeleton bounds and retry, idle sets released after a minute, version 2 conditional draws switched in place, unverified lower LODs never recorded or built against, bone export only on request, wait reasons in status and log, GIBox model folders and learned.json, skeleton.json library (quiet while loading, reasons once), first-switched-on precedence for two mods of one character, manual import by ID + model name, re-import for another character, XXMI log lines and levels,fingerprint matching, detail-page/asset-reload followers, NPC/skeleton guards, multi-model, idle cache, hot reload, broken-edit fallback, variants, name-matched models, async hand-off attach/build, game mesh put back (hand-off, LOD), game rebinding answered with ours, no magenta after drops, adoption, clone hand-over, update retargeting, bone library, Type from this_arg pairs or array classes, scan-off fallback, failure latch, rollback, GC release, threaded worker)\n";
+ std::cout<<"Native runtime: PASS (7.2 entity fields found by what they hold, waiting while two fit; texture-only diagnostics read-only and cached; logic core: outfits by what the logic selects, App value as input, off, not finite and missing variable refused; App key presses as core key events (cycle, toggle, back, taken once, not replayed at start, refused when not a cycle/toggle key or the core is off), persist saved atomically per model and restored over the App table, not for another INI; driven outfit models (the program picks by clock and keys, the App table not pushed); frames by what the draws select, as FrameLoop, a selection no frame has keeps the frame, no match at the start keeps FrameLoop, switch off; face texture swaps: written, copies tracked, fresh materials, restored, assets copied; direct textures: written, put back, game copies tracked, assets and shared materials copied; merged draws: hidden and non-contiguous ranges, variant switches, separateDraws rebuild; structural capture exit after 30 s preserved, replacement-off restores originals and says so, missing renderer logged once, preload and per-variant textures, material experiments, appearance timeline, hidden party members by library identity, model.bin checked once per file, extra material slots borrow a shader, paired restoration after game material copies, clean palette backups, inherited refresh schedule, temporary material readiness, clones retaken after switch-in, lower-LOD world mesh with the same bones (attach, and build checked against the bone library), indexed skeleton bounds and retry, idle sets released after a minute, version 2 conditional draws switched in place, unverified lower LODs never recorded or built against, bone export only on request, wait reasons in status and log, GIBox model folders and learned.json, skeleton.json library (quiet while loading, reasons once), first-switched-on precedence for two mods of one character, manual import by ID + model name, re-import for another character, XXMI log lines and levels,fingerprint matching, detail-page/asset-reload followers, NPC/skeleton guards, multi-model, idle cache, hot reload, broken-edit fallback, variants, name-matched models, async hand-off attach/build, game mesh put back (hand-off, LOD), game rebinding answered with ours, no magenta after drops, adoption, clone hand-over, update retargeting, bone library, Type from this_arg pairs or array classes, scan-off fallback, failure latch, rollback, GC release, threaded worker)\n";
 }

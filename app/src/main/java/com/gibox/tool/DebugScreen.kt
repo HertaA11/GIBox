@@ -32,7 +32,7 @@ import com.alorma.compose.settings.ui.expressive.SettingsSwitch
 
 /**
  * Debug and test tools, out of the way of the settings: texture-only mods (strategy, LOD, hash matching, test rounds), the
- * 3DMigoto logic core, the material and animation experiments, bone export and the old manual conversion.
+ * 3DMigoto logic core, the animation experiments, bone export and the old manual conversion.
  */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -127,28 +127,6 @@ fun DebugScreen(state: AppState) {
                         icon = { Icon(Icons.Filled.Build, contentDescription = null) },
                         shapes = ListItemDefaults.segmentedShapes(5, 6),
                         onClick = { state.startTextureTest() },
-                    )
-                }
-            }
-            item {
-                // The trace takes effect at once (with the log level 调试); game materials with the next switch-in.
-                val rev = state.revision
-                val games = remember(rev) { state.experiment("gameMaterials") }
-                val trace = remember(rev) { state.experiment("glowTrace") }
-                SettingsGroup(title = { SectionTitle("材质实验") }, verticalArrangement = gap) {
-                    SettingsSwitch(
-                        state = trace,
-                        title = { Text("追踪游戏对材质的写入") },
-                        subtitle = { Text("不改画面。切人或装模型时，记录游戏改了哪些材质参数（日志级别为“调试”时）") },
-                        shapes = ListItemDefaults.segmentedShapes(0, 2),
-                        onCheckedChange = { state.setExperiment("glowTrace", it) },
-                    )
-                    SettingsSwitch(
-                        state = games,
-                        title = { Text("只换网格，材质用游戏自己的") },
-                        subtitle = { Text("贴图会不对；看还发不发光") },
-                        shapes = ListItemDefaults.segmentedShapes(1, 2),
-                        onCheckedChange = { state.setExperiment("gameMaterials", it) },
                     )
                 }
             }

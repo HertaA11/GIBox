@@ -6,7 +6,6 @@
 #include <chrono>
 #include <jni.h>
 #include <link.h>
-#include <dlfcn.h>
 #include <iterator>
 #include <thread>
 #include "dobby.h"
@@ -82,18 +81,6 @@ extern "C" JNIEXPORT void JNICALL Java_com_gibox_tool_NativeBridge_start(JNIEnv*
  // Offsets of this build not found yet (offsets.hpp pendingRequired): nothing is hooked or called.
  if(*ms::abi::pendingRequired){bootStatus(pkg,"offsets-pending",std::string("此版本还缺偏移：")+ms::abi::pendingRequired);return;}
  ms::Engine engine(image.base);
- // Debug glow trace only (glow_trace.hpp): the image's extent, and Dobby as the inline hook installer.
- for(size_t i=0;i<image.count;i++)if(image.ph[i].p_type==PT_LOAD)engine.size=std::max<uintptr_t>(engine.size,image.ph[i].p_vaddr+image.ph[i].p_memsz);
- engine.hook=[base=image.base](uintptr_t rva,void* replacement,void** original){
-  return DobbyHook(reinterpret_cast<void*>(base+rva),reinterpret_cast<dobby_dummy_func_t>(replacement),reinterpret_cast<dobby_dummy_func_t*>(original))==0&&*original;};
- // Debug readback only: exported names from this exact image, never a new fixed RVA.
- engine.namedExport=[base=image.base](const char* name)->ms::Ptr{
-  void* handle=dlopen("libyuanshen.so",RTLD_NOW|RTLD_NOLOAD);
-  void* symbol=dlsym(handle?handle:RTLD_DEFAULT,name);Dl_info owner{};
-  bool matches=symbol&&dladdr(symbol,&owner)&&reinterpret_cast<uintptr_t>(owner.dli_fbase)==base;
-  if(handle)dlclose(handle);
-  return matches?reinterpret_cast<ms::Ptr>(symbol):0;
- };
  auto rt=std::make_unique<ms::Runtime>(std::move(engine),pkg,priv);
  // Publish before Dobby makes Tick executable through its trampoline.
  runtime=std::move(rt);published.store(runtime.get(),std::memory_order_release);

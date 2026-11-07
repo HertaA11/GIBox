@@ -21,7 +21,7 @@
 #include "core.hpp"
 #include "json.hpp"
 #include "pc_hashes.hpp"
-#include "render_probe.hpp"
+#include "runtime.hpp"
 #include <algorithm>
 #include <cstring>
 #include <functional>
@@ -66,10 +66,15 @@ inline Doc parseDoc(const Json& j,const std::string& path){Doc d;d.path=path;
 inline Doc parse(const std::string& text,const std::string& path){return parseDoc(JsonParser(text).parse(),path);}
 
 // What the Runtime read of one renderer. A string field starting with "未采集:" was not available, with the reason.
+// A value that could not be read, and why.
+inline std::string missing(const std::string& why){return "未采集: "+why;}
+// Per-submesh layout of a Mesh, from the engine's own Mesh getters (the Runtime's texDiagMesh).
+struct Submesh {bool known=false;uint32_t start=0,count=0;std::string error;};
+struct MeshLayout {std::string status,submeshCount,vertexCount,readable;int submeshes=-1;std::vector<Submesh> subs;};
 struct Texture {std::string property;int id=0;Ptr texture=0;std::string name,cls,width,height,mips,format,status;};
 struct Material {Ptr material=0;std::string name,shader,error;std::vector<Texture> textures;std::vector<std::string> sharedWith;};
 struct Renderer {Ptr renderer=0,native=0,mesh=0;std::string name,meshName,avatar,takenBy,swap,error;bool lod=false;unsigned vertices=0,submeshes=0,bones=0;
- renderprobe::UnityReader::MeshLayout layout;std::vector<Material> materials;
+ MeshLayout layout;std::vector<Material> materials;
  bool known()const{if(layout.subs.empty()||int(layout.subs.size())!=layout.submeshes)return false;for(auto& s:layout.subs)if(!s.known)return false;return true;}};
 
 enum class Verdict{Confirmed,Likely,Ambiguous,None,Skipped};
@@ -317,12 +322,12 @@ inline std::string ruleLine(const Doc& d,const Rule& r){std::string t;for(auto& 
   +" textures=["+t+"]"+(dr.empty()?"":" drawindexed=["+dr+"]")+(x.empty()?"":" external=["+x+"]");}
 inline std::string rendererLine(const Renderer& r,unsigned character){
  return "character="+std::to_string(character)+" renderer="+label(r)+" mesh="+r.meshName+"#"+hexOf(r.mesh)+" lod="+(r.lod?"lower (by name)":"full (by name)")+" vertices="+std::to_string(r.vertices)
-  +" submeshes(native)="+std::to_string(r.submeshes)+" subMeshCount="+orDash(r.layout.submeshCount)+" vertexCount="+orDash(r.layout.vertexCount)+" bones="+std::to_string(r.bones)+" readable="+orDash(r.layout.readable)+" indexFormat="+orDash(r.layout.indexFormat)
+  +" submeshes(native)="+std::to_string(r.submeshes)+" subMeshCount="+orDash(r.layout.submeshCount)+" vertexCount="+orDash(r.layout.vertexCount)+" bones="+std::to_string(r.bones)+" readable="+orDash(r.layout.readable)
   +" materials="+std::to_string(r.materials.size())+" avatar="+(r.avatar.empty()?"-":r.avatar)+(r.takenBy.empty()?"":" taken-over-by="+r.takenBy+" (game mesh/materials read)")+(r.swap.empty()?"":" texture-swap="+r.swap)
-  +(r.layout.status=="read"?" layout-source="+orDash(r.layout.source):" layout="+r.layout.status)+(r.error.empty()?"":" error="+r.error);}
+  +(r.layout.status=="read"?"":" layout="+r.layout.status)+(r.error.empty()?"":" error="+r.error);}
 inline std::vector<std::string> submeshLines(const Renderer& r){std::vector<std::string> out;
  for(size_t i=0;i<r.layout.subs.size();i++){auto& s=r.layout.subs[i];std::string slot=i<r.materials.size()?std::to_string(i)+" ("+r.materials[i].name+")":"none";
-  out.push_back(label(r)+" submesh="+std::to_string(i)+(s.known?" indexStart="+std::to_string(s.start)+" indexCount="+std::to_string(s.count):" range="+s.error)+" baseVertex="+s.base+" topology="+s.topology+" material-slot-by-position="+slot);}
+  out.push_back(label(r)+" submesh="+std::to_string(i)+(s.known?" indexStart="+std::to_string(s.start)+" indexCount="+std::to_string(s.count):" range="+s.error)+" material-slot-by-position="+slot);}
  return out;}
 inline std::vector<std::string> materialLines(const Renderer& r){std::vector<std::string> out;
  for(size_t i=0;i<r.materials.size();i++){auto& m=r.materials[i];std::string t;for(auto& x:m.textures)t+=(t.empty()?"":", ")+textureText(x);std::string shared;for(auto& x:m.sharedWith)shared+=(shared.empty()?"":",")+x;
