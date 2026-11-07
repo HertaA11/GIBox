@@ -248,7 +248,7 @@ struct Runtime::Impl {
  bool bindingReady=false,bindingUncertain=true;std::string bindingStamp;
  Recent<BindingRejectKey,uint64_t> bindingRejected{2048};uint64_t bindingNow=0,bindingStatsAt=0,bindingChecks=0,bindingCacheHits=0,bindingFiltered=0,bindingDeep=0;bool bindingStatsDirty=false;
  std::atomic<int> logLevel{int(Level::Info)};std::map<std::string,std::string> learnedGen;  // log threshold (control.json "logLevel"); generation the learned targets belong to
- Ptr rendererTypeObject=0;bool typeDumped=false;bool findOff=false;unsigned findFails=0;uint64_t next=0,discoverAt=0,findAt=0;bool inTick=false;std::string lastStatus,lastStatusLogged;std::vector<std::string> notes;std::map<std::string,std::string> missingLogged;std::set<std::string> extraSlots,lodLogged;
+ Ptr rendererTypeObject=0,meshTypeObject=0;unsigned byvalOffset=0;bool typeDumped=false;bool findOff=false;unsigned findFails=0;uint64_t next=0,discoverAt=0,findAt=0;bool inTick=false;std::string lastStatus,lastStatusLogged;std::vector<std::string> notes;std::map<std::string,std::string> missingLogged;std::set<std::string> extraSlots,lodLogged;
  std::map<unsigned,std::pair<std::string,std::vector<SkeletonRenderer>>> libraryRead;  // id -> file stamp, records  // model|part -> last target-missing reason
  Owned handoffTypeRoots;uint64_t handoffTypeRetry=0;
  // Last scan, for the wait reason: world character's renderers, FindObjectsOfType results (-1: not run), renderers left
@@ -1040,9 +1040,9 @@ struct Runtime::Impl {
  // byte and a mod for a character the database lacks names one of them. The matcher finds the mesh by it in later
  // sessions, without the capture. Read-only: nothing is written to the game.
  struct CapMesh {std::string renderer,mesh,avatar;unsigned vertices=0,bones=0;bool lod=false;std::vector<std::pair<uint32_t,uint32_t>> subs;uint64_t indices=0;std::vector<std::string> hashes;};
- struct CapTie {std::string ib,variant,character,component,meshKey,note;uint64_t seq=0;std::vector<std::string> meshes;};
+ struct CapTie {std::string ib,variant,character,component,meshKey,note;uint64_t seq=0;uint32_t bytes=0,max16=0,max32=0;uint8_t form=0;std::vector<std::string> meshes;};
  std::map<std::string,CapMesh> capMeshes;std::multimap<std::pair<uint64_t,uint64_t>,std::string> capShape;std::set<std::pair<Ptr,Ptr>> capRead;std::map<std::string,CapTie> capTies,capOpen;
- std::set<uint64_t> capPending;uint64_t capSeq=0,capAt=0,capReportAt=0,capOther=0;unsigned capSkippedOurs=0;bool capDirty=false,capSaid=false;std::string capLast;
+ std::set<uint64_t> capPending;std::set<Ptr> capMeshRead;std::string capAllKey;uint64_t capAllLast=0,capAllMeshes=0,capAllAdded=0;uint64_t capSeq=0,capAt=0,capReportAt=0,capOther=0;unsigned capSkippedOurs=0;bool capDirty=false,capSaid=false;std::string capLast;
  static std::string capKey(const std::string& mesh,unsigned vertices,uint64_t indices){return mesh+"|"+std::to_string(vertices)+"|"+std::to_string(indices);}
  static std::string capKind(uint8_t v){return (v&3)==0?"数据":(v&3)==1?"IB":(v&3)==2?"IB|SRV|UAV":"IMMUTABLE";}
  // The meshes whose index and vertex counts an upload has, read with the index width its hash variant was taken with
@@ -1060,7 +1060,7 @@ struct Runtime::Impl {
  bool capTie(const vkcap::Blob& b){const vkcap::Hash* pc=nullptr;const pcdb::Component* comp=nullptr;
   if(pcDb)for(auto& h:b.hashes){auto it=pcDb->byIb.find(hex8(h.value));if(it!=pcDb->byIb.end()){pc=&h;comp=&pcDb->comps[it->second[0]];break;}}
   auto ms=capShapes(b.bytes,b.max16,b.max32,pc?pc->variant:0);
-  if(pc){auto ib=hex8(pc->value);CapTie t;t.ib=ib;t.variant=vkcap::variantName(pc->variant);t.character=comp->character;t.component=comp->name;t.seq=b.seq;
+  if(pc){auto ib=hex8(pc->value);CapTie t;t.ib=ib;t.variant=vkcap::variantName(pc->variant);t.character=comp->character;t.component=comp->name;t.seq=b.seq;t.bytes=b.bytes;t.max16=b.max16;t.max32=b.max32;t.form=uint8_t(pc->variant>>2);
    if(ms.size()!=1){for(auto* m:ms)t.meshes.push_back(m->avatar+" "+m->renderer+" "+m->mesh);
     t.note=ms.empty()?"no character mesh read with its "+std::to_string(b.bytes/2)+" (16-bit) or "+std::to_string(b.bytes/4)+" (32-bit) indices and matching vertex count":std::to_string(ms.size())+" meshes have its index and vertex counts";
     if(!capTies.count(ib)){auto& o=capOpen[ib];if(o.note!=t.note)capDirty=true;o=t;}return false;}
@@ -1069,12 +1069,37 @@ struct Runtime::Impl {
    // The other forms too: a mod made with another 3DMigoto build may carry one of them (the Traveler mod of 0.7.57 had
    // the IB-only one; the database's TravelerGirl has IB|SRV|UAV).
    for(auto& h:b.hashes)if((h.variant>>2)==(pc->variant>>2)&&(h.variant&3)&&h.value!=pc->value)devMapPut(hex8(h.value),vkcap::variantName(h.variant),comp->character,comp->name,m);
-   log("hash-capture",ib+" = PC "+comp->character+" "+comp->name+" (upload #"+std::to_string(b.seq)+", "+t.variant+"): mesh "+m.mesh+" of "+m.avatar+" / "+m.renderer+" ("+std::to_string(m.vertices)+" vertices, "+std::to_string(m.indices)+" indices); submesh starts "+capStarts(m.subs)+(pcdb::startsEqual(m.subs,comp->indexes)?" = the PC draw starts":" vs the PC draw starts "+texdiag::joined(comp->indexes)));
+   log("hash-capture",ib+" = PC "+comp->character+" "+comp->name+" (upload #"+std::to_string(b.seq)+", "+t.variant+"): mesh "+m.mesh+(m.avatar.empty()?std::string(" (loaded, not shown)"):" of "+m.avatar+" / "+m.renderer)+" ("+std::to_string(m.vertices)+" vertices, "+std::to_string(m.indices)+" indices); submesh starts "+capStarts(m.subs)+(pcdb::startsEqual(m.subs,comp->indexes)?" = the PC draw starts":" vs the PC draw starts "+texdiag::joined(comp->indexes)));
    return true;}
   if(ms.size()!=1)return false;
   CapMesh& m=*ms[0];bool fresh=m.hashes.empty();
   for(auto& h:b.hashes){if((h.variant>>2)!=0)continue;if(fresh)m.hashes.push_back(capKind(h.variant)+" "+hex8(h.value));if(h.variant&3)devMapPut(hex8(h.value),vkcap::variantName(h.variant),"","",m);}
   if(fresh){capOther++;capDirty=true;}return true;}
+ // The Type object of a class whose byval_arg sits where the renderer's does (the offset rendererType found).
+ Ptr meshType(Ptr mesh){if(meshTypeObject)return meshTypeObject;require(byvalOffset!=0,"byval_arg offset not known yet");Ptr k=load<Ptr>(mesh);
+  require(k!=0&&e.call<Ptr>(abi::classFromType,k+byvalOffset,1)==k,"Mesh class check failed");Ptr t=e.call<Ptr>(abi::typeObject,k+byvalOffset);
+  require(t!=0&&load<Ptr>(t+0x10)!=0,"Mesh Type object missing");log("hash-capture","Mesh Type object found (byval_arg at class+"+hex(byvalOffset)+")");return meshTypeObject=t;}
+ // An upload whose hash the PC database knows but no shown mesh has its counts: often a model the game loaded and does
+ // not show (a list, the next character in the archive). Every loaded Mesh (findObjectsNative, mode 2 as
+ // Resources.FindObjectsOfTypeAll) with such an upload's vertex count is read, and kept when its index and vertex counts
+ // are the upload's. At most every 5 s while that set of uploads changes, every 30 s while it does not.
+ void capScanLoaded(uint64_t now,const std::vector<Ptr>& pool){if(capOpen.empty())return;std::string key;for(auto& kv:capOpen)key+=kv.first;
+  if(now<capAllLast+(key==capAllKey?30000u:5000u))return;
+  Ptr sample=0;for(Ptr r:pool){if(!alive(r)||attachments.count(r))continue;Ptr m=e.get(abi::getMesh,r);if(alive(m)){sample=m;break;}}if(!sample&&!meshTypeObject)return;
+  capAllLast=now;capAllKey=key;
+  std::set<std::pair<uint64_t,uint64_t>> want;std::set<uint64_t> verts;
+  for(auto& kv:capOpen){auto& t=kv.second;if(t.form!=2){want.insert({t.bytes/2,uint64_t(t.max16)+1});verts.insert(uint64_t(t.max16)+1);}if(t.form!=1&&t.bytes%4==0){want.insert({t.bytes/4,uint64_t(t.max32)+1});verts.insert(uint64_t(t.max32)+1);}}
+  Owned tmp;uint64_t looked=0,added=0;
+  try{Ptr arr=e.call<Ptr>(abi::findObjectsNative,meshType(sample),int32_t(2));
+   if(arr){pin(tmp,arr);for(Ptr m:pointers(arr,65536)){if(!alive(m))continue;looked++;Ptr nm=load<Ptr>(m+0x10);if(capMeshRead.count(nm))continue;
+     uint64_t v=uint64_t(e.call<int32_t>(abi::meshVertices,m,Ptr(0)));if(!verts.count(v))continue;capMeshRead.insert(nm);
+     renderprobe::UnityReader::MeshLayout l;l.status="未采集: not read yet";texDiagMesh(m,l);CapMesh c;bool all=!l.subs.empty();
+     for(auto& sb:l.subs){all=all&&sb.known;c.subs.push_back({uint32_t(sb.start),uint32_t(sb.count)});}c.indices=pcdb::indices(c.subs);if(!all||!want.count({c.indices,v}))continue;
+     auto fp=fingerprint(m);c.mesh=fp.mesh;c.vertices=unsigned(v);c.bones=fp.bones;c.lod=lowerLod(fp.mesh);
+     auto k=capKey(c.mesh,c.vertices,c.indices);if(capMeshes.emplace(k,c).second){capShape.insert({{c.indices,uint64_t(c.vertices)},k});added++;}}}}
+  catch(...){freeOwned(tmp);throw;}freeOwned(tmp);if(capMeshRead.size()>200000)capMeshRead.clear();
+  capAllMeshes=looked;capAllAdded+=added;
+  log("hash-capture","loaded meshes scanned for "+std::to_string(capOpen.size())+" PC upload(s) with no shown mesh: "+std::to_string(looked)+" meshes, "+std::to_string(added)+" with an upload's index and vertex counts");}
  void captureTick(uint64_t now){auto& T=vkcap::tracker();if(!ctl.tex.capture||!T.enabled)return;if(now<capAt)return;capAt=now+1000;
   if(!capSaid){capSaid=true;log("hash-capture","on: every character mesh shown is read and each index upload tied to it; compared with the PC database ("+(pcDb?pcDb->commit.substr(0,7):std::string("not installed"))+"), written to "+shared+"/hash-report.txt and hash-map.json"+(ctl.enabled?std::string():"; model replacement is off, so only the controlled character's renderers are read (switch it on for the whole scene)"));}
   if(!devMap)devMap=std::make_shared<pcdb::DeviceMap>();
@@ -1088,6 +1113,8 @@ struct Runtime::Impl {
     auto key=capKey(c.mesh,c.vertices,c.indices);if(capMeshes.emplace(key,c).second)capShape.insert({{c.indices,uint64_t(c.vertices)},key});}
    catch(const std::exception&){}}
   if(capRead.size()>20000)capRead.clear();
+  if(!rendererTypeObject){for(Ptr r:pool)if(alive(r)&&!attachments.count(r)){try{rendererType(r);}catch(const std::exception&){}break;}}
+  try{capScanLoaded(now,pool);}catch(const std::exception& ex){log("hash-capture",std::string("loaded meshes not scanned: ")+ex.what());capAllLast=now+60000;}
   bool newMeshes=capMeshes.size()!=before;if(newMeshes)capDirty=true;
   // 2. Uploads: each new one; those not tied yet again when new meshes came (an upload usually comes first).
   for(auto& b:ibBlobs)if(b.seq>capSeq){capSeq=b.seq;if(!capTie(b))capPending.insert(b.seq);}
@@ -1103,6 +1130,8 @@ struct Runtime::Impl {
   o+="游戏版本 "+std::string(abi::buildId).substr(0,8)+"；PC 数据库 "+(pcDb?pcDb->source+" @"+pcDb->commit.substr(0,7)+"（"+pcDb->date+"）":std::string("未安装（打开一次 GIBox App 会装上）"))+"\n";
   o+="本次读到角色网格 "+std::to_string(capMeshes.size())+" 个；与 PC 索引缓冲 hash 相同的上传对应到网格 "+std::to_string(capTies.size())+" 个，未对应 "+std::to_string(capOpen.size())+" 个；hash-map.json 共 "+std::to_string(devMap?devMap->byIb.size():0)+" 个 hash（含之前几次；PC 没有的网格按三种上传方式各记一条）\n";
   o+="说明：hash 相同 = 安卓上传的索引数据逐字节等于 PC 的；“起点”是各子网格的 indexStart，PC 的是各段 match_first_index。\n";
+  if(!ctl.enabled)o+="注意：模型替换总开关关着，场景里只读到当前操控角色的渲染器；其他角色靠“已加载的网格”补读（只限 hash 与 PC 相同的上传）\n";
+  if(capAllMeshes)o+="已加载网格扫描：最近一次看了 "+std::to_string(capAllMeshes)+" 个网格，累计补读 "+std::to_string(capAllAdded)+" 个（与 PC 相同、但没显示的上传）\n";
   // Per PC character with something tied (this session or earlier): every component, tied or not.
   std::map<std::string,std::vector<size_t>> chars;std::set<std::string> any;for(auto& kv:capTies)any.insert(kv.second.character);if(devMap)for(auto& kv:devMap->byIb)if(!kv.second.character.empty())any.insert(kv.second.character);
   if(pcDb)for(size_t i=0;i<pcDb->comps.size();i++)if(any.count(pcDb->comps[i].character))chars[pcDb->comps[i].character].push_back(i);
@@ -1115,7 +1144,7 @@ struct Runtime::Impl {
     auto t=capTies.find(c.ib);const pcdb::Mesh* dm=nullptr;if(devMap){auto d=devMap->byIb.find(c.ib);if(d!=devMap->byIb.end())dm=&d->second;}
     if(t!=capTies.end()){auto m=capMeshes.find(t->second.meshKey);if(m!=capMeshes.end()){auto& x=m->second;tiedMeshes.insert(t->second.meshKey);bool same=pcdb::startsEqual(x.subs,c.indexes);
       std::string counts;for(auto& sb:x.subs)counts+=(counts.empty()?"":",")+std::to_string(sb.second);
-      o+="      = "+x.avatar+" / "+x.renderer+" / 网格 "+x.mesh+"（"+std::to_string(x.vertices)+" 顶点，"+std::to_string(x.indices)+" 索引）；安卓起点 "+capStarts(x.subs)+" 数量 ["+counts+"] "+(same?"与 PC 一致 ✓":"与 PC 不同 ✗")+"；上传方式："+t->second.variant+"\n";continue;}}
+      o+="      = "+(x.avatar.empty()?std::string("（已加载、未显示）"):x.avatar+" / "+x.renderer)+" / 网格 "+x.mesh+"（"+std::to_string(x.vertices)+" 顶点，"+std::to_string(x.indices)+" 索引）；安卓起点 "+capStarts(x.subs)+" 数量 ["+counts+"] "+(same?"与 PC 一致 ✓":"与 PC 不同 ✗")+"；上传方式："+t->second.variant+"\n";continue;}}
     auto op=capOpen.find(c.ib);
     if(dm){o+="      之前采集过（版本 "+dm->build.substr(0,8)+"）："+dm->avatar+" / "+dm->renderer+" / 网格 "+dm->mesh+"（"+std::to_string(dm->vertices)+" 顶点）起点 "+capStarts(dm->subs)+(pcdb::startsEqual(dm->subs,c.indexes)?" 与 PC 一致 ✓":" 与 PC 不同 ✗")+(op!=capOpen.end()?"；本次也见到了 hash 相同的上传":"")+"\n";continue;}
     if(op!=capOpen.end()){o+="      本次见到 hash 相同的上传（#"+std::to_string(op->second.seq)+"，"+op->second.variant+"），但没读到对应网格："+op->second.note;for(auto& x:op->second.meshes){o+="；"+x;}o+="\n";continue;}
@@ -1129,7 +1158,7 @@ struct Runtime::Impl {
   std::map<uint32_t,std::vector<const vkcap::Blob*>> bySize;for(auto& b:ibBlobs)bySize[b.bytes].push_back(&b);
   std::map<std::string,std::vector<const CapMesh*>> byAvatar;unsigned lods=0;for(auto& kv:capMeshes){if(tiedMeshes.count(kv.first))continue;if(kv.second.lod){lods++;continue;}byAvatar[kv.second.avatar].push_back(&kv.second);}
   std::string rest;unsigned n=0,recorded=0;
-  for(auto& av:byAvatar){rest+=av.first+"\n";for(auto* x:av.second){if(n>=600)break;n++;
+  for(auto& av:byAvatar){rest+=(av.first.empty()?std::string("（已加载、未显示的网格）"):av.first)+"\n";for(auto* x:av.second){if(n>=600)break;n++;
     rest+="  "+x->renderer+" / 网格 "+x->mesh+"（"+std::to_string(x->vertices)+" 顶点，"+std::to_string(x->indices)+" 索引，起点 "+capStarts(x->subs)+"）";
     std::string hs;for(auto& h:x->hashes)hs+=(hs.empty()?"":"，")+h;
     if(hs.empty())for(uint64_t w:{uint64_t(2),uint64_t(4)}){auto it=bySize.find(uint32_t(x->indices*w));if(it==bySize.end())continue;for(auto* b:it->second){uint32_t mx=w==2?b->max16:b->max32;if(uint64_t(mx)+1!=x->vertices)continue;
@@ -1561,7 +1590,7 @@ struct Runtime::Impl {
    if(e.call<Ptr>(abi::classFromType,klass+b,1)!=klass){rejected+=hex(b)+" ";continue;}bool all_ok=true;for(Ptr c:elements){all_ok=all_ok&&e.call<Ptr>(abi::classFromType,c+b,1)==c;}if(!all_ok){rejected+=hex(b)+"(elements) ";continue;}
    Ptr type=e.call<Ptr>(abi::typeObject,klass+b);require(type!=0&&load<Ptr>(type+0x10)!=0,"Type object missing");
    log("renderer-type","byval_arg at class+"+hex(b)+(pairs.count(b)?" this_arg +"+hex(pairs[b]):std::string(" no this_arg pair"))+", array votes "+std::to_string(votes.count(b)?votes[b]:0)+", "+std::to_string(elements.size()+1)+" classes");
-   return rendererTypeObject=type;}
+   byvalOffset=b;return rendererTypeObject=type;}
   // Not found: record the classes once so the layout can be read from the log.
   if(!typeDumped){typeDumped=true;std::string v,pr;for(auto& kv:votes)v+=hex(kv.first)+":"+std::to_string(kv.second)+" ";for(auto& kv:pairs)pr+=hex(kv.first)+"/"+hex(kv.second)+" ";
    std::string dump="votes "+v+"\npairs "+pr+"\nrejected "+rejected+"\n"+classDump("renderer",klass);for(size_t i=0;i<elements.size();i++)dump+=classDump(i?"element2":"element1",elements[i])+classDump(i?"array2":"array1",arrays[i]);log("renderer-type-dump",dump);}

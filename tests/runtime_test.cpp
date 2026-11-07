@@ -18,7 +18,7 @@ struct Obj {std::string kind,name;Ptr mesh=0,materials=0,bones=0,native=0,shared
 // candidates (offsets.hpp); the fake puts them at one candidate each, the other candidates stay 0.
 constexpr unsigned kList=0x160,kCurrent=0x2a8,kRuntime=0x464,kConfig=0x45c;
 struct Fake {
- Ptr stringBase=0x7020000000ull,base=0,manager=0,owner=0,klass=0,typeObj=0;std::map<Ptr,Obj> obj;std::vector<void*> allocated;std::map<unsigned,Ptr> handles;unsigned nextHandle=1,nextId=1;
+ Ptr stringBase=0x7020000000ull,base=0,manager=0,owner=0,klass=0,typeObj=0,meshTypeObj=0;unsigned meshFinds=0;std::map<Ptr,Obj> obj;std::vector<void*> allocated;std::map<unsigned,Ptr> handles;unsigned nextHandle=1,nextId=1;
  // Each built part now clones one restoration snapshot and one mod mesh; count both engine allocations.
  unsigned clones=0,meshClones=0,textures=0,weightAllocs=0,typeLookups=0,findCalls=0,findAllCalls=0,childCalls=0,bindposeReads=0;std::map<Ptr,Ptr> goOfRenderer;std::map<Ptr,std::vector<Ptr>> goChildren;Ptr lastWeights=0;std::map<Ptr,std::string> strings;std::string lightProperty;bool failMaterials=false,failFind=false,failPosition=false;
  unsigned expectedVertices=3;std::map<Ptr,unsigned> textureBytes;
@@ -87,12 +87,14 @@ void setMainTexture(Ptr mat,Ptr tex,Ptr){gameWrites++;assert(mat);f->diffuse[mat
 unsigned channelSets=0;std::vector<Bytes> channelData;void setChannel(Ptr,Ptr a,Ptr){assert(load<uint64_t>(a+0x18)==f->expectedVertices);channelSets++;
  unsigned stride=load<uint16_t>(load<Ptr>(a)+0xba);channelData.emplace_back(reinterpret_cast<const uint8_t*>(a+0x20),reinterpret_cast<const uint8_t*>(a+0x20)+size_t(f->expectedVertices)*stride);}void setPos(Ptr p,Ptr a,Ptr){if(f->failPosition){f->failPosition=false;throw std::runtime_error("fake-animation-channel-error");}store<uint32_t>(f->obj.at(p).shared+0x74,load<uint64_t>(a+0x18));}void setAny(Ptr,Ptr,Ptr){}
 Ptr classFromType(Ptr t,int init){assert(init==1&&load<uint8_t>(t+0xa)!=0);f->typeLookups++;for(auto& kv:f->kinds)if(t==kv.second+0x98)return kv.second;return f->alloc(0x10);}
-Ptr typeObject(Ptr t){assert(t==f->klass+0x98);if(!f->typeObj){f->typeObj=f->alloc(0x20);store<Ptr>(f->typeObj+0x10,t);}return f->typeObj;}
+Ptr typeObject(Ptr t){if(t==f->kindClass("mesh")+0x98){if(!f->meshTypeObj){f->meshTypeObj=f->alloc(0x20);store<Ptr>(f->meshTypeObj+0x10,t);}return f->meshTypeObj;}
+ assert(t==f->klass+0x98);if(!f->typeObj){f->typeObj=f->alloc(0x20);store<Ptr>(f->typeObj+0x10,t);}return f->typeObj;}
 Ptr goOf(Ptr r,Ptr){assert(f->obj.at(r).kind=="renderer"||f->obj.at(r).kind=="transform");auto it=f->goOfRenderer.find(r);if(it!=f->goOfRenderer.end())return it->second;Ptr g=f->object("gameobject","GO");f->goOfRenderer[r]=g;return g;}
 Ptr children(Ptr go,Ptr type,uint32_t inactive,Ptr){assert(f->obj.at(go).kind=="gameobject"&&type&&type==f->typeObj&&inactive==1);f->childCalls++;auto& v=f->goChildren[go];return f->array(8,v.size(),v.data());}
 // Scripting::ScriptingWrapperFor: the managed object of a native one.
 Ptr wrapperFor(Ptr native){for(auto& kv:f->obj)if(kv.second.native==native)return kv.first;return 0;}
-Ptr findNative(Ptr type,int mode){assert(type&&type==f->typeObj&&mode==2);f->findAllCalls++;if(f->failFind)throw std::runtime_error("fake-find-failure");std::vector<Ptr> all=f->scene;all.insert(all.end(),f->assets.begin(),f->assets.end());return f->array(8,all.size(),all.data());}
+Ptr findNative(Ptr type,int mode){if(type&&type==f->meshTypeObj){assert(mode==2);f->meshFinds++;std::vector<Ptr> all;for(auto& kv:f->obj)if(kv.second.kind=="mesh"&&load<Ptr>(kv.first+0x10))all.push_back(kv.first);return f->array(8,all.size(),all.data());}
+ assert(type&&type==f->typeObj&&mode==2);f->findAllCalls++;if(f->failFind)throw std::runtime_error("fake-find-failure");std::vector<Ptr> all=f->scene;all.insert(all.end(),f->assets.begin(),f->assets.end());return f->array(8,all.size(),all.data());}
 Ptr findObjects(Ptr type,Ptr){assert(type&&type==f->typeObj);f->findCalls++;if(f->failFind)throw std::runtime_error("fake-find-failure");return f->array(8,f->scene.size(),f->scene.data());}
 // Glow trace read-back (glow_trace.hpp): one colour property (#7) and one texture (#5) per material.
 int32_t glowFrame(){static int32_t n=100;return ++n;}
@@ -1457,19 +1459,26 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
   //     whose resource name says nothing) is written to Bang, found through the map: no submesh start, name or size.
   {std::string mediaC=root+"/mediaCap",sharedC=mediaC+"/"+pkg+"/GIBox",modC=sharedC+"/models/HashMod",logC=sharedC+"/GIBox Log.txt";std::filesystem::create_directories(modC+"/textures");
    uint16_t tri[3]={0,1,2};char hbody[12];std::snprintf(hbody,sizeof hbody,"%08x",ms::vkcap::ibHashes(reinterpret_cast<const uint8_t*>(tri),6)[2].value);
+   // A model the game loaded and does not show (on no renderer): its PC hash is uploaded, its mesh found among the loaded ones.
+   uint16_t cape[9]={0,1,2,0,2,3,1,2,3};char hcape[12];std::snprintf(hcape,sizeof hcape,"%08x",ms::vkcap::ibHashes(reinterpret_cast<const uint8_t*>(cape),18)[2].value);
+   Ptr capeMesh=f->mesh("Cape",4);texRanges[capeMesh]={{0,9}};
    store<Ptr>(f->owner+0x68,f->array(8,2,two));std::filesystem::create_directories(sharedC);
    write(sharedC+"/pc-hashes.json",std::string(R"J({"format":"gibox-pc-hashes","version":1,"source":"test","commit":"2039d16d4b64696098ba53cd69888ce967397be9","date":"2026-08-03","characters":[{"name":"Lin","avatar":10000107,"components":[
-    {"name":"Bangs","ib":")J")+hb+R"J(","indexes":[0],"textures":[[["LightMap","0f6493aa"],["Diffuse","ab64b4cc"]]]},{"name":"Body","ib":"d5ae71a3","indexes":[0,100],"textures":[]}]}]})J");
+    {"name":"Bangs","ib":")J")+hb+R"J(","indexes":[0],"textures":[[["LightMap","0f6493aa"],["Diffuse","ab64b4cc"]]]},{"name":"Body","ib":"d5ae71a3","indexes":[0,100],"textures":[]},
+    {"name":"Cape","ib":")J"+std::string(hcape)+R"J(","indexes":[0],"textures":[]}]}]})J");
    write(sharedC+"/control.json","{\"enabled\":true,\"selected\":[],\"textureMods\":{\"capture\":true}}");
    auto countC=[&](const std::string& x){auto l=text(logC);size_t n=0;for(size_t p=l.find(x);p!=std::string::npos;p=l.find(x,p+1))n++;return n;};
    {Runtime q(e,pkg,root+"/privateCap",mediaC,false);uint64_t t=14000000;auto run=[&](uint64_t ms){for(uint64_t end=t+ms;t<end;t+=100)q.tick(t);};
     // Body's upload comes before its mesh is read (as in the game): tied once it is.
     T.installed(true,"");uint8_t hostB[6];std::memcpy(hostB,tri,6);T.created(0xb00,6,0x40);T.bound(0xb00,0xc00,0);T.mapped(0xc00,0,6,hostB);T.indexBound(0xb00,0);
-    uint8_t host[12];std::memcpy(host,idx,12);T.created(0x900,12,0x40);T.bound(0x900,0xa00,0);T.mapped(0xa00,0,12,host);T.indexBound(0x900,0);run(8000);
+    uint8_t host[12];std::memcpy(host,idx,12);T.created(0x900,12,0x40);T.bound(0x900,0xa00,0);T.mapped(0xa00,0,12,host);T.indexBound(0x900,0);
+    uint8_t hostC[18];std::memcpy(hostC,cape,18);T.created(0xd00,18,0x40);T.bound(0xd00,0xe00,0);T.mapped(0xe00,0,18,hostC);T.indexBound(0xd00,0);run(8000);
     if(std::getenv("TEXMOD_PRINT")){auto l=text(logC);size_t p=0;while((p=l.find("hash-capture",p))!=std::string::npos){auto e2=l.find('\n',p);std::cerr<<"C| "<<l.substr(p,e2-p)<<"\n";p=e2;}std::cerr<<text(sharedC+"/hash-report.txt");}
-    assert(countC(std::string("hash-capture ")+hb+" = PC Lin Bangs (upload #")==1&&countC("submesh starts [0] = the PC draw starts")==1&&countC("pc-hashes 1 PC characters, 2 components")==1);
+    assert(countC(std::string("hash-capture ")+hb+" = PC Lin Bangs (upload #")==1&&countC("submesh starts [0] = the PC draw starts")==2&&countC("pc-hashes 1 PC characters, 3 components")==1);
     auto rep=text(sharedC+"/hash-report.txt");
     assert(rep.find("Lin（AvatarId 10000107）")!=std::string::npos&&rep.find("与 PC 一致 ✓")!=std::string::npos&&rep.find("Body  ib d5ae71a3")!=std::string::npos&&rep.find("本次没见到与它 hash 相同的上传")!=std::string::npos);
+    assert(f->meshFinds>=1&&countC(std::string("hash-capture ")+hcape+" = PC Lin Cape (upload #")==1&&countC("mesh Cape (loaded, not shown)")==1);
+    assert(rep.find("Cape  ib "+std::string(hcape))!=std::string::npos&&rep.find("= （已加载、未显示） / 网格 Cape（4 顶点，9 索引）")!=std::string::npos);
     assert(rep.find(std::string("Body / 网格 Body（3 顶点，3 索引，起点 [0]）：hash 数据 "))!=std::string::npos&&rep.find(std::string("IB|SRV|UAV ")+hbody)!=std::string::npos&&rep.find("（已记入 hash-map）")!=std::string::npos);
     auto map=text(sharedC+"/hash-map.json");assert(map.find(std::string("\"ib\":\"")+hb+"\"")!=std::string::npos&&map.find(std::string("\"ib\":\"")+hbody+"\",\"variant\":\"as uploaded, desc DEFAULT, Bind=IB|SRV|UAV\",\"character\":\"\"")!=std::string::npos);
     T.installed(false,"");q.shutdown();}

@@ -6,7 +6,7 @@ import java.nio.file.Files;
 import java.util.*;
 
 /**
- * Playable characters: AvatarId and Chinese name (all 124 up to 7.1, tests/avatar_ids.txt), the internal model name
+ * Playable characters: AvatarId and Chinese name (124 up to 7.1 and four of 7.2, tests/avatar_ids.txt), the internal model name
  * (skeleton root Avatar_Girl_Catalyst_Citlali → citlali) and the names mods use for them, for search and for the
  * recommended character of an imported mod.
  */
@@ -144,7 +144,8 @@ public final class Characters {
         a(10000126, "兹白", "", "zibai"),
         // 10000127 on: internal names from the game data (AvatarExcelConfigData iconName UI_AvatarIcon_<name>, as in the
         // GuraFoundation/YuanShenResources extraction); on the device the same names in the skeleton roots (lohen, nicole,
-        // marionettenew, vodyanitsa, vesna, linnea).
+        // marionettenew, vodyanitsa, vesna, linnea, mitya, valeriy). 10000136, 10000137, 10000147, 10000149: names as the
+        // user gave them, internal names from the same data.
         a(10000127, "叶洛亚", "illuga", ""),
         a(10000128, "法尔伽", "", "varka"),
         a(10000129, "洛恩", "lohen", ""),
@@ -152,9 +153,13 @@ public final class Characters {
         a(10000131, "尼可", "nicole", ""),
         a(10000132, "布伦妮", "prune", ""),
         a(10000133, "桑多涅", "marionettenew", "sandrone"),
+        a(10000136, "米提亚", "mitya", ""),
+        a(10000137, "瓦列里", "valeriy", ""),
         a(10000140, "沃雅妮莎", "vodyanitsa", ""),
         a(10000143, "薇斯纳", "vesna", ""),
+        a(10000147, "达妮卡", "danica", ""),
         a(10000148, "阿罗夏", "alyosha", ""),
+        a(10000149, "安娜丝塔夏", "anastasya", "tsaritsa"),
         a(10000150, "奥黛塔", "odette", "")
     };
 
