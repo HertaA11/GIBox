@@ -38,6 +38,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -47,6 +48,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /** A scheme's file name without .ini; the folder too when two schemes share a name. */
 fun schemeLabel(rel: String, all: List<String>): String {
@@ -56,7 +59,9 @@ fun schemeLabel(rel: String, all: List<String>): String {
 
 /**
  * Full page for choosing the mod's character: search by ID or name, the guessed character first marked （推荐）, one tap
- * selects, and only 确定 starts the import (or the re-conversion). Leaving the page imports nothing.
+ * selects, and only 确定 starts the import (or the re-conversion). Leaving the page imports nothing. A character with
+ * skins lists its outfits under it (原皮 and each skin): the mod is converted for the one chosen, the one its INI hashes
+ * name chosen first. Its mods stay in that character's list either way.
  */
 @Composable
 fun PickScreen(state: AppState, pick: Screen.Pick) {
@@ -70,6 +75,17 @@ fun PickScreen(state: AppState, pick: Screen.Pick) {
     val schemes = remember(pick) { state.schemes(dir) }
     var scheme by remember(pick) { mutableStateOf(state.scheme(dir).takeIf { it in schemes }) }
     val needScheme = schemes.size > 1 && scheme == null
+    val outfits = remember(chosen) { state.outfits(chosen) }
+    var outfit by remember(pick) { mutableStateOf("") }
+    var outfitHint by remember(pick) { mutableStateOf("") }
+    var outfitsRecorded by remember(pick) { mutableStateOf(emptySet<String>()) }
+    LaunchedEffect(pick, chosen) {
+        if (outfits.isEmpty()) { outfit = ""; outfitHint = ""; outfitsRecorded = emptySet(); return@LaunchedEffect }
+        val (suggested, recordedNow) = withContext(Dispatchers.IO) { state.suggestedOutfit(pick, chosen) to state.recordedOutfits(chosen) }
+        outfit = suggested; outfitsRecorded = recordedNow
+        outfitHint = withContext(Dispatchers.IO) { state.outfitGuessText(pick, chosen) }
+    }
+    val chosenOutfit = outfits.firstOrNull { it.prefab == outfit }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -86,7 +102,7 @@ fun PickScreen(state: AppState, pick: Screen.Pick) {
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(Modifier.weight(1f)) {
-                        Text(if (selected == null) "还没有选择" else "已选：${selected.name}", style = MaterialTheme.typography.titleMedium)
+                        Text(if (selected == null) "还没有选择" else "已选：${selected.name}" + (chosenOutfit?.let { " · ${it.name}" } ?: ""), style = MaterialTheme.typography.titleMedium)
                         Text(
                             if (needScheme) "先在上面选一套 INI 方案" else if (selected == null) "点一个角色，再点确定" else "${selected.id}" + if (recorded.contains(selected.id)) " · 已记录骨骼" else "",
                             style = MaterialTheme.typography.bodySmall,
@@ -95,8 +111,8 @@ fun PickScreen(state: AppState, pick: Screen.Pick) {
                     }
                     val height = ButtonDefaults.MediumContainerHeight
                     Button(
-                        onClick = { selected?.let { state.confirm(pick, it, if (schemes.size > 1) scheme else null) } },
-                        enabled = selected != null && !needScheme,
+                        onClick = { selected?.let { state.confirm(pick, it, if (schemes.size > 1) scheme else null, chosenOutfit?.prefab) } },
+                        enabled = selected != null && !needScheme && (outfits.isEmpty() || chosenOutfit != null),
                         shapes = ButtonDefaults.shapesFor(height),
                         modifier = Modifier.heightIn(min = height),
                         contentPadding = ButtonDefaults.contentPaddingFor(height),
@@ -150,6 +166,7 @@ fun PickScreen(state: AppState, pick: Screen.Pick) {
                 if (list.isEmpty()) item { EmptyNote("没有匹配的角色") }
                 itemsIndexed(list, key = { _, a -> a.id }) { index, a ->
                     val recommended = guess.recommends(a.id)
+                    Column(verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)) {
                     SegmentedListItem(
                         selected = a.id == chosen,
                         onClick = { chosen = a.id },
@@ -170,6 +187,26 @@ fun PickScreen(state: AppState, pick: Screen.Pick) {
                                 Text("（推荐）", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                             }
                         }
+                    }
+                    // The outfits of the chosen character: the mod is converted for one of them (its bones are that outfit's).
+                    if (a.id == chosen && outfits.isNotEmpty()) {
+                        if (outfitHint.isNotEmpty()) Text(outfitHint, modifier = Modifier.padding(start = 24.dp, top = 4.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                        outfits.forEachIndexed { i, o ->
+                            SegmentedListItem(
+                                selected = o.prefab == outfit,
+                                onClick = { outfit = o.prefab },
+                                shapes = ListItemDefaults.segmentedShapes(i, outfits.size),
+                                modifier = Modifier.padding(start = 24.dp),
+                                leadingContent = { RadioButton(selected = o.prefab == outfit, onClick = null) },
+                                supportingContent = {
+                                    Text(
+                                        (if (o.original()) "" else "${o.en} · ") + if (outfitsRecorded.contains(o.prefab)) "已记录骨骼" else "未记录骨骼：在大世界穿上，或在衣装页预览后自动采集",
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                },
+                            ) { Text(o.name) }
+                        }
+                    }
                     }
                 }
             }

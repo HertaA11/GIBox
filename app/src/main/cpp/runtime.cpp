@@ -92,7 +92,7 @@ ControlState parseControl(const std::string& raw){
 struct PartInfo {std::string name,group,lodMesh;unsigned minBones=0;bool hasTarget=false;Fingerprint target;};
 // A model folder as the scan sees it (model.json + learned.json; model.bin is only read when the model is loaded).
 // id 0 + names: converted without the skeleton library; the character is found by the names in its skeleton chain.
-struct ModelInfo {std::string name,path,generation,stamp;unsigned id=0;bool animated=false;std::vector<PartInfo> parts;std::vector<std::string> names;Learned learned;Variants variants;When replaceWhen;};
+struct ModelInfo {std::string name,path,generation,stamp,outfit;unsigned id=0;bool animated=false;std::vector<PartInfo> parts;std::vector<std::string> names;Learned learned;Variants variants;When replaceWhen;};
 std::vector<std::string> nameTokens(const std::string& s){std::vector<std::string> out;std::string cur;for(size_t i=0;i<=s.size();i++){unsigned char c=i<s.size()?s[i]:' ';bool alnum=(c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9');
  if(!alnum){if(cur.size()>=3)out.push_back(cur);cur.clear();continue;}cur+=char(c>='A'&&c<='Z'?c+32:c);}return out;}
 bool namesMatch(const std::vector<std::string>& names,const std::vector<std::string>& tokens){for(auto& n:names)for(auto& t:tokens)if(t==n||(std::min(t.size(),n.size())>=4&&(t.compare(0,n.size(),n)==0||n.compare(0,t.size(),t)==0)))return true;return false;}
@@ -110,7 +110,7 @@ std::vector<ModelInfo> scanModels(const std::string& root,std::map<std::string,M
   if(!d.is_directory(ec)){continue;}auto name=d.path().filename().string();if(name.empty()||name[0]=='.')continue;auto path=d.path().string();
   try{auto manifest=path+"/model.json";if(!exists(manifest))continue;auto stamp=stampOf(manifest);auto it=cache.find(path);
    if(it!=cache.end()&&it->second.stamp==stamp){next[path]=it->second;out.push_back(it->second);continue;}
-   auto summary=readSummary(path);ModelInfo m;m.name=name;m.path=path;m.stamp=stamp;m.generation="g:"+summary.generation;m.id=summary.id;m.animated=summary.animated;m.names=summary.names;m.learned=readLearned(path);m.variants=summary.variants;m.replaceWhen=summary.replaceWhen;
+   auto summary=readSummary(path);ModelInfo m;m.name=name;m.path=path;m.stamp=stamp;m.generation="g:"+summary.generation;m.id=summary.id;m.animated=summary.animated;m.names=summary.names;m.learned=readLearned(path);m.variants=summary.variants;m.replaceWhen=summary.replaceWhen;m.outfit=summary.outfit;
    if(!m.id&&m.learned.id)m.id=m.learned.id;
    // Targets the runtime learned (also after a game update moved a part) take precedence over the converter's.
    for(auto& p:summary.parts){PartInfo pi;pi.name=p.name;pi.group=p.renderer;pi.minBones=p.indexedBones?p.bones:0;pi.hasTarget=p.hasTarget&&p.target.bones>=pi.minBones;pi.target=p.target;if(p.hasTarget&&lowerLod(p.target.mesh))pi.lodMesh=p.target.mesh;
@@ -189,7 +189,7 @@ struct Runtime::Impl {
  struct AnimationResult {std::string path,generation,error;uint64_t token=0,us=0;size_t index=0;std::shared_ptr<ModelFile> data;};std::deque<AnimationResult> animationResults;
  struct TextureResult {std::string path,generation,error;std::map<std::string,MaterialFile> materials;};std::deque<TextureResult> textureResults;std::set<std::string> textureInflight;
  std::map<std::string,LoadResult> loaded;std::set<std::string> inflight;
- struct BoneResult {unsigned id;bool library;long long request;std::string error;long long refresh=0;};std::deque<BoneResult> boneResults;
+ struct BoneResult {unsigned id;bool library;long long request;std::string error;long long refresh=0;std::string outfit;bool preview=false;};std::deque<BoneResult> boneResults;
  // ---- worker only
  std::string controlRaw,controlBad;uint64_t controlAt=0,scanAt=0;std::map<std::string,ModelInfo> scanCache;
  // ---- game thread only
@@ -206,7 +206,7 @@ struct Runtime::Impl {
  // experiments.logicCore: the set's own INI logic, picking its animation frame or its outfit (logic_game.hpp).
  struct LogicRun {std::unique_ptr<LogicDriver> driver;bool failed=false,fresh=false,noted=false;uint64_t misses=0,lastStats=0;unsigned missLines=0;std::string missLogged;std::map<std::string,int> pushed;Assignment want;bool persistDue=false;uint64_t persistAt=0,persistSaves=0;};   // want: the outfit it picked (applyVariant may wait for textures)
  uint64_t animationToken=0;
- struct Set:Owned {bool lost=false;std::string name,path,generation;unsigned id=0;std::shared_ptr<ModelFile> data;std::vector<Fingerprint> targets;std::vector<BuiltPart> parts;std::map<std::string,MatTex> textures;std::map<std::string,MaterialFile> mats;std::string meshKey;AnimationRun animation;uint64_t blobSize=0;std::string fileGeneration,textureWait;Variants variants;bool originalMaterials=false,built=false,mergeDraws=true;std::vector<TextureSwap> swaps;LogicSpec logicSpec;LogicRun logic;Assignment assignment;uint64_t used=0,bytes=0;};  // bytes: estimated memory of the built set
+ struct Set:Owned {bool lost=false;std::string name,path,generation,outfit;unsigned id=0;std::shared_ptr<ModelFile> data;std::vector<Fingerprint> targets;std::vector<BuiltPart> parts;std::map<std::string,MatTex> textures;std::map<std::string,MaterialFile> mats;std::string meshKey;AnimationRun animation;uint64_t blobSize=0;std::string fileGeneration,textureWait;Variants variants;bool originalMaterials=false,built=false,mergeDraws=true;std::vector<TextureSwap> swaps;LogicSpec logicSpec;LogicRun logic;Assignment assignment;uint64_t used=0,bytes=0;};  // bytes: estimated memory of the built set
  // source: for a renderer the game created from one of ours (adopted), the renderer whose material clones it shows.
  struct Attachment:Owned {Ptr renderer=0,native=0,original=0,originalMaterials=0,source=0;Set* set=nullptr;RestoreBackup* backup=nullptr;size_t part=0;bool adopted=false;std::map<std::string,Ptr> clones;std::string restoreError;
    uint64_t refreshAt=0,materialTraceStart=0,materialTraceAt=0,materialCheckAt=0,materialCheckUntil=0;unsigned refreshes=0,materialTraceSamples=0,materialRepairs=0;std::map<Ptr,std::string> retired;std::map<Ptr,Ptr> materialSources;  // clone -> canonical game material; retained across refreshes
@@ -226,7 +226,7 @@ struct Runtime::Impl {
  Recent<std::pair<Ptr,uint32_t>,Fingerprint> fpCache{8192};std::set<std::pair<Ptr,Ptr>> skipped;
  std::map<std::string,std::pair<std::string,std::string>> failed;            // path -> generation, message
  std::map<std::string,std::map<std::string,Fingerprint>> learned;            // path -> part -> target from the world character
- std::set<unsigned> library;std::map<std::string,unsigned> learnedId;Recent<std::pair<Ptr,Ptr>,std::vector<std::string>> chains{1024};Recent<std::pair<Ptr,Ptr>,std::string> rendererNames{2048};std::map<unsigned,uint64_t> libraryRetry;std::map<unsigned,std::string> libraryError;std::map<std::string,unsigned> attempts;  // path|generation -> failed builds
+ std::set<std::string> library;std::map<std::string,unsigned> learnedId;Recent<std::pair<Ptr,Ptr>,std::vector<std::string>> chains{1024};Recent<std::pair<Ptr,Ptr>,std::string> rendererNames{2048};std::map<unsigned,uint64_t> libraryRetry;std::map<unsigned,std::string> libraryError;std::map<std::string,unsigned> attempts;  // path|generation -> failed builds
  std::map<std::string,std::string> staleNote,materialWait;
  std::set<unsigned> libraryPending;std::map<std::string,std::string> boneRefreshCause;
  std::string boneCandidate,manualWait,boneBadList;unsigned boneBadStreak=0;Ptr boneCandidateEntity=0;unsigned boneCandidateId=0;uint64_t boneCandidateAt=0,manualRetryAt=0;bool manualPending=false;
@@ -242,7 +242,7 @@ struct Runtime::Impl {
  Recent<BindingRejectKey,uint64_t> bindingRejected{2048};uint64_t bindingNow=0,bindingStatsAt=0,bindingChecks=0,bindingCacheHits=0,bindingFiltered=0,bindingDeep=0;bool bindingStatsDirty=false;
  std::atomic<int> logLevel{int(Level::Info)};std::map<std::string,std::string> learnedGen;  // log threshold (control.json "logLevel"); generation the learned targets belong to
  Ptr rendererTypeObject=0,meshTypeObject=0;unsigned byvalOffset=0;bool typeDumped=false;bool findOff=false;unsigned findFails=0;uint64_t next=0,discoverAt=0,findAt=0;bool inTick=false;std::string lastStatus,lastStatusLogged;std::vector<std::string> notes;std::map<std::string,std::string> missingLogged;std::set<std::string> extraSlots,lodLogged;
- std::map<unsigned,std::pair<std::string,std::vector<SkeletonRenderer>>> libraryRead;  // id -> file stamp, records  // model|part -> last target-missing reason
+ struct LibraryFile {std::string stamp,root;std::vector<SkeletonRenderer> records;};std::map<std::string,LibraryFile> libraryRead;  // skeleton.json -> stamp, root, records  // model|part -> last target-missing reason
  // Last scan, for the wait reason: world character's renderers, FindObjectsOfType results (-1: not run), renderers left
  // out because an attach failed on them; scanCount numbers the scans. Per model: scan number, reason, details logged, time.
  int scanWorld=0,scanAll=-1;unsigned scanSkipped=0;uint64_t scanCount=0;unsigned shownCharacter=~0u;uint64_t idleMs=60000,idleBudget=256ull<<20;bool controlSeen=false;std::map<std::string,long long> keySeen;std::string exportWait;
@@ -1374,7 +1374,8 @@ struct Runtime::Impl {
    if(sample||rendererTypeObject){Owned tmp;try{Ptr found=e.call<Ptr>(abi::findObjectsOfType,rendererType(sample),Ptr(0));scanAll=0;if(found){pin(tmp,found);for(Ptr r:pointers(found,8192)){out.push_back(r);scanAll++;}}findFails=0;}
     catch(const std::exception& ex){log("find-error",ex.what());findAt=now+5000;if(++findFails>=3){findOff=true;log("find-disabled","falling back to the world character only");}}freeOwned(tmp);}}
   // World character first: it is the preferred template for builds.
-  std::vector<Ptr> unique;std::set<Ptr> once;for(Ptr r:out)if(once.insert(r).second)unique.push_back(r);return unique;}
+  std::vector<Ptr> unique;std::set<Ptr> once;for(Ptr r:out)if(once.insert(r).second)unique.push_back(r);sceneCache=unique;sceneCacheAt=now;return unique;}
+ std::vector<Ptr> sceneCache;uint64_t sceneCacheAt=0;   // the last scene scan, for previewTick (no scan of its own)
 
  // ---------------------------------------------------------------- models
  // Every selected model, in the order it was switched on (control.json "selected"). When two of them replace the same
@@ -1418,7 +1419,7 @@ struct Runtime::Impl {
   std::vector<Fingerprint> t;if(targetsFor(m,t))return;std::vector<Ptr> pool;try{pool=worldRenderers();}catch(const std::exception&){}for(auto& s:seen)if(seenLive(s))pool.push_back(s.renderer);
   unsigned budget=8;bool changed=false;std::set<Ptr> world0;try{for(Ptr r:worldRenderers())world0.insert(r);}catch(const std::exception&){}
   for(auto& p:m.parts){if(p.hasTarget||learned[m.path].count(p.name))continue;
-   for(Ptr r:pool){if(!alive(r))continue;if(normalize(rendererName(r))!=normalize(p.group))continue;auto key=std::make_pair(r,load<Ptr>(r+0x10));if(!chains.has(key)){if(!budget)break;budget--;}{auto c=chain(r);if(!namesMatch(m.names,c)||(m.id&&std::find(c.begin(),c.end(),"avatar")==c.end()))continue;}
+   for(Ptr r:pool){if(!alive(r))continue;if(normalize(rendererName(r))!=normalize(p.group))continue;if(!outfitFits(m.outfit,r))continue;auto key=std::make_pair(r,load<Ptr>(r+0x10));if(!chains.has(key)){if(!budget)break;budget--;}{auto c=chain(r);if(!namesMatch(m.names,c)||(m.id&&std::find(c.begin(),c.end(),"avatar")==c.end()))continue;}
     Ptr mesh=originalMesh(r);if(!alive(mesh))continue;auto fp=fingerprint(mesh,true);if(lowerLod(fp.mesh)||fp.bones<p.minBones||!usableTemplate({r,mesh,fp},p.minBones))continue;fp.renderer=rendererName(r);learned[m.path][p.name]=fp;changed=true;log("target-learned",m.name+"/"+p.name+" by name "+m.names[0]+" ("+fp.mesh+", "+std::to_string(fp.vertices)+" vertices)");
     if(!m.id&&world0.count(r)&&ch.entity&&!learnedId.count(m.path)){learnedId[m.path]=ch.config;}
     break;}}
@@ -1427,7 +1428,9 @@ struct Runtime::Impl {
  // Folders without usable targets: keep identifying missing parts on the world character until all are ready.
  void learnTargets(const ModelInfo& m){
   if(m.id==0){learnByName(m);return;}
-  if(!ch.entity||m.id!=ch.config){if(!m.names.empty())learnByName(m);return;}std::vector<Fingerprint> t;if(targetsFor(m,t)){checkStale(m,t);return;}
+  if(!ch.entity||m.id!=ch.config){if(!m.names.empty())learnByName(m);return;}
+  if(!outfitMatchesWorld(m)){staleNote[m.path]="当前角色穿的是另一套外观（"+worldOutfit()+"），这个 MOD 是 "+modelOutfit(m)+" 的：换上这套外观后替换";return;}
+  std::vector<Fingerprint> t;if(targetsFor(m,t)){checkStale(m,t);return;}
   // Only from the full meshes: right after loading the character shows a lower level of detail for a moment.
   struct World {Ptr rendererObject,mesh;std::string renderer,meshName;};std::vector<World> world;bool changed=false;for(Ptr r:worldRenderers()){if(!alive(r))continue;Ptr mesh=originalMesh(r);if(alive(mesh))world.push_back({r,mesh,name(r),name(mesh)});}
   for(auto& w:world){if(lowerLod(w.meshName)){staleNote[m.path]=w.renderer+" 正在使用低精度网格 "+w.meshName+"，等待该角色的完整模型后重新检测骨骼";
@@ -1457,7 +1460,7 @@ struct Runtime::Impl {
    if(!present||lod){continue;}  // still loading, or showing another level of detail of the same mesh
    for(size_t j=0;j<world.size();j++)if(normalize(world[j].fp.renderer)==normalize(t.renderer)&&meshName(world[j].fp.mesh)==meshName(t.mesh)&&!lodName(world[j].fp.mesh)&&!lodName(t.mesh))hit.push_back(j);
    if(hit.size()!=1){std::string now;for(auto& w:world)if(normalize(w.fp.renderer)==normalize(t.renderer)){now=w.fp.mesh;break;}changed.push_back(t.renderer+" "+t.mesh+"→"+now);continue;}auto fp=world[hit[0]].fp;
-   if(fp.bones!=t.bones){if(m.id==ch.config){auto cause=fingerprintJson(fp),key=m.path+"|"+m.parts[i].name;if(boneRefreshCause[key]!=cause){boneRefreshCause[key]=cause;library.erase(ch.config);libraryRetry[ch.config]=0;boneCandidate.clear();}}
+   if(fp.bones!=t.bones){if(m.id==ch.config){auto cause=fingerprintJson(fp),key=m.path+"|"+m.parts[i].name;if(boneRefreshCause[key]!=cause){boneRefreshCause[key]=cause;library.erase(libKey(ch.config,worldOutfit()));libraryRetry[ch.config]=0;boneCandidate.clear();}}
     if(m.parts[i].minBones){changed.push_back(t.renderer+" 骨骼数 "+std::to_string(t.bones)+"→"+std::to_string(fp.bones));continue;}}
    learned[m.path][m.parts[i].name]=fp;moved=true;
    log("target-updated",m.name+"/"+m.parts[i].name+": "+t.mesh+" vertices "+std::to_string(t.vertices)+"->"+std::to_string(fp.vertices)+", submeshes "+std::to_string(t.submeshes)+"->"+std::to_string(fp.submeshes));}
@@ -1477,21 +1480,50 @@ struct Runtime::Impl {
    for(Ptr b:pointers(bones,512))require(alive(b)&&!name(b).empty(),"Template bone missing/unnamed");
    detail::finite(arrayBytes(binds,64,512),"Template bindposes");ok=true;}
   catch(const std::exception&){}freeOwned(tmp);return ok;}
- // The bone library's record of a character (skeletons/<id>/skeleton.json), re-read when the file changes.
- const std::vector<SkeletonRenderer>* libraryRecord(unsigned id){auto file=boneRoot+"/"+std::to_string(id)+"/skeleton.json";std::error_code ec;
-  if(!std::filesystem::exists(file,ec)){libraryRead.erase(id);return nullptr;}auto stamp=stampOf(file);auto it=libraryRead.find(id);
-  if(it==libraryRead.end()||it->second.first!=stamp){std::vector<SkeletonRenderer> r;std::string root;try{r=readSkeleton(file,&root);}catch(const std::exception& ex){log("bone-library-read-error",std::to_string(id)+": "+ex.what());}
-   libraryRoots[id]=root;it=libraryRead.insert_or_assign(id,std::make_pair(stamp,std::move(r))).first;}
-  return it->second.second.empty()?nullptr:&it->second.second;}
- // The avatar a character's bone library was recorded from, in avatarIdentity() form ("avatar_girl_catalyst_varesa"):
- // proves a hidden party member's renderer belongs to the model's character before any set of it is built. "root" is
- // the transform chain from the scene down to the first bone, so like avatarIdentity() the nearest "Avatar_" node above
- // the bone is the one that counts.
- std::map<unsigned,std::string> libraryRoots;
- std::string libraryAvatar(unsigned id){if(!libraryRecord(id))return "";const auto& root=libraryRoots[id];size_t end=root.size();
+ // ---------------------------------------------------------------- outfits (0.7.94)
+ // A skin is its own prefab, mesh and bone list: a mod's bone indices only mean something on the outfit it was made
+ // for. An outfit is named by its prefab as avatarIdentity() reads it ("avatar_lady_pole_shenhe"); a skin's prefab is
+ // the original's with "costume<name>" appended (the game's skin table, outfits.json), so it is told apart by name alone.
+ static bool costumeOutfit(const std::string& o){return o.find("costume")!=std::string::npos;}
+ static std::string outfitBase(const std::string& o){auto i=o.find("costume");return i==std::string::npos?o:o.substr(0,i);}
+ static bool outfitName(const std::string& o){return o.size()<=128&&o.compare(0,7,"avatar_")==0&&o.find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789_")==std::string::npos;}
+ // The library folder of an outfit: the original look (or an outfit not known) keeps skeletons/<id>, a skin its own
+ // skeletons/<id>/<prefab>. A capture never writes into another outfit's folder.
+ static std::string libraryDirOf(unsigned id,const std::string& outfit){return std::to_string(id)+(costumeOutfit(outfit)&&outfitName(outfit)?"/"+outfit:"");}
+ static std::string libKey(unsigned id,const std::string& outfit){return std::to_string(id)+"|"+outfit;}
+ // The avatar a skeleton record was taken from, in avatarIdentity() form: "root" is the transform chain from the scene
+ // down to the first bone, so like avatarIdentity() the nearest "Avatar_" node above the bone is the one that counts.
+ static std::string chainAvatar(const std::string& root){size_t end=root.size();
   while(end>0){auto slash=root.rfind('/',end-1);size_t start=slash==std::string::npos?0:slash+1;auto n=meshName(root.substr(start,end-start));
    if(n.compare(0,7,"avatar_")==0){return n.substr(0,n.find("_manekin"));}if(slash==std::string::npos){break;}end=slash;}
   return "";}
+ const LibraryFile* libraryFile(const std::string& file){std::error_code ec;
+  if(!std::filesystem::exists(file,ec)){libraryRead.erase(file);return nullptr;}auto stamp=stampOf(file);auto it=libraryRead.find(file);
+  if(it==libraryRead.end()||it->second.stamp!=stamp){LibraryFile f;f.stamp=stamp;try{f.records=readSkeleton(file,&f.root);}catch(const std::exception& ex){log("bone-library-read-error",file+": "+ex.what());}
+   it=libraryRead.insert_or_assign(file,std::move(f)).first;}
+  return it->second.records.empty()?nullptr:&it->second;}
+ // The bone library's record of a character's outfit, re-read when the file changes. A skin recorded before 0.7.94 sits
+ // in the character's own folder: it counts for that skin, never for the original look. outfit "": whatever the
+ // character's own folder holds (a model made before outfits).
+ const std::vector<SkeletonRenderer>* libraryRecord(unsigned id,const std::string& outfit=""){
+  auto* main=libraryFile(boneRoot+"/"+std::to_string(id)+"/skeleton.json");
+  if(costumeOutfit(outfit)){if(auto* own=libraryFile(boneRoot+"/"+libraryDirOf(id,outfit)+"/skeleton.json"))return &own->records;
+   return main&&chainAvatar(main->root)==outfit?&main->records:nullptr;}
+  if(!main){return nullptr;}auto recorded=chainAvatar(main->root);
+  if(!outfit.empty()&&!recorded.empty()&&recorded!=outfit)return nullptr;
+  return &main->records;}
+ // The avatar a character's own library folder was recorded from (a model made before outfits was converted from it):
+ // proves a hidden party member's renderer belongs to the model's character before any set of it is built.
+ std::string libraryAvatar(unsigned id){auto* f=libraryFile(boneRoot+"/"+std::to_string(id)+"/skeleton.json");return f?chainAvatar(f->root):"";}
+ // The outfit a model is for: model.json's; for a model made before outfits, the one its library was recorded from.
+ std::string modelOutfit(const ModelInfo& m){if(!m.outfit.empty())return m.outfit;return m.id?libraryAvatar(m.id):"";}
+ Recent<std::pair<Ptr,Ptr>,std::string> avatarIds{512};
+ std::string avatarOf(Ptr r){auto key=std::make_pair(r,load<Ptr>(r+0x10));if(auto* hit=avatarIds.find(key))return *hit;std::string a;try{a=avatarIdentity(r);}catch(const std::exception&){return "";}return avatarIds.put(key,a);}
+ // The outfit the controlled character shows in the world ("" before its renderers are there).
+ std::string worldOutfit(){try{for(Ptr r:worldRenderers())if(alive(r)){auto a=avatarOf(r);if(!a.empty())return a;}}catch(const std::exception&){}return "";}
+ // Does this renderer show the outfit the model is for? Unknown on either side: yes (models made before outfits).
+ bool outfitFits(const std::string& want,Ptr r,std::string* have=nullptr){if(want.empty())return true;auto a=avatarOf(r);if(have)*have=a;return a.empty()||a==want;}
+ bool outfitMatchesWorld(const ModelInfo& m){auto want=modelOutfit(m),have=worldOutfit();return want.empty()||have.empty()||want==have;}
  // Old index-only models may have no embedded skeleton and no separate library, but still carry a mapping recorded
  // during an earlier build. Check EVERY currently used index against it. Unused -1 rows prove nothing and are
  // never filled in. This path does not claim to recover historical bindposes: it validates the live ones and waits
@@ -1522,7 +1554,7 @@ struct Runtime::Impl {
  // No full mesh in sight, but the controlled character shows a lower LOD of it whose bones (names, order) and bindposes
  // are exactly those the bone library recorded from the full mesh: the skinning is the same, so it can be the template.
  std::optional<Seen> lodTemplate(const ModelInfo& m,const Fingerprint& t,unsigned minBones){
-  if(!m.id||!ch.entity||m.id!=ch.config){return std::nullopt;}auto* lib=libraryRecord(m.id);const SkeletonRenderer* rec=nullptr;SkeletonRenderer embedded;
+  if(!m.id||!ch.entity||m.id!=ch.config||!outfitMatchesWorld(m)){return std::nullopt;}auto* lib=libraryRecord(m.id,modelOutfit(m));const SkeletonRenderer* rec=nullptr;SkeletonRenderer embedded;
   if(lib)for(auto& r:*lib)if(matches(t,r.target)||(normalize(r.name)==normalize(t.renderer)&&r.target.mesh==t.mesh&&r.target.vertices==t.vertices&&r.target.bones==t.bones)){rec=&r;break;}
   // The converter also saved the full palette in this model. A missing library file must not discard that proof.
   // Copy only preloaded, CRC-checked data; no file read is added to a renderer hook. Still require exact names,
@@ -1541,11 +1573,12 @@ struct Runtime::Impl {
    auto key=m.path+"|"+t.renderer;if(lodLogged.insert(key).second)log("template-lod",m.name+": "+t.renderer+" only shows "+s.fp.mesh+"; its bones and bindposes equal "+(rec==&embedded?"the model's saved ":"the library's ")+t.mesh+", building on it");
    return s;}
   return std::nullopt;}
- std::optional<std::vector<Seen>> templatesFor(const ModelInfo& model,const std::vector<Fingerprint>& targets){std::vector<Seen> out;
+ std::optional<std::vector<Seen>> templatesFor(const ModelInfo& model,const std::vector<Fingerprint>& targets){std::vector<Seen> out;auto outfit=modelOutfit(model);
   for(size_t i=0;i<targets.size();i++){auto& t=targets[i];bool found=false;unsigned min=model.parts[i].minBones;
    // Not a renderer that already failed to attach (another skeleton on the same asset): it would fail the build too.
-   for(auto& s:seen)if(matches(t,s.fp)&&seenLive(s)&&alive(s.mesh)&&!attachments.count(s.renderer)&&!skipped.count({s.renderer,load<Ptr>(s.renderer+0x10)})&&e.get(abi::getMesh,s.renderer)==s.mesh&&usableTemplate(s,min)){out.push_back(s);found=true;break;}
-   if(!found)for(auto& a:attachments)if(alive(a.first)&&alive(a.second->original)&&matches(t,fingerprint(a.second->original))){Seen s{a.first,a.second->original,fingerprint(a.second->original)};if(usableTemplate(s,min)){out.push_back(s);found=true;break;}}
+   // Nor one of another outfit: its bindposes are not the model's (0.7.94).
+   for(auto& s:seen)if(matches(t,s.fp)&&seenLive(s)&&alive(s.mesh)&&!attachments.count(s.renderer)&&!skipped.count({s.renderer,load<Ptr>(s.renderer+0x10)})&&e.get(abi::getMesh,s.renderer)==s.mesh&&outfitFits(outfit,s.renderer)&&usableTemplate(s,min)){out.push_back(s);found=true;break;}
+   if(!found)for(auto& a:attachments)if(alive(a.first)&&alive(a.second->original)&&outfitFits(outfit,a.first)&&matches(t,fingerprint(a.second->original))){Seen s{a.first,a.second->original,fingerprint(a.second->original)};if(usableTemplate(s,min)){out.push_back(s);found=true;break;}}
    if(!found)if(auto lod=lodTemplate(model,t,min)){out.push_back(*lod);found=true;}
    if(!found){for(auto& s:seen)if(matches(t,s.fp)&&seenLive(s)&&alive(s.mesh)&&!usableTemplate(s,min)){staleNote[model.path]=t.renderer+" 的骨骼或绑定矩阵尚未完整，持续等待并重新检测";break;}return std::nullopt;}}
   staleNote.erase(model.path);
@@ -1846,7 +1879,7 @@ struct Runtime::Impl {
  void freeAnimation(Set& s){for(auto& part:s.parts)freeOwned(part.dynamicRoots);}
 
  Set* startSet(const ModelInfo& m,LoadResult& res,const std::vector<Fingerprint>& targets,uint64_t now){
-  auto s=std::make_unique<Set>();s->name=m.name;s->path=m.path;s->generation=m.generation;s->id=m.id;s->data=res.data;s->targets=targets;s->variants=res.data->variants;s->originalMaterials=res.data->originalMaterials;
+  auto s=std::make_unique<Set>();s->name=m.name;s->path=m.path;s->generation=m.generation;s->id=m.id;s->outfit=modelOutfit(m);s->data=res.data;s->targets=targets;s->variants=res.data->variants;s->originalMaterials=res.data->originalMaterials;
   // Estimated memory once built: vertex arrays and the clone's skin, indices (ours and the engine's), RGBA textures.
   for(auto& p:res.data->parts){s->bytes+=uint64_t(p.geo.n)*(12+12+8+32+32);for(auto& c:p.channels)s->bytes+=c.second.size();s->bytes+=uint64_t(p.geo.ni)*8;}
   if(res.data->animation.present()){auto& a=s->animation;a.loop=FrameLoop(res.data->animation);a.mode=ctl.exp.animationMode;a.token=++animationToken;a.started=now;a.cpu.resize(a.loop.spec.frames.size());a.meshes.resize(a.cpu.size());a.owned.resize(res.data->parts.size());a.back.resize(res.data->parts.size());a.cpu[0]=res.data;}
@@ -1940,6 +1973,7 @@ struct Runtime::Impl {
  bool attach(Ptr r,Ptr mesh,Set& s,size_t part,uint64_t now){
   auto& bp=s.parts[part];auto a=std::make_unique<Attachment>();a->renderer=r;a->native=load<Ptr>(r+0x10);a->original=mesh;a->set=&s;a->part=part;a->backup=bp.backup;bool meshSet=false;
   auto readyKey=s.path+"|attach|"+std::to_string(a->native);auto waiting=[&](const std::string& reason){if(missingLogged[readyKey]!=reason){missingLogged[readyKey]=reason;log("attach-wait",s.name+"/"+bp.name+": "+reason);}freeOwned(*a);return false;};
+  {std::string have;if(!outfitFits(s.outfit,r,&have))return waiting("the renderer shows outfit "+have+", the model is for "+s.outfit+" (another outfit's bones differ)");}
   try{Ptr ba=e.get(abi::getBones,r);pin(*a,ba);auto bones=ba?pointers(ba,512):std::vector<Ptr>{};
    if(bones.size()!=bp.bones.size())return waiting("bone array is not complete; waiting for a later binding/discovery");
    bool same=true;for(size_t i=0;i<bones.size();i++){if(!alive(bones[i]))return waiting("a bone is not ready");auto bn=name(bones[i]);if(bn.empty())return waiting("a bone has no name yet");same=same&&bn==bp.bones[i];}
@@ -2289,6 +2323,7 @@ struct Runtime::Impl {
  // pendingBinds so it is taken over as soon as they are, also while it is still hidden (a party member not switched in).
  struct PendingBind {Ptr native;std::string path;uint64_t since;};std::map<Ptr,PendingBind> pendingBinds;
  bool bindBuild(Ptr r,Ptr mesh,const Fingerprint& fp,const ModelInfo* m,const std::vector<Fingerprint>& targets){
+    {std::string have;auto want=modelOutfit(*m);if(!outfitFits(want,r,&have)){bindingDeferred(m->name,"the renderer shows outfit "+have+", the model is for "+want);return false;}}
     seen.erase(std::remove_if(seen.begin(),seen.end(),[&](const Seen& sn){return sn.renderer==r;}),seen.end());seen.push_back({r,mesh,fp,load<Ptr>(r),load<Ptr>(r+0x10)});
     Set* s=liveSet(*m);if(!s){auto failure=failed.find(m->path);if(failure!=failed.end()&&failure->second.first==m->generation)return false;
      auto tpl=templatesFor(*m,targets);if(!tpl){bindingDeferred(m->name,"template/bones are not complete");return true;}
@@ -2355,8 +2390,8 @@ struct Runtime::Impl {
      if(std::find(tokens.begin(),tokens.end(),"avatar")==tokens.end()||(!m->names.empty()&&!namesMatch(m->names,tokens)))continue;}
     if(!world.count(r)&&m->names.empty()){auto* built=liveSet(*m);bool identity=false;auto root=avatarIdentity(r);
      if(built&&!root.empty())for(auto& bp:built->parts)identity=identity||(bp.avatar==root&&(matches(bp.target,fp)||meshName(bp.target.mesh)==meshName(fp.mesh)));
-     // Not built yet (a party member loaded but not switched in): the avatar its bone library was recorded from.
-     std::string recorded;if(!identity&&!built&&m->id&&!root.empty()){recorded=libraryAvatar(m->id);identity=root==recorded;}
+     // Not built yet (a party member loaded but not switched in): the outfit the model is for (its bone library's).
+     std::string recorded;if(!identity&&!built&&m->id&&!root.empty()){recorded=modelOutfit(*m);identity=root==recorded;}
      if(!identity){bindingDeferred(m->name,"a non-world renderer's avatar identity is not verified (renderer "+(root.empty()?std::string("?"):root)+", bone library "+(built?std::string("not needed: built"):recorded.empty()?std::string("none"):recorded)+")");continue;}}
     if(bindBuild(r,mesh,fp,m,targets))break;
    }
@@ -2399,8 +2434,15 @@ struct Runtime::Impl {
  }
  // One complete capture of the world character. Every listed renderer must be usable; a partial capture is retried.
  // Two identical healthy captures are required before writing. Completion is acknowledged from the worker only.
+ // The outfit it shows names the library folder (libraryDirOf): wearing a skin never writes the original's library.
+ std::string boneOutfit;
  bool exportBones(uint64_t now,bool libraryDir){
-  auto renderers=boneRenderers(now);if(exportLodWait){library.erase(ch.config);return false;}
+  boneOutfit=worldOutfit();
+  auto renderers=boneRenderers(now);if(exportLodWait){library.erase(libKey(ch.config,boneOutfit));return false;}
+  return captureBones(now,renderers,libraryDir,boneOutfit,nullptr);}
+ // A preview's capture state (another outfit of the controlled character): its own, so it never disturbs the world's.
+ struct PreviewCapture {std::string stamp;uint64_t at=0;};std::map<std::string,PreviewCapture> previewCaptures;std::set<std::string> previewPending;
+ bool captureBones(uint64_t now,const std::vector<Ptr>& renderers,bool libraryDir,const std::string& outfit,PreviewCapture* pv){
   std::vector<SkeletonRenderer> records;std::set<std::string> used;std::string chain;Owned roots;unsigned seenCount=0,loading=0,mismatch=0,unnamed=0,badNames=0;std::string example,badList=std::to_string(ch.config)+":";
   try{for(Ptr r:renderers){seenCount++;if(!alive(r)){loading++;continue;}Ptr mesh=originalMesh(r);if(!alive(mesh)){loading++;continue;}Ptr ba=e.get(abi::getBones,r);if(!ba){loading++;continue;}pin(roots,ba);auto bones=pointers(ba,512);
     Ptr binds=e.get(abi::getBindposes,mesh);if(!binds||bones.empty()){loading++;continue;}pin(roots,binds);
@@ -2422,25 +2464,55 @@ struct Runtime::Impl {
    bool structural=!records.empty()&&loading==0&&(mismatch||unnamed||badNames);
    if(structural&&badList==boneBadList){boneBadStreak++;}else{boneBadList=structural?badList:std::string();boneBadStreak=structural?1:0;}
    exportWait="Incomplete skeleton: "+std::to_string(seenCount)+" renderers, "+std::to_string(loading)+" still loading, "+std::to_string(mismatch)+" with bone/bindpose counts that differ, "+std::to_string(unnamed)+" unnamed, "+std::to_string(badNames)+" with unusable bone names"+(example.empty()?"":" (e.g. "+example+")");
-   if(!(structural&&boneBadStreak>=60)){boneCandidate.clear();library.erase(ch.config);if(!mismatch&&!unnamed&&!badNames){return false;}throw std::runtime_error(exportWait);}
+   if(pv){return false;}   // a preview that is not complete yet: the next look tries again
+   if(!(structural&&boneBadStreak>=60)){boneCandidate.clear();library.erase(libKey(ch.config,outfit));if(!mismatch&&!unnamed&&!badNames){return false;}throw std::runtime_error(exportWait);}
    if(boneBadStreak==60)log("bone-library-partial",std::to_string(ch.config)+": recording the complete renderers without "+badList.substr(badList.find(':')+1)+"(unchanged for 30 s: "+exportWait+")");}
-  try{validateSkeleton(ch.config,records);}catch(...){boneCandidate.clear();library.erase(ch.config);throw;}
+  try{validateSkeleton(ch.config,records);}catch(...){if(pv){return false;}boneCandidate.clear();library.erase(libKey(ch.config,outfit));throw;}
+  // The skeleton itself names the outfit (the same walk as avatarIdentity()): a capture of another outfit than asked for
+  // (the character changed clothes between the two reads) is not written.
+  {auto named=chainAvatar(chain);if(!outfit.empty()&&!named.empty()&&named!=outfit){if(!pv){boneCandidate.clear();library.erase(libKey(ch.config,outfit));exportWait="the outfit changed while capturing";}return false;}}
   auto stamp=skeletonStamp(chain,records);
-  if(boneCandidateEntity!=ch.entity||boneCandidateId!=ch.config||boneCandidate!=stamp){boneCandidateEntity=ch.entity;boneCandidateId=ch.config;boneCandidate=stamp;boneCandidateAt=now;library.erase(ch.config);exportWait="waiting for a second complete, stable skeleton capture";return false;}
-  if(now<boneCandidateAt+500){exportWait="waiting for a second complete, stable skeleton capture";return false;}
+  if(pv){if(pv->stamp!=stamp){pv->stamp=stamp;pv->at=now;return false;}if(now<pv->at+500)return false;}else{
+  if(boneCandidateEntity!=ch.entity||boneCandidateId!=ch.config||boneCandidate!=stamp){boneCandidateEntity=ch.entity;boneCandidateId=ch.config;boneCandidate=stamp;boneCandidateAt=now;library.erase(libKey(ch.config,outfit));exportWait="waiting for a second complete, stable skeleton capture";return false;}
+  if(now<boneCandidateAt+500){exportWait="waiting for a second complete, stable skeleton capture";return false;}}
   // Only the engine reads happen here; the JSON is built on the worker, and a library record that has not changed since
   // the last session is left as it is (the skeleton library is checked every session, rewritten only after a game update).
-  auto dir=std::to_string(ch.config)+(libraryDir?"":"-"+std::to_string(now));auto root=boneRoot;unsigned id=ch.config;auto request=ctl.exportBones;
-  auto refresh=libraryDir&&boneRefreshPending()&&id==ctl.refreshBonesCharacter?ctl.refreshBones:0;auto ack=shared+"/bone-refresh-result.json";
-  if(libraryDir)libraryPending.insert(id);else manualPending=true;
-  worker.post([this,root,dir,libraryDir,id,chain,records,request,refresh,ack]{BoneResult result{id,libraryDir,request,{}};result.refresh=refresh;
+  auto dir=libraryDir?libraryDirOf(ch.config,outfit):std::to_string(ch.config)+"-"+std::to_string(now);auto root=boneRoot;unsigned id=ch.config;auto request=ctl.exportBones;
+  auto refresh=!pv&&libraryDir&&boneRefreshPending()&&id==ctl.refreshBonesCharacter?ctl.refreshBones:0;auto ack=shared+"/bone-refresh-result.json";bool preview=pv!=nullptr;
+  if(preview)previewPending.insert(libKey(id,outfit));else if(libraryDir)libraryPending.insert(id);else manualPending=true;
+  worker.post([this,root,dir,libraryDir,id,chain,records,request,refresh,ack,outfit,preview]{BoneResult result{id,libraryDir,request,{},refresh,outfit,preview};
    try{auto json=skeletonJson(id,chain,records);auto file=root+"/"+dir+"/skeleton.json";
+    // The character's own folder holding another outfit: a skin recorded there before 0.7.94 moves to its own folder
+    // first (never overwritten); a capture that names no outfit leaves a library of a known outfit alone.
+    if(libraryDir&&!costumeOutfit(outfit)&&exists(file)){std::string had;try{std::string r;readSkeleton(file,&r);had=chainAvatar(r);}catch(const std::exception&){}
+     if(!had.empty()&&had!=outfit){require(!outfit.empty(),"the capture names no outfit; the library recorded from "+had+" is kept");
+      if(costumeOutfit(had)){auto own=libraryDirOf(id,had);if(!exists(root+"/"+own+"/skeleton.json")){writeSkeleton(root,own,true,text(file));log("bone-library-moved",root+"/"+std::to_string(id)+" was recorded from the skin "+had+": moved to "+root+"/"+own);}}}}
     bool unchanged=libraryDir&&exists(file)&&text(file)==json;
     if(!unchanged)writeSkeleton(root,dir,libraryDir,json);
-    require(text(file)==json,"Skeleton verification failed");log(unchanged?"bone-library-unchanged":libraryDir?"bone-library":"bones-exported",root+"/"+dir);
+    require(text(file)==json,"Skeleton verification failed");log(unchanged?"bone-library-unchanged":libraryDir?"bone-library":"bones-exported",root+"/"+dir+(libraryDir&&!outfit.empty()?" ("+outfit+(preview?", preview":"")+")":""));
     if(refresh){auto body="{\"request\":"+std::to_string(refresh)+",\"character\":"+std::to_string(id)+"}";writeAtomic(ack,body);require(text(ack)==body,"Bone refresh acknowledgement verification failed");}
    }catch(const std::exception& ex){result.error=ex.what();}
    std::lock_guard<std::mutex> lock(sm);boneResults.push_back(std::move(result));});return true;}
+
+ // Every outfit of a character is captured again when next seen (a bone refresh request).
+ void forgetLibrary(unsigned id){auto k=std::to_string(id)+"|";for(auto it=library.begin();it!=library.end();){if(it->compare(0,k.size(),k)==0)it=library.erase(it);else ++it;}
+  for(auto it=previewCaptures.begin();it!=previewCaptures.end();)it=previewCaptures.erase(it);}
+ // Another outfit of the controlled character in a preview (the outfit page shows skins the player does not own too):
+ // one complete, full-detail group of renderers under one avatar root whose prefab is the world outfit's original or one
+ // of its skins. Its bones go to that outfit's own library folder, never to the world outfit's.
+ uint64_t previewScanAt=0;
+ void previewTick(uint64_t now){
+  auto world=worldOutfit();if(world.empty())return;auto base=outfitBase(world);
+  // Renderers the game handed over (a preview's model arrives that way) and the last scene scan; no scan of its own.
+  std::vector<Ptr> pool;for(auto& sn:seen)if(seenLive(sn))pool.push_back(sn.renderer);if(now<sceneCacheAt+3000)pool.insert(pool.end(),sceneCache.begin(),sceneCache.end());
+  std::map<Ptr,std::vector<Ptr>> byRoot;std::map<Ptr,std::string> rootOutfit;std::set<Ptr> once;
+  for(Ptr r:pool){if(!once.insert(r).second||!alive(r))continue;auto a=avatarOf(r);if(a.empty()||a==world||!outfitName(a)||outfitBase(a)!=base)continue;
+   auto key=libKey(ch.config,a);if(library.count(key)||previewPending.count(key))continue;
+   Ptr root=avatarRoot(r);if(!root)continue;byRoot[root].push_back(r);rootOutfit[root]=a;}
+  std::map<std::string,int> instances;for(auto& kv:rootOutfit)instances[kv.second]++;
+  for(auto& kv:byRoot){const auto& a=rootOutfit[kv.first];if(instances[a]!=1)continue;   // two instances of one outfit: which one is whole is not known
+   bool full=true;for(Ptr r:kv.second){Ptr m=originalMesh(r);if(!alive(m)||lowerLod(fingerprint(m,true).mesh)){full=false;break;}}if(!full)continue;
+   try{captureBones(now,kv.second,true,a,&previewCaptures[a]);}catch(const std::exception& ex){log("bone-library-preview-error",a+": "+ex.what());}}}
 
  // ---------------------------------------------------------------- why a model waits
  // Its targets are known, but no renderer of the last scan shows that mesh. The status line says why in words; the log
@@ -2528,13 +2600,15 @@ struct Runtime::Impl {
   for(auto& t:textures){Set* s=nullptr;for(auto& x:sets)if(x->path==t.path&&x->generation==t.generation){s=x.get();break;}if(!s)continue;
    if(!t.error.empty()){log("texture-read-error",s->name+": "+t.error);continue;}
    for(auto& kv:t.materials){auto it=s->mats.find(kv.first);if(it!=s->mats.end()&&!it->second.loaded()&&kv.second.loaded()){it->second.main=kv.second.main;it->second.light=kv.second.light;it->second.normal=kv.second.normal;}}}
-  for(auto& b:bones){if(b.library)libraryPending.erase(b.id);else manualPending=false;
+  for(auto& b:bones){auto key=libKey(b.id,b.outfit);
+   if(b.preview){previewPending.erase(key);if(b.error.empty()){library.insert(key);}else{auto& last=libraryError[b.id];if(last!=b.error){last=b.error;log("bone-library-error",std::to_string(b.id)+" "+b.outfit+" (preview): "+b.error);}}continue;}
+   if(b.library)libraryPending.erase(b.id);else manualPending=false;
    if(b.error.empty()){if(b.library){
-     if(b.refresh&&b.refresh==ctl.refreshBones&&b.id==ctl.refreshBonesCharacter){boneRefreshDone=b.refresh;boneRefreshDoneId=b.id;libraryRead.erase(b.id);log("bone-refresh-complete",std::to_string(b.id)+": request "+std::to_string(b.refresh));}
+     if(b.refresh&&b.refresh==ctl.refreshBones&&b.id==ctl.refreshBonesCharacter){boneRefreshDone=b.refresh;boneRefreshDoneId=b.id;libraryRead.clear();log("bone-refresh-complete",std::to_string(b.id)+": request "+std::to_string(b.refresh));}
      // An old in-flight capture must not satisfy a newer request for the same character.
-     if(boneRefreshPending()&&b.id==ctl.refreshBonesCharacter){library.erase(b.id);}else{library.insert(b.id);libraryError.erase(b.id);}
+     if(boneRefreshPending()&&b.id==ctl.refreshBonesCharacter){library.erase(key);}else{library.insert(key);libraryError.erase(b.id);}
     }else{exportSeen=b.request;manualWait.clear();}}
-   else{if(b.library)library.erase(b.id);auto& last=b.library?libraryError[b.id]:manualWait;if(last!=b.error){last=b.error;log(b.library?"bone-library-error":"bone-export-error",std::to_string(b.id)+": "+b.error+"; retrying automatically");}}}
+   else{if(b.library)library.erase(key);auto& last=b.library?libraryError[b.id]:manualWait;if(last!=b.error){last=b.error;log(b.library?"bone-library-error":"bone-export-error",std::to_string(b.id)+": "+b.error+"; retrying automatically");}}}
   // A re-imported folder (new generation, maybe another character) forgets what was learned for the old one.
   for(auto& m:models){auto g=learnedGen.find(m.path);if(g==learnedGen.end()||g->second!=m.generation){learned.erase(m.path);learnedId.erase(m.path);staleNote.erase(m.path);learnedGen[m.path]=m.generation;for(auto it=missingLogged.lower_bound(m.path+"|");it!=missingLogged.end()&&it->first.compare(0,m.path.size()+1,m.path+"|")==0;)it=missingLogged.erase(it);}
    auto l=learned.find(m.path);if(l!=learned.end())for(auto& p:m.parts){auto t=l->second.find(p.name);if(t!=l->second.end()&&t->second.bones<p.minBones)l->second.erase(t);}}
@@ -2545,7 +2619,7 @@ struct Runtime::Impl {
   if(c&&c->exportBones!=exportSeen&&c->exportBones!=ctl.exportBones){boneCandidate.clear();manualRetryAt=0;manualWait.clear();}
   if(c&&c->refreshBones&&(c->refreshBones!=ctl.refreshBones||c->refreshBonesCharacter!=ctl.refreshBonesCharacter)&&
      (c->refreshBones!=boneRefreshDone||c->refreshBonesCharacter!=boneRefreshDoneId)){
-   auto id=c->refreshBonesCharacter;library.erase(id);libraryRead.erase(id);libraryRetry[id]=0;libraryError.erase(id);
+   auto id=c->refreshBonesCharacter;forgetLibrary(id);libraryRead.clear();libraryRetry[id]=0;libraryError.erase(id);
    boneCandidate.clear();boneBadList.clear();boneBadStreak=0;exportWait.clear();boneFullSearchAt=0;libraryWait.erase(id);log("bone-refresh-request",std::to_string(id)+": request "+std::to_string(c->refreshBones));
   }
   if(c){bool diagnosticOnly=c->enabled==ctl.enabled&&c->selected==ctl.selected&&c->variables==ctl.variables&&c->exportBones==ctl.exportBones&&c->refreshBones==ctl.refreshBones&&c->refreshBonesCharacter==ctl.refreshBonesCharacter&&(c->renderMark!=ctl.renderMark||c->logLevel!=ctl.logLevel||c->keys!=ctl.keys);
@@ -2571,10 +2645,11 @@ struct Runtime::Impl {
    // The bone library feeds one-click import, so it is recorded even while replacement is switched off:
    // First capture or an explicitly invalidated capture only. Retry every 500 ms without a limit until validated;
    // after the worker confirms the write/read-back, stop scanning this character until a new capture is requested.
-   if(ch.entity&&!library.count(ch.config)&&!libraryPending.count(ch.config)&&now>=libraryRetry[ch.config]){
+   if(ch.entity&&!library.count(libKey(ch.config,worldOutfit()))&&!libraryPending.count(ch.config)&&now>=libraryRetry[ch.config]){
     libraryRetry[ch.config]=now+500;
     try{if(!exportBones(now,true)){libraryRetry[ch.config]=now+500;auto& last=libraryWait[ch.config];if(last.first!=exportWait||now>=last.second+30000){last={exportWait,now};log("bone-library-wait",std::to_string(ch.config)+(exportWait.empty()?"":": "+exportWait));}}}
     catch(const std::exception& ex){libraryRetry[ch.config]=now+500;auto& last=libraryError[ch.config];if(last!=ex.what()){last=ex.what();log("bone-library-error",std::to_string(ch.config)+": "+ex.what()+"; retrying automatically");}}}
+   if(ch.entity&&now>=previewScanAt){previewScanAt=now+2000;try{previewTick(now);}catch(const std::exception& ex){log("bone-library-preview-error",ex.what());}}
    if(now>=restorePruneAt){restorePruneAt=now+500;pruneRestoreBackups();}
    if(!ctl.enabled){bool done=true;if(!sets.empty()||!attachments.empty())done=releaseAll();status(done?"disabled":"waiting",done?"":"正在恢复原模型；暂时失败的渲染器会单独重试",{},{});inTick=false;return;}
    auto wanted=chooseModels();wantedNow=wanted;std::set<std::string> wantedPaths;for(auto* m:wanted)wantedPaths.insert(m->path);

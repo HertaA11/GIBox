@@ -26,6 +26,8 @@ public final class Importer {
         public boolean outdated;
         /** Why, when it is not the character: shown on the detail page. */
         public String reason = "";
+        /** The outfit (prefab, Outfits) the model was converted for, else the one chosen for it; "" for none. */
+        public String outfit = "";
     }
 
     public static String suggestName(File source) { return suggestName(source.getName()); }
@@ -125,13 +127,35 @@ public final class Importer {
         if (ModConfig.scheme(mod, rel) == null) throw new IllegalArgumentException("不是这个 MOD 里的模型 INI：" + rel);
         ModLibrary.setOverride(mod, "ini", rel);
     }
+    /** The outfit chosen for the mod (modelswap.txt "outfit", a prefab of Outfits); null: the one its hashes name. */
+    public static String outfit(File mod) { return ModLibrary.overrides(mod).get("outfit"); }
+    public static void setOutfit(File mod, String prefab) throws Exception { ModLibrary.setOverride(mod, "outfit", prefab == null || prefab.isEmpty() ? null : prefab); }
+    /** Which outfit of `id` the mod's INI hashes name (the picker's suggestion); an empty guess when they name none. */
+    public static Outfits.Guess guessOutfit(File mod, int id, File boneRoot) {
+        try { File ini = ModLibrary.mainIni(mod); return Outfits.current().guess(id, ModelConverter.overrideHashes(ModConfig.switchedOn(mod, ini), ini), boneRoot.getAbsoluteFile().getParentFile()); }
+        catch (Exception e) { return new Outfits.Guess(); }
+    }
     public static boolean animationBoneFallback(File mod) { return "retain-valid".equals(ModLibrary.overrides(mod).get("animationbones")); }
     public static void setAnimationBoneFallback(File mod, boolean enabled) throws Exception { ModLibrary.setOverride(mod, "animationbones", enabled ? "retain-valid" : null); }
     public static Result convert(File mod, int id, File modelsRoot, File boneRoot, ModelConverter.TextureDecoder decoder, StringBuilder log) throws Exception {
         if (id < 10000000 || id > 10001999) throw new IllegalArgumentException("角色 ID 无效：" + id);
         File ini = ModLibrary.mainIni(mod), src = ModConfig.switchedOn(mod, ini); ModLibrary.setOverride(mod, "id", Integer.toString(id));
         Map<String, String> o = ModLibrary.overrides(mod); String name = ModLibrary.modelName(o.containsKey("name") ? o.get("name") : mod.getName());
-        ModLibrary.Character recorded = ModLibrary.recorded(boneRoot, id); Characters.Avatar avatar = Characters.byId(id);
+        // The outfit (Outfits, 0.7.94): the one chosen with the character (modelswap.txt "outfit"), else the one the INI's
+        // hashes name, else the original. A mod made for another outfit than the one chosen is refused: its bone indices
+        // follow that outfit's bone list, and on another outfit the model is torn apart (Shenhe's Frostflower Dew mod on
+        // the original look, 0.7.93).
+        Outfits table = Outfits.current(); Outfits.Outfit outfit = null; String outfitNote = "";
+        if (!table.of(id).isEmpty()) {
+            Outfits.Guess g = table.guess(id, ModelConverter.overrideHashes(src, ini), boneRoot.getAbsoluteFile().getParentFile());
+            outfit = table.byPrefab(o.get("outfit")); if (outfit != null && outfit.character != id) outfit = null;
+            if (outfit == null) outfit = g.outfit != null ? g.outfit : table.original(id);
+            if (g.outfit != null && g.outfit != outfit)
+                throw new IllegalArgumentException("这个 MOD 是「" + g.outfit.name + "」的（INI 哈希 " + g.how + "），选的是「" + outfit.name + "」：两套外观的骨骼不同，转换出来会错位。请改选「" + g.outfit.name + "」");
+            outfitNote = "外观：" + outfit.name + "（" + outfit.prefab + "）" + (g.outfit != null ? "；MOD 的 INI 哈希认出是这套：" + g.how
+                : g.conflict.isEmpty() ? "；INI 的哈希没认出外观，按所选转换" : "；INI 的哈希指向不同外观（" + String.join("、", g.conflict) + "），按所选转换");
+        }
+        ModLibrary.Character recorded = outfit != null ? ModLibrary.recorded(boneRoot, id, outfit.prefab) : ModLibrary.recorded(boneRoot, id); Characters.Avatar avatar = Characters.byId(id);
         // A record of a lower level of detail (made right after loading, before 0.6.5) has a shorter bone list than the
         // full model the mod is made for: it is not used. The game records the full model the next time the character appears.
         String lodLibrary = recorded != null ? recorded.lodMesh : ""; if (!lodLibrary.isEmpty()) recorded = null;
@@ -141,12 +165,15 @@ public final class Importer {
         opt.rehearsal(request -> { try { return NativeBridge.rehearse(request); } catch (UnsatisfiedLinkError e) { throw new IllegalStateException("逻辑核心预演不可用：" + e.getMessage()); } });
         if (o.containsKey("ini")) log.append("INI 方案：").append(o.get("ini")).append('\n');
         opt.source(mod.getAbsolutePath(), ModLibrary.signature(mod));
+        if (outfit != null) { opt.outfit(outfit.prefab); log.append(outfitNote).append('\n'); }
         Result r = new Result(); r.id = id; r.library = recorded != null;
-        log.append("角色：").append(Characters.nameOf(id)).append("（").append(id).append("）").append(r.library ? "，使用骨骼库：" + recorded.bones : lodLibrary.isEmpty() ? "，骨骼库里还没有这个角色：按游戏原骨骼顺序转换" : "，骨骼库里这个角色的记录是低精度模型 " + lodLibrary + "，不使用：按游戏原骨骼顺序转换").append('\n');
+        log.append("角色：").append(Characters.nameOf(id)).append("（").append(id).append("）").append(r.library ? "，使用骨骼库：" + recorded.bones : lodLibrary.isEmpty() ? (outfit != null ? "，骨骼库里还没有这套外观" : "，骨骼库里还没有这个角色") + "：按游戏原骨骼顺序转换" : "，骨骼库里这个角色的记录是低精度模型 " + lodLibrary + "，不使用：按游戏原骨骼顺序转换").append('\n');
         if (!r.library && avatar != null && !avatar.model.isEmpty()) opt.names(avatar.model);
         r.model = ModelConverter.convert(src, r.library ? recorded.bones : null, new File(modelsRoot, name), id, opt, decoder, log);
         if (TextureMod.is(r.model)) { r.summary = Characters.nameOf(id) + "（" + id + "）：纯贴图 MOD，只换游戏模型上的贴图。进游戏后自动替换确认过的部件（调试页里可换替换方式）；匹配不上的显示“等待映射”"; return r; }
-        r.summary = Characters.nameOf(id) + "（" + id + "）" + (r.library ? "：骨骼库已有该角色，进游戏即可替换" : opt.reusedSkeleton ? "：复用本 MOD 已有骨骼记录，目标网格信息已保留"
+        String who = Characters.nameOf(id) + (outfit != null ? "·" + outfit.name : "");
+        r.summary = who + "（" + id + "）" + (r.library ? "：骨骼库已有" + (outfit != null ? "这套外观" : "该角色") + "，进游戏即可替换" : opt.reusedSkeleton ? "：复用本 MOD 已有骨骼记录，目标网格信息已保留"
+            : outfit != null && !outfit.original() ? "：骨骼库里还没有这套外观，在大世界穿上它，或在衣装页预览它后识别部件"
             : "：骨骼库里还没有该角色，" + (opt.names.isEmpty() ? "需要该角色在大世界出场一次后生效" : "在大世界、队伍界面或角色详情页出现时识别部件"));
         for (String l : log.toString().split("\n")) if (l.startsWith("款式变量") || l.startsWith("模型动画：") || l.startsWith("动画骨骼兼容：") || l.contains("个顶点没有权重")) r.summary += "\n" + l;
         return r;
@@ -157,7 +184,7 @@ public final class Importer {
         Map<String, Mod> byName = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
         File[] mods = modsRoot.listFiles(f -> f.isDirectory() && !f.getName().startsWith(".")); if (mods == null) mods = new File[0];
         for (File d : mods) {
-            Map<String, String> o = ModLibrary.overrides(d); Mod m = new Mod(); m.source = d; m.sourceName = d.getName();
+            Map<String, String> o = ModLibrary.overrides(d); Mod m = new Mod(); m.source = d; m.sourceName = d.getName(); if (o.containsKey("outfit")) m.outfit = o.get("outfit");
             m.name = ModLibrary.modelName(o.containsKey("name") ? o.get("name") : d.getName());
             try { m.id = o.containsKey("id") ? Integer.parseInt(o.get("id").trim()) : 0; } catch (NumberFormatException e) { m.id = 0; }
             byName.put(m.name, m);
@@ -166,10 +193,10 @@ public final class Importer {
         for (File d : models) {
             if (!ModelManifest.exists(d)) continue;
             // An unreadable model.json (damaged, or written by a newer GIBox) shows up as needing a re-conversion.
-            int built = 0; boolean broken = false; String lod = "";
-            try { ModelManifest man = ModelManifest.read(d); built = man.character(); lod = man.lodMesh; } catch (Exception e) { broken = true; }
+            int built = 0; boolean broken = false; String lod = "", outfit = "";
+            try { ModelManifest man = ModelManifest.read(d); built = man.character(); lod = man.lodMesh; outfit = man.outfit; } catch (Exception e) { broken = true; }
             Mod m = byName.get(d.getName()); if (m == null) { m = new Mod(); m.name = d.getName(); byName.put(m.name, m); }
-            m.model = d; m.converted = true; if (broken) { m.outdated = true; m.reason = "模型文件读不了"; }
+            m.model = d; m.converted = true; if (!outfit.isEmpty()) m.outfit = outfit; if (broken) { m.outdated = true; m.reason = "模型文件读不了"; }
             if (!lod.isEmpty()) { m.outdated = true; m.reason = "转换时骨骼库记录的是低精度模型 " + lod + "，骨骼对不上"; }
             if (m.source == null) m.id = built;
             else {

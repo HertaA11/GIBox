@@ -43,7 +43,7 @@ import kotlinx.coroutines.withContext
 
 /**
  * The mods of one character: a search box (it opens the search page), then each mod to switch on or off here, or tap
- * for its details.
+ * for its details. Mods of all its outfits are listed together, each row naming its outfit (原皮 or the skin).
  */
 @Composable
 fun CharacterScreen(state: AppState, id: Int) {
@@ -131,6 +131,8 @@ private fun ModRow(state: AppState, m: Importer.Mod, index: Int, count: Int) {
         shapes = ListItemDefaults.segmentedShapes(index, count),
         supportingContent = {
             val parts = mutableListOf(if (!m.converted) "未转换" else if (on) "已开启" else "未开启")
+            // The outfit the mod is for (a character with skins): one list per character, the outfit on each row.
+            if (m.outfit.isNotEmpty()) parts.add(0, state.outfitLabel(m.outfit))
             if (m.outdated) parts.add("需重新转换")
             Text(
                 parts.joinToString(" · "),

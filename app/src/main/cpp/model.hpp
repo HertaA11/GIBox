@@ -103,7 +103,9 @@ struct FrameLoop {AnimationSpec spec;float counter=0;size_t current=0,step=0;uin
 
 // ---------------------------------------------------------------- manifest summary (what the runtime scans every second)
 struct PartSummary {std::string name,renderer;unsigned bones=0;bool hasTarget=false,indexedBones=false;Fingerprint target;};
-struct ModelSummary {std::string name,generation;unsigned id=0;bool animated=false;std::vector<std::string> names;std::vector<PartSummary> parts;Variants variants;When replaceWhen;};
+// outfit (model.json character.outfit, 0.7.94): the prefab of the outfit (original look or skin) the model was converted for,
+// as the runtime reads it from a renderer ("avatar_lady_pole_shenhecostumedai"); "" for a model made before outfits.
+struct ModelSummary {std::string name,generation,outfit;unsigned id=0;bool animated=false;std::vector<std::string> names;std::vector<PartSummary> parts;Variants variants;When replaceWhen;};
 inline void checkFormat(const Json& m){require(m.type==Json::Object,"model.json: not an object");require(m.at("format").type==Json::String&&m.at("format").string=="gibox-model","model.json: not a GIBox model");
  auto version=juint(m,"version",1,1000000);require(version>=1&&version<=4,"model.json: unsupported version "+std::to_string(version)+" (made by a newer GIBox?)");}
 inline void characterOf(const Json& m,unsigned& id,std::vector<std::string>& names){const auto& c=jfield(m,"character");id=unsigned(juint(c,"id",0,10001999));require(id==0||id>=10000000,"Character ID out of range");
@@ -111,6 +113,7 @@ inline void characterOf(const Json& m,unsigned& id,std::vector<std::string>& nam
  require(id!=0||!names.empty(),"A model needs a character ID or names");}
 inline ModelSummary summaryOf(const Json& m){checkFormat(m);ModelSummary s;s.animated=animationOf(m).present();s.name=jstr(m,"name",512);s.generation=jstr(m,"generation",64);characterOf(m,s.id,s.names);std::set<std::string> seen;
  auto version=unsigned(juint(m,"version",1,4));s.variants=variantsOf(m.at("variants"),version);require(version>=3||m.at("replaceWhen").type==Json::Null,"replaceWhen requires model version 3");s.replaceWhen=whenOf(m.at("replaceWhen"),s.variants,"replacement");
+ {const auto& o=m.at("character").at("outfit");if(o.type!=Json::Null){require(o.type==Json::String&&o.string.size()<=128&&o.string.compare(0,7,"avatar_")==0&&o.string.find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789_")==std::string::npos,"Character outfit");s.outfit=o.string;}}
  for(auto& p:jarr(m,"parts",1,model::maxParts)){PartSummary ps;ps.name=jstr(p,"name",64);require(safeName(ps.name)&&seen.insert(ps.name).second,"Part name: "+ps.name);ps.renderer=jstr(p,"renderer",256);
   ps.bones=unsigned(juint(p,"bones",1,model::maxBones));ps.indexedBones=p.at("skeleton").type==Json::Null;if(p.at("target").type!=Json::Null){ps.target=fingerprintOf(p.at("target"));ps.hasTarget=true;}s.parts.push_back(ps);}
  return s;}

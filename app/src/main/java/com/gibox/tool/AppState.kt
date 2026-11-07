@@ -107,6 +107,10 @@ class AppState(private val activity: Activity) {
 
     init {
         AppLog.debug(game, "app", "App Start $appVersion")
+        // GIBox's outfit table (assets/outfits.json): the original look and the skins of each character, for the picker,
+        // the mod lists and the converter.
+        runCatching { Outfits.use(Outfits.parse(activity.assets.open("outfits.json").use { it.readBytes() }.toString(Charsets.UTF_8))) }
+            .onFailure { AppLog.warning(game, LOGGER, "外观对照表读取失败：${it.message}") }
         // File access is asked for once, at the first start after installing; later a feature that needs it asks again.
         if (!hasStorage() && readPrivate("storage-asked.txt").isEmpty()) { writePrivate("storage-asked.txt", "1"); grantStorage() }
         runCatching { Control.retireExperiments(game) }
@@ -354,10 +358,14 @@ class AppState(private val activity: Activity) {
         if (mod.converted && mod.id in 10000000..10001999) convert(source, mod.id)
     }
     /** Confirmed on the character page; `scheme` is the INI chosen there for a package with several. */
-    fun confirm(pick: Screen.Pick, avatar: Characters.Avatar, scheme: String? = null) {
+    fun confirm(pick: Screen.Pick, avatar: Characters.Avatar, scheme: String? = null, outfit: String? = null) {
         val dir = pick.pending ?: pick.source
         if (scheme != null && dir != null) {
             try { Importer.setScheme(dir, scheme) } catch (e: Throwable) { fail("选择 INI 方案", e, null); return }
+        }
+        // The outfit chosen with the character (a character with skins): kept for re-conversions too.
+        if (dir != null) {
+            try { Importer.setOutfit(dir, if (Outfits.current().of(avatar.id).isEmpty()) null else outfit) } catch (e: Throwable) { fail("选择外观", e, null); return }
         }
         val pending = pick.pending
         if (pending == null) {
@@ -437,6 +445,30 @@ class AppState(private val activity: Activity) {
     fun guess(pick: Screen.Pick): Characters.Guess =
         Importer.guess(pick.pending ?: pick.source ?: File(modsRoot, pick.modName), pick.importedAs, boneRoot)
     fun recorded(): Set<Int> = ModLibrary.library(boneRoot).map { it.id }.toSet()
+    /** The outfits of a character (the original first); empty for a character without skins. */
+    fun outfits(id: Int): List<Outfits.Outfit> = Outfits.current().of(id)
+    /** The outfits of a character that have a bone library (prefabs). */
+    fun recordedOutfits(id: Int): Set<String> = ModLibrary.recordedOutfits(boneRoot, id, Outfits.current())
+    /** The outfit the picker suggests: the one the mod's INI hashes name, else the one chosen before, else the original. */
+    fun suggestedOutfit(pick: Screen.Pick, id: Int): String {
+        val list = outfits(id); if (list.isEmpty()) return ""
+        val dir = pick.pending ?: pick.source ?: File(modsRoot, pick.modName)
+        Importer.guessOutfit(dir, id, boneRoot).outfit?.let { return it.prefab }
+        val before = Importer.outfit(dir)
+        return list.firstOrNull { it.prefab == before }?.prefab ?: list[0].prefab
+    }
+    /** What the mod's INI hashes say about the outfit, for the picker ("" when they say nothing). */
+    fun outfitGuessText(pick: Screen.Pick, id: Int): String {
+        val dir = pick.pending ?: pick.source ?: File(modsRoot, pick.modName)
+        val g = Importer.guessOutfit(dir, id, boneRoot)
+        return when {
+            g.outfit != null -> "MOD 的 INI 哈希认出是「${g.outfit.name}」：选别的外观会被拒绝（骨骼不同会错位）"
+            g.conflict.isNotEmpty() -> "MOD 的 INI 哈希指向多套外观（${g.conflict.joinToString("、")}），请自己选"
+            else -> "没从 MOD 的哈希认出外观，请自己选"
+        }
+    }
+    /** "冷花幽露" for a skin's prefab, "原皮" for the original, "" for none. */
+    fun outfitLabel(prefab: String): String = Outfits.current().label(prefab)
 
     fun delete(mod: Importer.Mod) {
         prompt = Prompt(
@@ -600,9 +632,9 @@ class AppState(private val activity: Activity) {
     private fun writePrivate(name: String, value: String) { try { File(activity.filesDir, name).writeText(value) } catch (e: Exception) { } }
 }
 
-/** "茜特菈莉 · 10000107", or what is missing. */
+/** "茜特菈莉 · 10000107" ("申鹤 · 冷花幽露 · 10000063" for a skin's mod), or what is missing. */
 fun who(mod: Importer.Mod): String = when {
-    mod.id != 0 -> Characters.nameOf(mod.id) + " · " + mod.id
+    mod.id != 0 -> Characters.nameOf(mod.id) + (if (mod.outfit.isEmpty()) "" else " · " + Outfits.current().label(mod.outfit)) + " · " + mod.id
     mod.converted -> "按名字识别"
     else -> "未选择角色"
 }

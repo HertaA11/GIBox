@@ -114,6 +114,37 @@ public class ImporterTest {
   Files.write(packJson.toPath(),full.replace("\"mesh\":\"Body\"","\"mesh\":\"Body_LOD3\"").getBytes(StandardCharsets.UTF_8));
   Importer.Mod pk=null;for(Importer.Mod m:Importer.list(mods,models))if(m.name.equals("Pack"))pk=m;
   ok(pk!=null&&pk.outdated&&pk.reason.contains("Body_LOD3")&&ModelManifest.read(pack).lodMesh.equals("Body_LOD3")&&!ModelManifest.lowerLod("Body_LOD0")&&ModelManifest.lowerLod("body_lod1 (Clone)"),"LOD model listed for re-conversion");
-  System.out.println("Importer: PASS (lower-LOD library records and models, mod names, unreadable models listed, 7.1 character table, search by ID/name, recommended character first, folder/zip staging, picker prepare/commit/discard, zip-slip guard, bone-library and ID conversion, character change, Mods list, delete, XXMI log line and levels)");
+  // 13. Outfits (0.7.94): GIBox's own table (assets/outfits.json), which outfit an INI's hashes name (this device's map
+  //     before the PC data, a hash the PC data gives to two outfits decides nothing), a bone library per outfit (a skin
+  //     recorded in the character's folder before 0.7.94 counts for that skin only), and a mod made for a skin refused
+  //     as the original look and converted against the skin's library with the outfit in model.json.
+  Outfits table=Outfits.load(new File("app/src/main/assets/outfits.json"));Outfits.Outfit ff=table.byPc("ShenheFrostFlower");
+  ok(table.of(10000063).size()==2&&ff.prefab.equals("avatar_lady_pole_shenhecostumedai")&&ff.skin==206301&&ff.name.equals("冷花幽露")&&ff.en.equals("Frostflower Dew")&&table.original(10000063).prefab.equals("avatar_lady_pole_shenhe"),"table: Shenhe");
+  ok(table.of(10000003).size()==3&&table.byPc("JeanCN").skin==200302&&table.of(10000003).get(1).name.equals("海风之梦")&&table.of(10000107).get(1).name.equals("星与烟帷的夜语")&&table.of(10000052).isEmpty()&&table.byPc("XingqiuBamboo").skin==202501,"table: Jean, Citlali, Xingqiu, no skins");
+  ok(Outfits.chainAvatar("Scene/Avatar_Lady_Pole_ShenheCostumeDai_Manekin(Clone)/Bip001").equals("avatar_lady_pole_shenhecostumedai")&&Outfits.chainAvatar("Scene/Bip001").isEmpty(),"chain avatar");
+  File oshared=new File(base,"GIBox-outfit"),ob=new File(oshared,"skeletons");ob.mkdirs();
+  for(String f:new String[]{"pc-hashes.json","device-hashes.json"})Files.copy(new File("app/src/main/assets/"+f).toPath(),new File(oshared,f).toPath(),StandardCopyOption.REPLACE_EXISTING);
+  ok(table.guess(10000063,Collections.singleton("83a9116d"),oshared).outfit==ff&&table.guess(10000063,Collections.singleton("33a92492"),oshared).outfit.original(),"guess: skin and original by hash");
+  ok(table.guess(10000003,Collections.singleton("115737ff"),oshared).outfit.original(),"guess: the device names 115737ff the original although the PC data gives it to JeanCN too");
+  ok(table.guess(10000025,Collections.singleton("76df4025"),oshared).outfit==null,"guess: a hash two outfits share in the PC data decides nothing");
+  Outfits.Guess twoOutfits=table.guess(10000063,Arrays.asList("33a92492","83a9116d"),oshared);ok(twoOutfits.outfit==null&&twoOutfits.conflict.size()==2,"guess: hashes of two outfits");
+  ok(table.guess(10000052,Collections.singleton("83a9116d"),oshared).outfit==null,"guess: a character without skins");
+  File old=new File(base,"骨骼-旧皮肤");character(old,"10000063",10000063,"Avatar_Lady_Pole_ShenheCostumeDai_Manekin");
+  ok(ModLibrary.recorded(old,10000063,table.original(10000063).prefab)==null&&ModLibrary.recorded(old,10000063,ff.prefab)!=null,"a skin recorded in the character's folder counts for the skin only");
+  character(ob,"10000063",10000063,"Avatar_Lady_Pole_Shenhe");
+  ok(ModLibrary.recorded(ob,10000063,ff.prefab)==null&&ModLibrary.recordedOutfits(ob,10000063,table).equals(Collections.singleton("avatar_lady_pole_shenhe")),"only the original recorded");
+  character(ob,"10000063/"+ff.prefab,10000063,"Avatar_Lady_Pole_ShenheCostumeDai");
+  ok(ModLibrary.recorded(ob,10000063,ff.prefab).bones.getName().equals(ff.prefab)&&ModLibrary.recorded(ob,10000063,"avatar_lady_pole_shenhe").bones.getName().equals("10000063")&&ModLibrary.recordedOutfits(ob,10000063,table).size()==2,"a library per outfit");
+  File shm=renamed(base,"ShenheFF","Shenhe");File shIni=new File(shm,"Shenhe.ini");Files.write(shIni.toPath(),read(shIni).replace("hash = 44444444","hash = 83a9116d").getBytes(StandardCharsets.UTF_8));
+  Outfits.use(table);File omodels=new File(base,"模型-外观");omodels.mkdirs();
+  ok(Importer.guessOutfit(shm,10000063,ob).outfit==ff,"the picker's suggestion");
+  Importer.setOutfit(shm,"avatar_lady_pole_shenhe");boolean refused=false;
+  try{Importer.convert(shm,10000063,omodels,ob,dec,new StringBuilder());}catch(IllegalArgumentException e){refused=e.getMessage().contains("这个 MOD 是「冷花幽露」的")&&e.getMessage().contains("83a9116d")&&e.getMessage().contains("选的是「原皮」");}
+  ok(refused&&!new File(omodels,"ShenheFF").exists(),"a Frostflower Dew mod is refused as the original look");
+  Importer.setOutfit(shm,null);StringBuilder olog=new StringBuilder();r=Importer.convert(shm,10000063,omodels,ob,dec,olog);
+  ok(r.library&&olog.toString().contains("外观：冷花幽露（avatar_lady_pole_shenhecostumedai）；MOD 的 INI 哈希认出是这套：83a9116d")&&olog.toString().contains("使用骨骼库："+new File(new File(ob,"10000063"),ff.prefab))&&r.summary.startsWith("申鹤·冷花幽露（10000063）"),"converted for the skin with its library: "+olog);
+  ok(ModelManifest.read(new File(omodels,"ShenheFF")).outfit.equals(ff.prefab)&&Importer.outfit(shm)==null,"model.json names the outfit");
+  Outfits.use(null);
+  System.out.println("Importer: PASS (outfit table, outfit by INI hash, library per outfit, a skin mod refused as the original and converted for its skin, lower-LOD library records and models, mod names, unreadable models listed, 7.1 character table, search by ID/name, recommended character first, folder/zip staging, picker prepare/commit/discard, zip-slip guard, bone-library and ID conversion, character change, Mods list, delete, XXMI log line and levels)");
  }
 }

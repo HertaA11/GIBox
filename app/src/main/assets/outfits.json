@@ -1,0 +1,657 @@
+{
+ "format": "gibox-outfits",
+ "version": 1,
+ "source": "https://gitlab.com/GuraFoundation/YuanShenResources",
+ "commit": "f11cf545a7eee32a29999f960ebfba305f896ed3",
+ "pc": "https://github.com/SilentNightSound/GI-Model-Importer-Assets @2039d16d4b64696098ba53cd69888ce967397be9",
+ "characters": [
+  {
+   "id": 10000002,
+   "outfits": [
+    {
+     "skin": 200200,
+     "prefab": "avatar_girl_sword_ayaka",
+     "name": "原皮",
+     "en": "Original",
+     "pc": [
+      "KamisatoAyaka"
+     ]
+    },
+    {
+     "skin": 200201,
+     "prefab": "avatar_girl_sword_ayakacostumefruhling",
+     "name": "花时来信",
+     "en": "Springbloom Missive",
+     "pc": [
+      "AyakaSpringbloom"
+     ]
+    }
+   ]
+  },
+  {
+   "id": 10000003,
+   "outfits": [
+    {
+     "skin": 200300,
+     "prefab": "avatar_lady_sword_qin",
+     "name": "原皮",
+     "en": "Original",
+     "pc": [
+      "Jean"
+     ]
+    },
+    {
+     "skin": 200301,
+     "prefab": "avatar_lady_sword_qincostumesea",
+     "name": "海风之梦",
+     "en": "Sea Breeze Dandelion",
+     "pc": []
+    },
+    {
+     "skin": 200302,
+     "prefab": "avatar_lady_sword_qincostumewic",
+     "name": "古恩希尔德的传承",
+     "en": "Gunnhildr's Legacy",
+     "pc": [
+      "JeanCN"
+     ]
+    }
+   ]
+  },
+  {
+   "id": 10000005,
+   "outfits": [
+    {
+     "skin": 200500,
+     "prefab": "avatar_boy_sword_playerboy",
+     "name": "原皮",
+     "en": "Original",
+     "pc": [
+      "TravelerBoy"
+     ]
+    },
+    {
+     "skin": 200501,
+     "prefab": "avatar_boy_sword_playerboycostumecwxr",
+     "name": "复地重天",
+     "en": "As Heaven and Earth Are Made Anew",
+     "pc": []
+    }
+   ]
+  },
+  {
+   "id": 10000006,
+   "outfits": [
+    {
+     "skin": 200600,
+     "prefab": "avatar_lady_catalyst_lisa",
+     "name": "原皮",
+     "en": "Original",
+     "pc": [
+      "Lisa"
+     ]
+    },
+    {
+     "skin": 200601,
+     "prefab": "avatar_lady_catalyst_lisacostumestudentin",
+     "name": "叶隐芳名",
+     "en": "A Sobriquet Under Shade",
+     "pc": [
+      "LisaStudent"
+     ]
+    }
+   ]
+  },
+  {
+   "id": 10000007,
+   "outfits": [
+    {
+     "skin": 200700,
+     "prefab": "avatar_girl_sword_playergirl",
+     "name": "原皮",
+     "en": "Original",
+     "pc": [
+      "TravelerGirl"
+     ]
+    },
+    {
+     "skin": 200701,
+     "prefab": "avatar_girl_sword_playergirlcostumecwxr",
+     "name": "复地重天",
+     "en": "As Heaven and Earth Are Made Anew",
+     "pc": []
+    }
+   ]
+  },
+  {
+   "id": 10000014,
+   "outfits": [
+    {
+     "skin": 201400,
+     "prefab": "avatar_girl_catalyst_barbara",
+     "name": "原皮",
+     "en": "Original",
+     "pc": [
+      "Barbara"
+     ]
+    },
+    {
+     "skin": 201401,
+     "prefab": "avatar_girl_catalyst_barbaracostumesummertime",
+     "name": "闪耀协奏",
+     "en": "Summertime Sparkle",
+     "pc": [
+      "BarbaraSummertime"
+     ]
+    }
+   ]
+  },
+  {
+   "id": 10000015,
+   "outfits": [
+    {
+     "skin": 201500,
+     "prefab": "avatar_male_sword_kaeya",
+     "name": "原皮",
+     "en": "Original",
+     "pc": [
+      "Kaeya"
+     ]
+    },
+    {
+     "skin": 201501,
+     "prefab": "avatar_male_sword_kaeyacostumedancer",
+     "name": "帆影游风",
+     "en": "Sailwind Shadow",
+     "pc": [
+      "KaeyaSailwind"
+     ]
+    }
+   ]
+  },
+  {
+   "id": 10000016,
+   "outfits": [
+    {
+     "skin": 201600,
+     "prefab": "avatar_male_claymore_diluc",
+     "name": "原皮",
+     "en": "Original",
+     "pc": [
+      "Diluc"
+     ]
+    },
+    {
+     "skin": 201601,
+     "prefab": "avatar_male_claymore_diluccostumeflamme",
+     "name": "殷红终夜",
+     "en": "Red Dead of Night",
+     "pc": [
+      "DilucFlamme"
+     ]
+    }
+   ]
+  },
+  {
+   "id": 10000021,
+   "outfits": [
+    {
+     "skin": 202100,
+     "prefab": "avatar_girl_bow_ambor",
+     "name": "原皮",
+     "en": "Original",
+     "pc": [
+      "Amber"
+     ]
+    },
+    {
+     "skin": 202101,
+     "prefab": "avatar_girl_bow_amborcostumewic",
+     "name": "100%侦察骑士",
+     "en": "100% Outrider",
+     "pc": [
+      "AmberCN"
+     ]
+    }
+   ]
+  },
+  {
+   "id": 10000023,
+   "outfits": [
+    {
+     "skin": 202300,
+     "prefab": "avatar_girl_pole_xiangling",
+     "name": "原皮",
+     "en": "Original",
+     "pc": [
+      "Xiangling"
+     ]
+    },
+    {
+     "skin": 202301,
+     "prefab": "avatar_girl_pole_xianglingcostumewinter",
+     "name": "岁夜欢哗",
+     "en": "New Year's Cheer",
+     "pc": []
+    }
+   ]
+  },
+  {
+   "id": 10000025,
+   "outfits": [
+    {
+     "skin": 202500,
+     "prefab": "avatar_boy_sword_xingqiu",
+     "name": "原皮",
+     "en": "Original",
+     "pc": [
+      "Xingqiu"
+     ]
+    },
+    {
+     "skin": 202501,
+     "prefab": "avatar_boy_sword_xingqiucostumebamboo",
+     "name": "雨化竹身",
+     "en": "Bamboo Rain",
+     "pc": [
+      "XingqiuBamboo"
+     ]
+    }
+   ]
+  },
+  {
+   "id": 10000027,
+   "outfits": [
+    {
+     "skin": 202700,
+     "prefab": "avatar_lady_catalyst_ningguang",
+     "name": "原皮",
+     "en": "Original",
+     "pc": [
+      "Ningguang"
+     ]
+    },
+    {
+     "skin": 202701,
+     "prefab": "avatar_lady_catalyst_ningguangcostumefloral",
+     "name": "纱中幽兰",
+     "en": "Orchid's Evening Gown",
+     "pc": [
+      "NingguangOrchid"
+     ]
+    }
+   ]
+  },
+  {
+   "id": 10000029,
+   "outfits": [
+    {
+     "skin": 202900,
+     "prefab": "avatar_loli_catalyst_klee",
+     "name": "原皮",
+     "en": "Original",
+     "pc": [
+      "Klee"
+     ]
+    },
+    {
+     "skin": 202901,
+     "prefab": "avatar_loli_catalyst_kleecostumewitch",
+     "name": "琪花星烛",
+     "en": "Blossoming Starlight",
+     "pc": [
+      "KleeBlossomingStarlight"
+     ]
+    }
+   ]
+  },
+  {
+   "id": 10000031,
+   "outfits": [
+    {
+     "skin": 203100,
+     "prefab": "avatar_girl_bow_fischl",
+     "name": "原皮",
+     "en": "Original",
+     "pc": [
+      "Fischl"
+     ]
+    },
+    {
+     "skin": 203101,
+     "prefab": "avatar_girl_bow_fischlcostumehighness",
+     "name": "极夜真梦",
+     "en": "Ein Immernachtstraum",
+     "pc": [
+      "FischlHighness"
+     ]
+    }
+   ]
+  },
+  {
+   "id": 10000032,
+   "outfits": [
+    {
+     "skin": 203200,
+     "prefab": "avatar_boy_sword_bennett",
+     "name": "原皮",
+     "en": "Original",
+     "pc": [
+      "Bennett"
+     ]
+    },
+    {
+     "skin": 203201,
+     "prefab": "avatar_boy_sword_bennettcostumesummer",
+     "name": "炽绘奇旅",
+     "en": "Adventures in Blazing Hue",
+     "pc": []
+    }
+   ]
+  },
+  {
+   "id": 10000037,
+   "outfits": [
+    {
+     "skin": 203700,
+     "prefab": "avatar_girl_bow_ganyu",
+     "name": "原皮",
+     "en": "Original",
+     "pc": [
+      "Ganyu"
+     ]
+    },
+    {
+     "skin": 203701,
+     "prefab": "avatar_girl_bow_ganyucostumeyu",
+     "name": "玄玉瑶芳",
+     "en": "Twilight Blossom",
+     "pc": [
+      "GanyuTwilight"
+     ]
+    }
+   ]
+  },
+  {
+   "id": 10000041,
+   "outfits": [
+    {
+     "skin": 204100,
+     "prefab": "avatar_girl_catalyst_mona",
+     "name": "原皮",
+     "en": "Original",
+     "pc": [
+      "Mona"
+     ]
+    },
+    {
+     "skin": 204101,
+     "prefab": "avatar_girl_catalyst_monacostumewic",
+     "name": "星与月之约",
+     "en": "Pact of Stars and Moon",
+     "pc": [
+      "MonaCN"
+     ]
+    }
+   ]
+  },
+  {
+   "id": 10000042,
+   "outfits": [
+    {
+     "skin": 204200,
+     "prefab": "avatar_girl_sword_keqing",
+     "name": "原皮",
+     "en": "Original",
+     "pc": [
+      "Keqing"
+     ]
+    },
+    {
+     "skin": 204201,
+     "prefab": "avatar_girl_sword_keqingcostumefeather",
+     "name": "霓裾翩跹",
+     "en": "Opulent Splendor",
+     "pc": [
+      "KeqingOpulent"
+     ]
+    }
+   ]
+  },
+  {
+   "id": 10000045,
+   "outfits": [
+    {
+     "skin": 204500,
+     "prefab": "avatar_lady_pole_rosaria",
+     "name": "原皮",
+     "en": "Original",
+     "pc": [
+      "Rosaria"
+     ]
+    },
+    {
+     "skin": 204501,
+     "prefab": "avatar_lady_pole_rosariacostumewic",
+     "name": "致教会自由人",
+     "en": "To the Church's Free Spirit",
+     "pc": [
+      "RosariaCN"
+     ]
+    }
+   ]
+  },
+  {
+   "id": 10000046,
+   "outfits": [
+    {
+     "skin": 204600,
+     "prefab": "avatar_girl_pole_hutao",
+     "name": "原皮",
+     "en": "Original",
+     "pc": [
+      "HuTao"
+     ]
+    },
+    {
+     "skin": 204601,
+     "prefab": "avatar_girl_pole_hutaocostumewinter",
+     "name": "宿雪桃红",
+     "en": "Cherries Snow-Laden",
+     "pc": []
+    }
+   ]
+  },
+  {
+   "id": 10000060,
+   "outfits": [
+    {
+     "skin": 206000,
+     "prefab": "avatar_lady_bow_yelan",
+     "name": "原皮",
+     "en": "Original",
+     "pc": [
+      "Yelan"
+     ]
+    },
+    {
+     "skin": 206001,
+     "prefab": "avatar_lady_bow_yelancostumesummer",
+     "name": "静暇雅宴",
+     "en": "Tranquil Banquet",
+     "pc": []
+    }
+   ]
+  },
+  {
+   "id": 10000061,
+   "outfits": [
+    {
+     "skin": 206100,
+     "prefab": "avatar_girl_sword_momoka",
+     "name": "原皮",
+     "en": "Original",
+     "pc": [
+      "Kirara"
+     ]
+    },
+    {
+     "skin": 206101,
+     "prefab": "avatar_girl_sword_momokacostumeerrantry",
+     "name": "倩影游侠",
+     "en": "Phantom in Boots",
+     "pc": []
+    }
+   ]
+  },
+  {
+   "id": 10000063,
+   "outfits": [
+    {
+     "skin": 206300,
+     "prefab": "avatar_lady_pole_shenhe",
+     "name": "原皮",
+     "en": "Original",
+     "pc": [
+      "Shenhe"
+     ]
+    },
+    {
+     "skin": 206301,
+     "prefab": "avatar_lady_pole_shenhecostumedai",
+     "name": "冷花幽露",
+     "en": "Frostflower Dew",
+     "pc": [
+      "ShenheFrostFlower"
+     ]
+    }
+   ]
+  },
+  {
+   "id": 10000070,
+   "outfits": [
+    {
+     "skin": 207000,
+     "prefab": "avatar_girl_sword_nilou",
+     "name": "原皮",
+     "en": "Original",
+     "pc": [
+      "Nilou"
+     ]
+    },
+    {
+     "skin": 207001,
+     "prefab": "avatar_girl_sword_niloucostumefairy",
+     "name": "莎邦之息",
+     "en": "Breeze of Sabaa",
+     "pc": []
+    }
+   ]
+  },
+  {
+   "id": 10000077,
+   "outfits": [
+    {
+     "skin": 207700,
+     "prefab": "avatar_loli_pole_yaoyao",
+     "name": "原皮",
+     "en": "Original",
+     "pc": [
+      "YaoYao"
+     ]
+    },
+    {
+     "skin": 207701,
+     "prefab": "avatar_loli_pole_yaoyaocostumewinter",
+     "name": "聆雨听竹",
+     "en": "Rainlit Bamboo Reverie",
+     "pc": []
+    }
+   ]
+  },
+  {
+   "id": 10000087,
+   "outfits": [
+    {
+     "skin": 208700,
+     "prefab": "avatar_male_catalyst_neuvillette",
+     "name": "原皮",
+     "en": "Original",
+     "pc": [
+      "Neuvillette"
+     ]
+    },
+    {
+     "skin": 208701,
+     "prefab": "avatar_male_catalyst_neuvillettecostumewinter",
+     "name": "莘露的赠礼",
+     "en": "Melusent Gift",
+     "pc": []
+    }
+   ]
+  },
+  {
+   "id": 10000088,
+   "outfits": [
+    {
+     "skin": 208800,
+     "prefab": "avatar_girl_catalyst_charlotte",
+     "name": "原皮",
+     "en": "Original",
+     "pc": [
+      "Charlotte"
+     ]
+    },
+    {
+     "skin": 208801,
+     "prefab": "avatar_girl_catalyst_charlottecostumedong",
+     "name": "赫尔洛克变奏曲",
+     "en": "Hurlock Variations",
+     "pc": []
+    }
+   ]
+  },
+  {
+   "id": 10000107,
+   "outfits": [
+    {
+     "skin": 210700,
+     "prefab": "avatar_girl_catalyst_citlali",
+     "name": "原皮",
+     "en": "Original",
+     "pc": [
+      "Citlali"
+     ]
+    },
+    {
+     "skin": 210701,
+     "prefab": "avatar_girl_catalyst_citlalicostumexia",
+     "name": "星与烟帷的夜语",
+     "en": "Whispers of Stars and Smoke",
+     "pc": []
+    }
+   ]
+  },
+  {
+   "id": 10000123,
+   "outfits": [
+    {
+     "skin": 212300,
+     "prefab": "avatar_boy_sword_durin",
+     "name": "原皮",
+     "en": "Original",
+     "pc": [
+      "Durin"
+     ]
+    },
+    {
+     "skin": 212301,
+     "prefab": "avatar_boy_sword_durincostumewic",
+     "name": "故事的远方",
+     "en": "Toward the Distant Horizon",
+     "pc": []
+    }
+   ]
+  }
+ ]
+}

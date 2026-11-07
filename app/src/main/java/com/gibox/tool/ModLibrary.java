@@ -49,6 +49,27 @@ public final class ModLibrary {
         return new ArrayList<>(byId.values());
     }
     public static Character recorded(File boneRoot, int id) { for (Character c : library(boneRoot)) if (c.id == id) return c; return null; }
+    /**
+     * The library of one outfit (Outfits): a skin's own folder skeletons/<id>/<prefab>; the original look's skeletons/<id>
+     * unless that holds a skin (recorded there before 0.7.94: it counts for that skin, never for the original). prefab
+     * null or "": skeletons/<id> as it is (a character without skins).
+     */
+    public static Character recorded(File boneRoot, int id, String prefab) {
+        Character main = null; File mainFile = new File(new File(boneRoot, Integer.toString(id)), "skeleton.json");
+        try { if (mainFile.isFile()) { Object[] h = head(mainFile); if ((Integer) h[1] == id) main = new Character(id, mainFile.getParentFile(), (String) h[2], (String) h[3]); } } catch (Exception ignored) {}
+        if (prefab == null || prefab.isEmpty()) return main;
+        String had = main == null ? "" : Outfits.chainAvatar(main.root);
+        if (Outfits.costume(prefab)) {
+            File own = new File(Outfits.libraryDir(boneRoot, id, prefab), "skeleton.json");
+            try { if (own.isFile()) { Object[] h = head(own); if ((Integer) h[1] == id) return new Character(id, own.getParentFile(), (String) h[2], (String) h[3]); } } catch (Exception ignored) {}
+            return prefab.equals(had) ? main : null;
+        }
+        return main == null || (!had.isEmpty() && !had.equals(prefab)) ? null : main;
+    }
+    /** The outfits of a character that have a library (prefabs; the original's as "" when the table has no name for it). */
+    public static Set<String> recordedOutfits(File boneRoot, int id, Outfits table) {
+        Set<String> out = new TreeSet<>(); for (Outfits.Outfit o : table.of(id)) if (recorded(boneRoot, id, o.prefab) != null) out.add(o.prefab); return out;
+    }
 
     private static final Set<String> GENERIC = new HashSet<>(Arrays.asList(
         "avatar", "girl", "boy", "lady", "male", "loli", "female", "catalyst", "sword", "claymore", "pole", "bow", "clone", "model", "root", "scene", "bip001", "bip",

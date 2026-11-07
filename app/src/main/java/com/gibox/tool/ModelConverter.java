@@ -306,6 +306,10 @@ public final class ModelConverter {
     static final String FACE_RENDERER="Face";
     /** A texture-only mod: no section binds an IB or a vertex buffer of its own, and some section sets textures for the
      *  game's draws (ps-t slots, or GIMI's Resource\GIMI\... = ref ... with CommandList\GIMI\SetTextures). */
+    /** The hashes the INI's TextureOverride sections name (lower case): which outfit the mod is for (Outfits.guess). */
+    static Set<String> overrideHashes(File src,File chosen)throws Exception{Ini ini=new Ini(src,chosen);Set<String> out=new TreeSet<>();
+        for(Section s:ini.sections.values()){if(!lower(s.name).startsWith("textureoverride"))continue;for(String l:s.lines){String[] a=kv(l);if(a!=null&&a[0].equals("hash")){String h=lower(a[1]).trim();if(h.matches("[0-9a-f]{8}"))out.add(h);}}}
+        return out;}
     static boolean textureOnly(Ini ini){boolean textures=false;
         for(Section s:ini.sections.values()){if(!lower(s.name).startsWith("textureoverride")&&!lower(s.name).startsWith("commandlist"))continue;
             for(String l:s.lines){String[] a=kv(l);if(a==null)continue;
@@ -1053,7 +1057,7 @@ public final class ModelConverter {
                 Resource face=faceTexture(ini,src,frameVars,log);List<Object> swaps=face==null?null:faceSwap(face,registry);
                 weights.clear();List<Object> materials=emitMaterials(registry,decoder,blob);blob.out.flush();String generation;synchronized(ModelConverter.class){generation=System.currentTimeMillis()+"-"+(++generationCounter);}
                 Map<String,Object> animationInfo=animation.json(frames);animationInfo.put("bonePolicy",o.animationBoneFallback?"retain-valid-experimental":"strict");
-                Map<String,Object> manifest=Json.of("format","gibox-model","version",4,"name",dest.getName(),"generation",generation,"character",Json.of("id",id,"names",new ArrayList<Object>(o.names)),"flags",Json.of("originalMaterials",false,"diffuseOnly",false),"animation",animationInfo,"parts",firstParts,"materials",materials,"blob",Json.of("file","model.bin","size",blob.size,"crc32",blob.crc.getValue()));
+                Map<String,Object> manifest=Json.of("format","gibox-model","version",4,"name",dest.getName(),"generation",generation,"character",o.character(id),"flags",Json.of("originalMaterials",false,"diffuseOnly",false),"animation",animationInfo,"parts",firstParts,"materials",materials,"blob",Json.of("file","model.bin","size",blob.size,"crc32",blob.crc.getValue()));
                 if(swaps!=null)manifest.put("textures",swaps);
                 Map<String,Object> logic=logic(ini,src,animation,mapping,tmp,log);if(logic!=null)manifest.put("logic",logic);
                 if(o.sourcePath!=null)manifest.put("source",Json.of("path",o.sourcePath,"signature",o.sourceSignature==null?"":o.sourceSignature));
@@ -1087,6 +1091,9 @@ public final class ModelConverter {
         /** Character name tokens (model.json "character.names") for a conversion without skeleton library; the runtime finds the character by its skeleton names
          *  (with an ID: the character's model name, so it is also found on the party and detail pages before it was on the field). */
         public Options names(List<String> n){names=new ArrayList<>(n);return this;}
+        /** The outfit (prefab, Outfits) the model is for: model.json character.outfit, so the game shows it only there. */
+        public String outfit;public Options outfit(String prefab){outfit=prefab;return this;}
+        Map<String,Object> character(int id){Map<String,Object> c=Json.of("id",id,"names",new ArrayList<Object>(names));if(outfit!=null&&!outfit.isEmpty())c.put("outfit",outfit);return c;}
         /** Where a texture-only mod's read-only diagnostic goes (GIBox/texture-diag, TextureDiag); null: none. */
         public File textureDiag=null;
         public Options textureDiag(File dir){textureDiag=dir;return this;}
@@ -1174,7 +1181,7 @@ public final class ModelConverter {
             Map<String,Object> data=emit(tmp,b,kept.size(),decoder);if(swaps!=null)data.put("textures",swaps);
             String generation;synchronized(ModelConverter.class){generation=System.currentTimeMillis()+"-"+(++generationCounter);}
             Map<String,Object> manifest=Json.of("format","gibox-model","version",2,"name",dest.getName(),"generation",generation,
-                "character",Json.of("id",id,"names",new ArrayList<Object>(o.names)),"flags",Json.of("originalMaterials",false,"diffuseOnly",false));
+                "character",o.character(id),"flags",Json.of("originalMaterials",false,"diffuseOnly",false));
             if(!shown.isEmpty()){
                 List<Object> vars=new ArrayList<>();Map<String,Object> defaults=new LinkedHashMap<>();long product=1;
                 for(String k:var.names){if(!shown.contains(k))continue;List<Integer> values=var.values.get(var.names.indexOf(k));for(int x:values)check(Math.abs(x)<=1000000,"款式变量值过大："+k);vars.add(Json.of("name",k,"values",new ArrayList<Object>(values)));defaults.put(k,ini.vars.get(k));product*=values.size();}
