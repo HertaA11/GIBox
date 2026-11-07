@@ -267,6 +267,12 @@ struct Runtime::Impl {
  // with the documents. The game thread owns the map once it has it and is its only writer.
  std::string pcStamp="?",pcNote,pcScannedNote,pcLogged;bool pcMapRead=false;std::shared_ptr<const pcdb::Db> pcWorker,pcScanned,pcDb;
  std::shared_ptr<pcdb::DeviceMap> mapScanned,devMap;bool devMapDirty=false;uint64_t devMapSaveAt=0;
+ // The map that ships with the App (GIBox/device-hashes.json, installed like pc-hashes.json: what a capture on the
+ // maintainer's device tied, the same on every device since Android's index data is the PC's): read by the worker when
+ // its stamp changes; matching and the report use it under this device's own map (an entry of this device wins).
+ std::string bundledStamp="?",bundledNote;std::shared_ptr<const pcdb::DeviceMap> bundledWorker,bundledScanned,bundledMap;std::shared_ptr<pcdb::DeviceMap> matchMap;bool matchDirty=true;
+ const pcdb::DeviceMap* deviceMap(){if(matchDirty){matchDirty=false;auto m=std::make_shared<pcdb::DeviceMap>();if(bundledMap)*m=*bundledMap;if(devMap)for(auto& kv:devMap->byIb)m->byIb[kv.first]=kv.second;matchMap=m;}
+  return matchMap&&!matchMap->byIb.empty()?matchMap.get():nullptr;}
  struct TexDiagSeen {std::string key;texdiag::Renderer info;};std::map<Ptr,TexDiagSeen> texDiagSeen;std::map<std::string,std::string> texDiagLogged,texDiagMatched;
  std::unique_ptr<renderprobe::UnityReader> texDiagReader;
  struct RenderBones {std::vector<std::pair<Ptr,uint32_t>> bones;std::string error;};
@@ -304,6 +310,9 @@ struct Runtime::Impl {
     else try{auto b=read(file,16u<<20);pcWorker=std::make_shared<const pcdb::Db>(pcdb::parse(std::string(b.begin(),b.end())));
      pcNote=std::to_string(pcWorker->characters.size())+" PC characters, "+std::to_string(pcWorker->comps.size())+" components, "+std::to_string(pcWorker->byIb.size())+" index-buffer and "+std::to_string(pcWorker->byTexture.size())+" texture hashes from "+pcWorker->source+" @"+pcWorker->commit.substr(0,7)+" ("+pcWorker->date+")";}
     catch(const std::exception& ex){pcWorker.reset();pcNote=std::string("unreadable (")+ex.what()+"); not used";}}}
+  {auto file=shared+"/device-hashes.json";auto st=exists(file)?stampOf(file):std::string();if(st!=bundledStamp){bundledStamp=st;news=true;bundledWorker.reset();bundledNote.clear();
+    if(!st.empty())try{auto b=read(file,32u<<20);bundledWorker=std::make_shared<const pcdb::DeviceMap>(pcdb::parseMap(std::string(b.begin(),b.end())));}
+    catch(const std::exception& ex){bundledNote=std::string("device-hashes.json unreadable (")+ex.what()+"); not used";}}}
   std::shared_ptr<pcdb::DeviceMap> mapNow;
   if(!pcMapRead){pcMapRead=true;auto file=shared+"/hash-map.json";mapNow=std::make_shared<pcdb::DeviceMap>();
    if(exists(file))try{auto b=read(file,16u<<20);*mapNow=pcdb::parseMap(std::string(b.begin(),b.end()));}catch(const std::exception& ex){pcNote+=std::string("; hash-map.json unreadable (")+ex.what()+"), started anew";}
@@ -326,7 +335,7 @@ struct Runtime::Impl {
    catch(const std::exception& ex){f.error=ex.what();}now[path]=f;}
   bool same=now.size()==texDiagWorker.size();if(same)for(auto& kv:now){auto o=texDiagWorker.find(kv.first);same=same&&o!=texDiagWorker.end()&&o->second.content==kv.second.content&&o->second.error==kv.second.error;}
   if(same&&!news){texDiagWorker=now;return;}
-  texDiagWorker=now;std::lock_guard<std::mutex> l(sm);texDiagScanned=std::move(now);pcScanned=pcWorker;pcScannedNote=pcNote;if(mapNow)mapScanned=mapNow;texDiagFresh=true;}
+  texDiagWorker=now;std::lock_guard<std::mutex> l(sm);texDiagScanned=std::move(now);pcScanned=pcWorker;pcScannedNote=pcNote+(bundledNote.empty()?"":"; "+bundledNote);bundledScanned=bundledWorker;if(mapNow)mapScanned=mapNow;texDiagFresh=true;}
  // urgent: the character is appearing now: its job goes ahead of the queue (once; a queued copy then finds it loaded).
  void requestLoad(const ModelInfo& m,bool urgent=false){
   auto key=m.path+"|"+m.generation;{std::lock_guard<std::mutex> l(sm);auto it=loaded.find(m.path);if(it!=loaded.end()&&it->second.generation==m.generation)return;
@@ -496,8 +505,9 @@ struct Runtime::Impl {
   {std::lock_guard<std::mutex> l(sm);if(texDiagFresh){texDiagFresh=false;
     for(auto& kv:texDiagDocs)if(!texDiagScanned.count(kv.first))log("texture-diag-ini",kv.first+": removed");
     texDiagDocs=texDiagScanned;texDiagMatched.clear();texDiagLogged.clear();texDiagSeen.clear();texQuickNo.clear();texMatches.clear();texMatchLive.clear();
-    pcDb=pcScanned;if(mapScanned&&!devMap){devMap=mapScanned;}mapScanned.reset();
-    if(pcScannedNote!=pcLogged){pcLogged=pcScannedNote;log("pc-hashes",pcScannedNote+(devMap?"; this device's hash map: "+std::to_string(devMap->byIb.size())+" index-buffer hash(es) tied to a mesh":""));}
+    pcDb=pcScanned;if(mapScanned&&!devMap){devMap=mapScanned;}mapScanned.reset();if(bundledMap!=bundledScanned){bundledMap=bundledScanned;}matchDirty=true;
+    {std::string note=pcScannedNote+"; hash maps: "+std::to_string(bundledMap?bundledMap->byIb.size():0)+" index-buffer hash(es) shipped with the App (device-hashes.json), "+std::to_string(devMap?devMap->byIb.size():0)+" captured on this device (hash-map.json)";
+     if(note!=pcLogged){pcLogged=note;log("pc-hashes",note);}}
     // A mod file read anew (start, re-import): its saved mapping is checked against this build and these rules.
     for(auto& kv:texDiagDocs)if(kv.second.mod&&texRecordsGen[kv.first]!=kv.second.mod->generation){texRecordsGen[kv.first]=kv.second.mod->generation;texLoadMapping(kv.first,kv.second);}   // a new or changed file: everything logged once more
     for(auto& kv:texDiagDocs){auto& f=kv.second;if(!f.doc){texDiagLog("texture-diag-unsupported","file|"+kv.first,kv.first+": "+f.error);continue;}auto& d=*f.doc;
@@ -542,7 +552,7 @@ struct Runtime::Impl {
   for(size_t i=0;i<live.size();i++)for(auto& m:live[i].materials)for(size_t j:users[m.material])if(j!=i)m.sharedWith.push_back(texdiag::label(live[j]));
   std::string stamp;for(auto& r:live)stamp+=texDiagSeen[r.renderer].key+";";
   for(auto* d:docs){auto& last=texDiagMatched[d->path];if(last==d->stamp+"|"+stamp)continue;last=d->stamp+"|"+stamp;
-   auto matches=texdiag::match(*d,live,devMap.get());unsigned counts[5]={0,0,0,0,0};bool mod=false;{auto f=texDiagDocs.find(d->path);mod=f!=texDiagDocs.end()&&f->second.mod;}
+   auto matches=texdiag::match(*d,live,deviceMap());unsigned counts[5]={0,0,0,0,0};bool mod=false;{auto f=texDiagDocs.find(d->path);mod=f!=texDiagDocs.end()&&f->second.mod;}
    if(mod)texRemember(*d,matches,live);
    for(auto& m:matches){counts[int(m.verdict)]++;if(m.verdict==texdiag::Verdict::Skipped)continue;texDiagLog("texture-diag-match","match|"+d->path+"|"+d->rules[m.rule].section+"|"+std::to_string(m.renderer)+"|"+std::to_string(m.slot),texdiag::matchLine(*d,m,live));}
    texDiagLog("texture-diag-match","sum|"+d->path,d->name+": "+std::to_string(live.size())+" renderers of "+std::to_string(ch.config)+": "+std::to_string(counts[0])+" 确定匹配, "+std::to_string(counts[1])+" 高可信候选, "
@@ -867,7 +877,7 @@ struct Runtime::Impl {
     std::vector<texdiag::Renderer> infos;for(Ptr r:list)if(alive(r)&&!attachments.count(r)){try{infos.push_back(texLightRead(r));texSeen(infos.back().native,"hand-off");}catch(const std::exception& ex){log("texture-error",m.name+": hand-off read of "+hex(r)+": "+ex.what());}}
     if(infos.empty()){continue;}bool own=ch.entity&&m.character==ch.config;auto ri=texRecords.find(kv.first);if(!own&&ri!=texRecords.end())for(auto& rec:ri->second)for(auto& i:infos)own=own||(!rec.avatar.empty()&&i.avatar==rec.avatar);
     if(!own){if(texHandoffSaid.insert(m.name+"|"+goName).second)log("texture-handoff",m.name+": "+goName+" ("+std::to_string(infos.size())+" renderers) is not character "+std::to_string(m.character)+" (controlled "+std::to_string(ch.config)+", no saved avatar matches); not matched");continue;}
-    auto matches=texdiag::match(m.doc,infos,devMap.get());unsigned confirmed=0;for(auto& x:matches)confirmed+=x.verdict==texdiag::Verdict::Confirmed;
+    auto matches=texdiag::match(m.doc,infos,deviceMap());unsigned confirmed=0;for(auto& x:matches)confirmed+=x.verdict==texdiag::Verdict::Confirmed;
     for(auto& x:matches)if(x.verdict==texdiag::Verdict::Confirmed&&x.renderer>=0){auto& tt=texTimes[infos[size_t(x.renderer)].native];if(!tt.matched){tt.matched=texClock();}}
     texRemember(m.doc,matches,infos);std::string lods;for(auto& i:infos)if(i.lod)lods+=(lods.empty()?"":", ")+i.name+"/"+i.meshName;
     log("texture-handoff",m.name+": "+goName+" handed over: "+std::to_string(infos.size())+" renderers read and matched in "+std::to_string(texClock()-t0)+" ms, "+std::to_string(confirmed)+" slot(s) confirmed by index starts"+(lods.empty()?"":"; lower LOD: "+lods));
@@ -997,7 +1007,7 @@ struct Runtime::Impl {
    {if(!devMap)devMap=std::make_shared<pcdb::DeviceMap>();auto ib=hex8(h.value);auto& x=devMap->byIb[ib];
     if(x.mesh!=R.meshName||x.vertices!=R.vertices){x.ib=ib;x.variant=vkcap::variantName(h.variant);x.renderer=normalize(R.name);x.mesh=R.meshName;x.avatar=R.avatar;x.build=abi::buildId;x.vertices=R.vertices;x.bones=R.bones;x.subs.clear();
      for(auto& sb:R.layout.subs){x.subs.push_back({uint32_t(sb.start),uint32_t(sb.count)});}
-     if(pcDb){auto pc=pcDb->byIb.find(ib);if(pc!=pcDb->byIb.end()){x.character=pcDb->comps[pc->second[0]].character;x.component=pcDb->comps[pc->second[0]].name;}}devMapDirty=true;}}
+     if(pcDb){auto pc=pcDb->byIb.find(ib);if(pc!=pcDb->byIb.end()){x.character=pcDb->comps[pc->second[0]].character;x.component=pcDb->comps[pc->second[0]].name;}}devMapDirty=true;matchDirty=true;}}
    if(added){texQuickNo.clear();texWaitUntil.clear();texSaveMapping(kv.first);}tied=true;}
   return tied;}
  void texSay0(const std::string& key,const std::string& state,const std::string& line){if(ibSaid.insert(key).second)log(state,line);}
@@ -1055,7 +1065,7 @@ struct Runtime::Impl {
   worker.post([file,body]{try{writeAtomic(file,body);}catch(...){}});texQuickNo.clear();texWaitUntil.clear();texDiagMatched.clear();}
  void devMapPut(const std::string& ib,const std::string& variant,const std::string& character,const std::string& component,const CapMesh& m){auto& e=devMap->byIb[ib];
   if(e.mesh==m.mesh&&e.vertices==m.vertices&&e.subs==m.subs&&e.character==character)return;
-  e=pcdb::Mesh{};e.ib=ib;e.variant=variant;e.character=character;e.component=component;e.renderer=normalize(m.renderer);e.mesh=m.mesh;e.avatar=m.avatar;e.build=abi::buildId;e.vertices=m.vertices;e.bones=m.bones;e.subs=m.subs;devMapDirty=true;}
+  e=pcdb::Mesh{};e.ib=ib;e.variant=variant;e.character=character;e.component=component;e.renderer=normalize(m.renderer);e.mesh=m.mesh;e.avatar=m.avatar;e.build=abi::buildId;e.vertices=m.vertices;e.bones=m.bones;e.subs=m.subs;devMapDirty=true;matchDirty=true;}
  // One upload: tied to its mesh when exactly one read mesh has its counts; false while it is not (tried again later).
  bool capTie(const vkcap::Blob& b){const vkcap::Hash* pc=nullptr;const pcdb::Component* comp=nullptr;
   if(pcDb)for(auto& h:b.hashes){auto it=pcDb->byIb.find(hex8(h.value));if(it!=pcDb->byIb.end()){pc=&h;comp=&pcDb->comps[it->second[0]];break;}}
@@ -1130,12 +1140,12 @@ struct Runtime::Impl {
  static std::string capStarts(const std::vector<std::pair<uint32_t,uint32_t>>& subs){std::string o;for(auto& s:subs)o+=(o.empty()?"":",")+std::to_string(s.first);return "["+o+"]";}
  std::string captureReport(){std::string o="GIBox hash 对比报告：安卓采集的索引缓冲 vs PC（GI-Model-Importer-Assets）\n";
   o+="游戏版本 "+std::string(abi::buildId).substr(0,8)+"；PC 数据库 "+(pcDb?pcDb->source+" @"+pcDb->commit.substr(0,7)+"（"+pcDb->date+"）":std::string("未安装（打开一次 GIBox App 会装上）"))+"\n";
-  o+="本次读到角色网格 "+std::to_string(capMeshes.size())+" 个；与 PC 索引缓冲 hash 相同的上传对应到网格 "+std::to_string(capTies.size())+" 个，未对应 "+std::to_string(capOpen.size())+" 个；hash-map.json 共 "+std::to_string(devMap?devMap->byIb.size():0)+" 个 hash（含之前几次；PC 没有的网格按三种上传方式各记一条）\n";
+  o+="本次读到角色网格 "+std::to_string(capMeshes.size())+" 个；与 PC 索引缓冲 hash 相同的上传对应到网格 "+std::to_string(capTies.size())+" 个，未对应 "+std::to_string(capOpen.size())+" 个；本机 hash-map.json 共 "+std::to_string(devMap?devMap->byIb.size():0)+" 个 hash（含之前几次；PC 没有的网格按三种上传方式各记一条），随 App 提供的 device-hashes.json "+std::to_string(bundledMap?bundledMap->byIb.size():0)+" 个\n";
   o+="说明：hash 相同 = 安卓上传的索引数据逐字节等于 PC 的；“起点”是各子网格的 indexStart，PC 的是各段 match_first_index。\n";
   if(!ctl.enabled)o+="注意：模型替换总开关关着，场景里只读到当前操控角色的渲染器；其他角色靠“已加载的网格”补读（只限 hash 与 PC 相同的上传）\n";
   if(capAllMeshes)o+="已加载网格扫描：最近一次看了 "+std::to_string(capAllMeshes)+" 个网格，累计补读 "+std::to_string(capAllAdded)+" 个（与 PC 相同、但没显示的上传）"+(capClones?"，跳过 "+std::to_string(capClones)+" 个复制出来的网格（(Clone)，如 GIBox 为还原保存的副本）":"")+"\n";
   // Per PC character with something tied (this session or earlier): every component, tied or not.
-  std::map<std::string,std::vector<size_t>> chars;std::set<std::string> any;for(auto& kv:capTies)any.insert(kv.second.character);if(devMap)for(auto& kv:devMap->byIb)if(!kv.second.character.empty())any.insert(kv.second.character);
+  std::map<std::string,std::vector<size_t>> chars;std::set<std::string> any;for(auto& kv:capTies)any.insert(kv.second.character);const pcdb::DeviceMap* known=deviceMap();if(known)for(auto& kv:known->byIb)if(!kv.second.character.empty())any.insert(kv.second.character);
   if(pcDb)for(size_t i=0;i<pcDb->comps.size();i++)if(any.count(pcDb->comps[i].character))chars[pcDb->comps[i].character].push_back(i);
   o+="\n== 和 PC 对上的角色（"+std::to_string(chars.size())+" 个）\n";
   std::set<std::string> tiedMeshes;
@@ -1143,12 +1153,12 @@ struct Runtime::Impl {
    for(size_t i:kv.second){auto& c=pcDb->comps[i];o+="  "+(c.name.empty()?std::string("（无名部件）"):c.name)+"  ";
     if(c.ib.empty()){std::string tx;for(auto& sub:c.textures)for(auto& b:sub)tx+=(tx.empty()?"":" ")+b.first+"="+b.second;o+="PC 没有它的索引缓冲 hash（只有贴图："+tx+"）；按部件名对应\n";continue;}
     o+="ib "+c.ib+"  PC 起点 "+texdiag::joined(c.indexes)+(c.counts.empty()?"":" 数量 "+texdiag::joined(c.counts))+"\n";
-    auto t=capTies.find(c.ib);const pcdb::Mesh* dm=nullptr;if(devMap){auto d=devMap->byIb.find(c.ib);if(d!=devMap->byIb.end())dm=&d->second;}
+    auto t=capTies.find(c.ib);const pcdb::Mesh* dm=nullptr;if(known){auto d=known->byIb.find(c.ib);if(d!=known->byIb.end())dm=&d->second;}
     if(t!=capTies.end()){auto m=capMeshes.find(t->second.meshKey);if(m!=capMeshes.end()){auto& x=m->second;tiedMeshes.insert(t->second.meshKey);bool same=pcdb::startsEqual(x.subs,c.indexes);
       std::string counts;for(auto& sb:x.subs)counts+=(counts.empty()?"":",")+std::to_string(sb.second);
       o+="      = "+(x.avatar.empty()?std::string("（已加载、未显示）"):x.avatar+" / "+x.renderer)+" / 网格 "+x.mesh+"（"+std::to_string(x.vertices)+" 顶点，"+std::to_string(x.indices)+" 索引）；安卓起点 "+capStarts(x.subs)+" 数量 ["+counts+"] "+(same?"与 PC 一致 ✓":"与 PC 不同 ✗")+"；上传方式："+t->second.variant+"\n";continue;}}
     auto op=capOpen.find(c.ib);
-    if(dm){o+="      之前采集过（版本 "+dm->build.substr(0,8)+"）："+(dm->avatar.empty()?std::string("（已加载、未显示）"):dm->avatar+" / "+dm->renderer)+" / 网格 "+dm->mesh+"（"+std::to_string(dm->vertices)+" 顶点）起点 "+capStarts(dm->subs)+(pcdb::startsEqual(dm->subs,c.indexes)?" 与 PC 一致 ✓":" 与 PC 不同 ✗")+(op!=capOpen.end()?"；本次也见到了 hash 相同的上传":"")+"\n";continue;}
+    if(dm){o+=std::string(devMap&&devMap->byIb.count(c.ib)?"      之前采集过":"      随 App 提供的 hash 表")+"（版本 "+dm->build.substr(0,8)+"）："+(dm->avatar.empty()?std::string("（已加载、未显示）"):dm->avatar+" / "+dm->renderer)+" / 网格 "+dm->mesh+"（"+std::to_string(dm->vertices)+" 顶点）起点 "+capStarts(dm->subs)+(pcdb::startsEqual(dm->subs,c.indexes)?" 与 PC 一致 ✓":" 与 PC 不同 ✗")+(op!=capOpen.end()?"；本次也见到了 hash 相同的上传":"")+"\n";continue;}
     if(op!=capOpen.end()){o+="      本次见到 hash 相同的上传（#"+std::to_string(op->second.seq)+"，"+op->second.variant+"），但没读到对应网格："+op->second.note;for(auto& x:op->second.meshes){o+="；"+x;}o+="\n";continue;}
     o+="      本次没见到与它 hash 相同的上传（这件衣服/部件没出现，或安卓的索引数据与 PC 不同）\n";}}
   // PC hashes uploaded but tied to no single mesh, of characters not above (a character GIBox replaces by a mesh mod

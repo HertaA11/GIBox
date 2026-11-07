@@ -1505,7 +1505,14 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
     Ptr ghost=f->renderer(f->mesh("Ghost",3));auto scene=f->scene;f->scene.push_back(ghost);for(uint64_t end=t+600;t<end;t+=100)q.tick(t);
     Ptr klass=load<Ptr>(ghost),native=load<Ptr>(ghost+0x10);f->scene=scene;store<Ptr>(ghost,f->kindClass("string"));store<uint64_t>(ghost+0x10,0x0061005300000005ull);
     for(uint64_t end=t+1500;t<end;t+=100){q.tick(t);}store<Ptr>(ghost,klass);store<Ptr>(ghost+0x10,native);
-    q.shutdown();assert(f->diffuse[gmat]==gameTex&&f->diffuse[bmat]==gameTex);}}
+    q.shutdown();assert(f->diffuse[gmat]==gameTex&&f->diffuse[bmat]==gameTex);}
+   // Another device: no capture of its own, only the map shipped with the App (device-hashes.json, as the App installs
+   // it): the mod is matched all the same.
+   {std::filesystem::rename(sharedC+"/hash-map.json",sharedC+"/device-hashes.json");std::filesystem::remove_all(modC+"/texture-mapping.json");
+    Runtime q(e,pkg,root+"/privateCap3",mediaC,false);uint64_t t=17000000;for(uint64_t end=t+4000;t<end;t+=100)q.tick(t);
+    assert(countC(": 9 index-buffer hash(es) shipped with the App (device-hashes.json), 0 captured on this device (hash-map.json)")==1&&!exists(sharedC+"/hash-map.json"));
+    assert(countC(std::string("TextureOverrideNewBody hash=")+hbody+" match_first_index=0 -> 确定匹配 renderer=Body#")==2&&f->diffuse[bmat]!=gameTex);
+    q.shutdown();assert(f->diffuse[bmat]==gameTex);}}
   f->world(0);}
  // Game 7.2: the manager's and the entity's ID fields are found by what they hold (offsets.hpp candidates). Two entity
  // fields in the config range with different values: nothing is taken and the candidates are logged; once one of them

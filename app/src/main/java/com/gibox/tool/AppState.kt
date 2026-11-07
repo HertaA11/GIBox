@@ -144,14 +144,17 @@ class AppState(private val activity: Activity) {
         installPcHashes()
         revision++
     }
-    /** The PC hash database (assets/pc-hashes.json, THIRD_PARTY.md): the game reads it from the shared folder. */
+    /** The PC hash database (assets/pc-hashes.json, THIRD_PARTY.md) and the device hash map shipped with the App
+     *  (assets/device-hashes.json): the game reads both from the shared folder. */
     private fun installPcHashes() {
         if (pcHashesFor == game || !storage) return
         runCatching {
-            val bytes = activity.assets.open("pc-hashes.json").use { it.readBytes() }
-            if (Control.installShared(game, "pc-hashes.json", bytes)) AppLog.info(game, LOGGER, "已安装 PC hash 数据库（${bytes.size / 1024} KB）")
+            for ((file, what) in listOf("pc-hashes.json" to "PC hash 数据库", "device-hashes.json" to "手机 hash 表")) {
+                val bytes = activity.assets.open(file).use { it.readBytes() }
+                if (Control.installShared(game, file, bytes)) AppLog.info(game, LOGGER, "已安装$what（${bytes.size / 1024} KB）")
+            }
             pcHashesFor = game
-        }.onFailure { AppLog.warning(game, LOGGER, "PC hash 数据库安装失败：${it.message}") }
+        }.onFailure { AppLog.warning(game, LOGGER, "hash 数据安装失败：${it.message}") }
     }
     fun refreshStatus() { status = Control.status(game) }
     fun acceptStatus(pkg: String, snapshot: Control.Status) { if (game == pkg) status = snapshot }
