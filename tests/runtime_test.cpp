@@ -1462,6 +1462,8 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
    // A model the game loaded and does not show (on no renderer): its PC hash is uploaded, its mesh found among the loaded ones.
    uint16_t cape[9]={0,1,2,0,2,3,1,2,3};char hcape[12];std::snprintf(hcape,sizeof hcape,"%08x",ms::vkcap::ibHashes(reinterpret_cast<const uint8_t*>(cape),18)[2].value);
    Ptr capeMesh=f->mesh("Cape",4);texRanges[capeMesh]={{0,9}};
+   // and a copy of it with the same counts (as GIBox's restore snapshot of a replaced character's mesh): not taken.
+   Ptr capeCopy=f->mesh("Cape(Clone)",4);texRanges[capeCopy]={{0,9}};
    store<Ptr>(f->owner+0x68,f->array(8,2,two));std::filesystem::create_directories(sharedC);
    write(sharedC+"/pc-hashes.json",std::string(R"J({"format":"gibox-pc-hashes","version":1,"source":"test","commit":"2039d16d4b64696098ba53cd69888ce967397be9","date":"2026-08-03","characters":[{"name":"Lin","avatar":10000107,"components":[
     {"name":"Bangs","ib":")J")+hb+R"J(","indexes":[0],"textures":[[["LightMap","0f6493aa"],["Diffuse","ab64b4cc"]]]},{"name":"Body","ib":"d5ae71a3","indexes":[0,100],"textures":[]},
@@ -1479,6 +1481,7 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
     assert(rep.find("Lin（AvatarId 10000107）")!=std::string::npos&&rep.find("与 PC 一致 ✓")!=std::string::npos&&rep.find("Body  ib d5ae71a3")!=std::string::npos&&rep.find("本次没见到与它 hash 相同的上传")!=std::string::npos);
     assert(f->meshFinds>=1&&countC(std::string("hash-capture ")+hcape+" = PC Lin Cape (upload #")==1&&countC("mesh Cape (loaded, not shown)")==1);
     assert(rep.find("Cape  ib "+std::string(hcape))!=std::string::npos&&rep.find("= （已加载、未显示） / 网格 Cape（4 顶点，9 索引）")!=std::string::npos);
+    assert(rep.find("跳过 1 个复制出来的网格")!=std::string::npos&&rep.find("Cape(Clone)")==std::string::npos);
     assert(rep.find(std::string("Body / 网格 Body（3 顶点，3 索引，起点 [0]）：hash 数据 "))!=std::string::npos&&rep.find(std::string("IB|SRV|UAV ")+hbody)!=std::string::npos&&rep.find("（已记入 hash-map）")!=std::string::npos);
     auto map=text(sharedC+"/hash-map.json");assert(map.find(std::string("\"ib\":\"")+hb+"\"")!=std::string::npos&&map.find(std::string("\"ib\":\"")+hbody+"\",\"variant\":\"as uploaded, desc DEFAULT, Bind=IB|SRV|UAV\",\"character\":\"\"")!=std::string::npos);
     T.installed(false,"");q.shutdown();}

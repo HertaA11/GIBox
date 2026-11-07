@@ -1042,7 +1042,7 @@ struct Runtime::Impl {
  struct CapMesh {std::string renderer,mesh,avatar;unsigned vertices=0,bones=0;bool lod=false;std::vector<std::pair<uint32_t,uint32_t>> subs;uint64_t indices=0;std::vector<std::string> hashes;};
  struct CapTie {std::string ib,variant,character,component,meshKey,note;uint64_t seq=0;uint32_t bytes=0,max16=0,max32=0;uint8_t form=0;std::vector<std::string> meshes;};
  std::map<std::string,CapMesh> capMeshes;std::multimap<std::pair<uint64_t,uint64_t>,std::string> capShape;std::set<std::pair<Ptr,Ptr>> capRead;std::map<std::string,CapTie> capTies,capOpen;
- std::set<uint64_t> capPending;std::set<Ptr> capMeshRead;std::string capAllKey;uint64_t capAllLast=0,capAllMeshes=0,capAllAdded=0;uint64_t capSeq=0,capAt=0,capReportAt=0,capOther=0;unsigned capSkippedOurs=0;bool capDirty=false,capSaid=false;std::string capLast;
+ std::set<uint64_t> capPending;std::set<Ptr> capMeshRead;std::string capAllKey;uint64_t capAllLast=0,capAllMeshes=0,capAllAdded=0,capClones=0;uint64_t capSeq=0,capAt=0,capReportAt=0,capOther=0;unsigned capSkippedOurs=0;bool capDirty=false,capSaid=false;std::string capLast;
  static std::string capKey(const std::string& mesh,unsigned vertices,uint64_t indices){return mesh+"|"+std::to_string(vertices)+"|"+std::to_string(indices);}
  static std::string capKind(uint8_t v){return (v&3)==0?"数据":(v&3)==1?"IB":(v&3)==2?"IB|SRV|UAV":"IMMUTABLE";}
  // The meshes whose index and vertex counts an upload has, read with the index width its hash variant was taken with
@@ -1082,9 +1082,11 @@ struct Runtime::Impl {
  // An upload whose hash the PC database knows but no shown mesh has its counts: often a model the game loaded and does
  // not show (a list, the next character in the archive). Every loaded Mesh (findObjectsNative, mode 2 as
  // Resources.FindObjectsOfTypeAll) with such an upload's vertex count is read, and kept when its index and vertex counts
- // are the upload's. At most every 5 s while that set of uploads changes, every 30 s while it does not.
+ // are the upload's; never a copy (an Instantiate'd "(Clone)": GIBox's restore snapshot of a replaced character's mesh
+ // has the original's counts). Every second while that set of uploads changes (the archive unloads the previous
+ // character within seconds), every 30 s while it does not.
  void capScanLoaded(uint64_t now,const std::vector<Ptr>& pool){if(capOpen.empty())return;std::string key;for(auto& kv:capOpen)key+=kv.first;
-  if(now<capAllLast+(key==capAllKey?30000u:5000u))return;
+  if(now<capAllLast+(key==capAllKey?30000u:1000u))return;
   Ptr sample=0;for(Ptr r:pool){if(!alive(r)||attachments.count(r))continue;Ptr m=e.get(abi::getMesh,r);if(alive(m)){sample=m;break;}}if(!sample&&!meshTypeObject)return;
   capAllLast=now;capAllKey=key;
   std::set<std::pair<uint64_t,uint64_t>> want;std::set<uint64_t> verts;
@@ -1095,7 +1097,7 @@ struct Runtime::Impl {
      uint64_t v=uint64_t(e.call<int32_t>(abi::meshVertices,m,Ptr(0)));if(!verts.count(v))continue;capMeshRead.insert(nm);
      renderprobe::UnityReader::MeshLayout l;l.status="未采集: not read yet";texDiagMesh(m,l);CapMesh c;bool all=!l.subs.empty();
      for(auto& sb:l.subs){all=all&&sb.known;c.subs.push_back({uint32_t(sb.start),uint32_t(sb.count)});}c.indices=pcdb::indices(c.subs);if(!all||!want.count({c.indices,v}))continue;
-     auto fp=fingerprint(m);c.mesh=fp.mesh;c.vertices=unsigned(v);c.bones=fp.bones;c.lod=lowerLod(fp.mesh);
+     auto fp=fingerprint(m);if(fp.mesh.find("(Clone)")!=std::string::npos){capClones++;continue;}c.mesh=fp.mesh;c.vertices=unsigned(v);c.bones=fp.bones;c.lod=lowerLod(fp.mesh);
      auto k=capKey(c.mesh,c.vertices,c.indices);if(capMeshes.emplace(k,c).second){capShape.insert({{c.indices,uint64_t(c.vertices)},k});added++;}}}}
   catch(...){freeOwned(tmp);throw;}freeOwned(tmp);if(capMeshRead.size()>200000)capMeshRead.clear();
   capAllMeshes=looked;capAllAdded+=added;
@@ -1131,7 +1133,7 @@ struct Runtime::Impl {
   o+="本次读到角色网格 "+std::to_string(capMeshes.size())+" 个；与 PC 索引缓冲 hash 相同的上传对应到网格 "+std::to_string(capTies.size())+" 个，未对应 "+std::to_string(capOpen.size())+" 个；hash-map.json 共 "+std::to_string(devMap?devMap->byIb.size():0)+" 个 hash（含之前几次；PC 没有的网格按三种上传方式各记一条）\n";
   o+="说明：hash 相同 = 安卓上传的索引数据逐字节等于 PC 的；“起点”是各子网格的 indexStart，PC 的是各段 match_first_index。\n";
   if(!ctl.enabled)o+="注意：模型替换总开关关着，场景里只读到当前操控角色的渲染器；其他角色靠“已加载的网格”补读（只限 hash 与 PC 相同的上传）\n";
-  if(capAllMeshes)o+="已加载网格扫描：最近一次看了 "+std::to_string(capAllMeshes)+" 个网格，累计补读 "+std::to_string(capAllAdded)+" 个（与 PC 相同、但没显示的上传）\n";
+  if(capAllMeshes)o+="已加载网格扫描：最近一次看了 "+std::to_string(capAllMeshes)+" 个网格，累计补读 "+std::to_string(capAllAdded)+" 个（与 PC 相同、但没显示的上传）"+(capClones?"，跳过 "+std::to_string(capClones)+" 个复制出来的网格（(Clone)，如 GIBox 为还原保存的副本）":"")+"\n";
   // Per PC character with something tied (this session or earlier): every component, tied or not.
   std::map<std::string,std::vector<size_t>> chars;std::set<std::string> any;for(auto& kv:capTies)any.insert(kv.second.character);if(devMap)for(auto& kv:devMap->byIb)if(!kv.second.character.empty())any.insert(kv.second.character);
   if(pcDb)for(size_t i=0;i<pcDb->comps.size();i++)if(any.count(pcDb->comps[i].character))chars[pcDb->comps[i].character].push_back(i);
