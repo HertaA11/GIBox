@@ -6,7 +6,7 @@ inline constexpr const char* buildId="6d85e3141bcd6b508f3e853bab508cc407278eac";
 // RVAs valid only for the above GNU Build ID (game 7.2). Every method RVA below was carried over from the 7.1 build
 // (2b4dd731...) by its declaration in the two dump.cs files: by name and signature where names are not obfuscated, by the
 // class's shape and the method's signature where they are (tick: LFEMMJADHPE.Tick, receive: GCGEJOPPGAE's only
-// (ulong, bool, uint, GameObject) method, blockShared and the material proxy DCCKGJFKIID at shape score 1.0). Native code
+// (ulong, bool, uint, GameObject) method, the material proxy DCCKGJFKIID at shape score 1.0). Native code
 // and data that no dump declares are notFound+n here until found in this build's libyuanshen.so (pendingRequired):
 // distinct values no RVA of this image reaches, never called (the runtime does not start, an optional hook is skipped).
 inline constexpr const char* pendingRequired="";
@@ -15,8 +15,6 @@ inline constexpr const char* pendingRequired="";
 inline bool allocVerified=true;
 // MemoryManager: its "initialised" byte (Allocate takes the label's allocator only when it is 1).
 inline constexpr uintptr_t managerActive=0xc4e;
-// Missing ones that only switch a feature off: the bind hooks, the old template scan, the hand-off diagnostics.
-inline constexpr const char* pendingOptional="ready activate";
 // The entity manager: *(base + manager) + managerSlot (7.1: 0x159c1638, 0x8c00). Read from the 7.2 accessor that
 // returns it, NKIIBJKODNH.POKJNBEFKHA() at 0xc887d04 (7.1: AHJIDBJFIJE.MKFJCCPNOAC()):
 // ADRP X8, 0x15809000; MOV W9, #0x9070; LDR X8, [X8, #0x5a0]; LDR X0, [X8, X9]; RET.
@@ -68,9 +66,9 @@ enum Offset:uintptr_t {
  getMesh=0x8f4217c,setMesh=0x8f4235c,getBones=0x8f420b4,getMaterials=0x8f03940,setMaterials=0x8f0399c,
  clone=0x8ffeb20,destroy=0x8ffe3a0,getName=0x8ffe494,getParent=0x8fffc18,
  arrayNew=0x43beb7c,objectNew=0x43cdaf8,pin=0xed0741c,unpin=0xed07434,
- // Historical enum name: 0xc53a98c is Mesh.set_isReadable(bool), not Mesh.Clear.
- clear=0xc53a98c,setIndexFormat=0xc53a828,getBindposes=0xc53a984,
- getPositions=0xc53adcc,setPositions=0xc53addc,getNormals=0xc53adec,setNormals=0xc53adfc,
+ // Mesh.set_isReadable(bool).
+ setReadable=0xc53a98c,setIndexFormat=0xc53a828,getBindposes=0xc53a984,
+ getPositions=0xc53adcc,setPositions=0xc53addc,setNormals=0xc53adfc,
  getUV=0xc53ae28,setUV=0xc53ae38,setUV2=0xc53ae58,setUV3=0xc53ae78,setUV4=0xc53ae98,
  getColors=0xc53aec4,setColors=0xc53aed8,getTangents=0xc53ae0c,setTangents=0xc53ae18,
  getTriangles=0xc53b1f4,setTriangles=0xc53b298,setSubmeshCount=0xc53a9dc,setSubmeshTriangles=0xc53b7a0,
@@ -90,7 +88,7 @@ enum Offset:uintptr_t {
  findObjectsOfType=0x8ffe48c,
  // The native body itself: (Type, mode). The object flag word (+0xC) filters by mode: 1 skips persistent objects (bit 20,
  // assets) and inactive ones; 2 skips nothing (the "MOV W1,#2" thunk at 0x49ea170, Resources.FindObjectsOfTypeAll).
- // Used by 0.3.4's template scan; unused since 0.3.5 (the async hand-off below replaced it).
+ // Capture (0.7.86) calls it with mode 2 for every loaded Mesh (hash-report.txt "loaded, not shown").
  findObjectsNative=0x5b540f0,
  // GameObject.GetComponentsInChildren(Type, bool includeInactive) -> Component[]; Component.get_gameObject.
  componentsInChildren=0x9577734,gameObject=0x80e5b50,
@@ -111,14 +109,6 @@ enum Offset:uintptr_t {
  typeObject=0x43b1824,
  // il2cpp Class::FromIl2CppType(const Il2CppType*, bool) -> Il2CppClass*; reads the type enum at +0xA.
  classFromType=0x43b24b4,
- // Debug experiment "slotTextures" (0.7.21, from dump.cs): mod textures per draw slot on the game's own materials.
- // EDCOENBDHKC.OMKNLIHGPJJ.IBKLJFNMENG(): the game's shared MaterialPropertyBlock; only its class is used (for our own).
- blockShared=0xee0ff98,
- // MaterialPropertyBlock: .ctor(), Clear(), SetTexture(int, Texture), GetTexture(int).
- blockCtor=0xb7b2400,blockClear=0xb7b2574,blockSetTexture=0xb7b3004,blockGetTexture=0xb7b367c,
- // Renderer: GetPerMaterialPropertyBlock(block, index), SetPerMaterialPropertyBlock(block, index), AllowPerMaterialProp(),
- // SetAllowPerMaterialProp(bool), SetPerMaterialCustomPropertyTexture(matID, propID, Texture, updateHash).
- getSlotBlock=0x8f02900,setSlotBlock=0x8f02904,allowSlotProps=0x8f028f8,setAllowSlotProps=0x8f028fc,setSlotCustomTexture=0x8f02aec,
  // Texture-only diagnostics (texture_diag.hpp), read-only getters from dump.cs of this build. This build exports no il2cpp_*
  // API (0.7.49 device log: "missing export il2cpp_domain_get"), so the named-method path cannot reach them.
  //   Mesh: get_subMeshCount(), get_vertexCount(), get_isReadable(), and the icalls behind GetIndexStart(int) /

@@ -10,21 +10,16 @@
 #include <iterator>
 #include <thread>
 #include "dobby.h"
-#include "handoff_diagnostics.hpp"
 #include "vk_capture.hpp"
 
 namespace {
 std::atomic<bool> started{false};std::unique_ptr<ms::Runtime> runtime;
 std::atomic<ms::Runtime*> published{nullptr};
 // Process lifetime: partial hook installation still needs its passthroughs.
-std::atomic<ms::handoff::Diagnostics*> handoffDiagnostics{nullptr};
 uint64_t now(){return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();}
 void onTick(void*,DobbyRegisterContext*){
- if(ms::handoff::probeDepth)return; // avoid Runtime reentry caused by a getter
- if(auto* d=handoffDiagnostics.load(std::memory_order_acquire))d->onTick();
  if(auto* p=published.load(std::memory_order_acquire))p->tick(now());
 }
-#if !GIBOX_HANDOFF_DIAGNOSTICS
 // The game's async model hand-off (abi::receive): attach before its own callback, check after (Runtime::spawned).
 using ReceiveFn=void(*)(uintptr_t,uint64_t,bool,uint32_t,uintptr_t,uintptr_t);
 ReceiveFn receiveOriginal=nullptr;
@@ -64,7 +59,6 @@ bool codeMatches(uintptr_t base,const ms::abi::CodeCheck& c){auto* p=reinterpret
  for(size_t i=0;i<16;i+=4){uint32_t want=0,got=0;for(size_t b=0;b<4;b++){want|=uint32_t(digit(c.hex[2*(i+b)])*16+digit(c.hex[2*(i+b)+1]))<<(8*b);got|=uint32_t(p[i+b])<<(8*b);}
   uint32_t m=codeMask(want);if((want&m)!=(got&m))return false;}
  return true;}
-#endif
 struct Image{uintptr_t base=0;const ElfW(Phdr)* ph=nullptr;size_t count=0;};
 int findImage(dl_phdr_info* info,size_t,void* ptr){std::string name=info->dlpi_name?info->dlpi_name:"";auto p=name.find_last_of('/');name=name.substr(p==name.npos?0:p+1);if(name!="libyuanshen.so")return 0;auto& out=*static_cast<Image*>(ptr);out={info->dlpi_addr,info->dlpi_phdr,info->dlpi_phnum};return 1;}
 std::string jstringValue(JNIEnv* env,jstring s){ms::require(s!=nullptr,"Null Java string");const char* p=env->GetStringUTFChars(s,nullptr);ms::require(p!=nullptr,"Cannot decode Java string");std::string out=p;env->ReleaseStringUTFChars(s,p);return out;}
@@ -105,13 +99,6 @@ extern "C" JNIEXPORT void JNICALL Java_com_gibox_tool_NativeBridge_start(JNIEnv*
  runtime=std::move(rt);published.store(runtime.get(),std::memory_order_release);
  int result=DobbyInstrument(reinterpret_cast<void*>(image.base+ms::abi::tick),onTick);
  if(result!=0){published.store(nullptr,std::memory_order_release);runtime.reset();throw std::runtime_error("DobbyInstrument failed: "+std::to_string(result));}bootStatus(pkg,"ready","模型运行时已就绪");
- #if GIBOX_HANDOFF_DIAGNOSTICS
- // A diagnostic failure leaves the existing replacement runtime running.
- try{auto* d=new ms::handoff::Diagnostics(ms::Engine(image.base),sharedDir(pkg)+"/handoff-"+std::to_string(::getpid())+".jsonl");
-  handoffDiagnostics.store(d,std::memory_order_release);std::string error;
-  if(!d->start(error))bootStatus(pkg,"handoff-disabled",error);
- }catch(const std::exception& e){bootStatus(pkg,"handoff-disabled",e.what());}
- #else
  // Replacement at the hand-off; without it the scan still replaces, just not before activation.
  {std::string bad;for(auto& c:ms::abi::handoffChecks)if(!codeMatches(image.base,c)){char b[24];std::snprintf(b,sizeof(b),"0x%llx ",static_cast<unsigned long long>(c.rva));bad+=b;}
   if(!bad.empty())bootLog(pkg,"spawn-hook-disabled","code mismatch at "+bad);
@@ -123,7 +110,6 @@ extern "C" JNIEXPORT void JNICALL Java_com_gibox_tool_NativeBridge_start(JNIEnv*
   if(!codeMatches(image.base,c)){bootLog(pkg,std::string(what)+"-disabled","code mismatch");continue;}
   auto replacement=lod?reinterpret_cast<dobby_dummy_func_t>(onLodBind):reinterpret_cast<dobby_dummy_func_t>(onMeshBones);auto* original=reinterpret_cast<dobby_dummy_func_t*>(lod?&lodBindOriginal:&meshBonesOriginal);
   if(DobbyHook(reinterpret_cast<void*>(image.base+c.rva),replacement,original)!=0||!*original)bootLog(pkg,std::string(what)+"-disabled","DobbyHook failed");else bootLog(pkg,what,"installed");}
- #endif
  }catch(const std::exception& e){bootStatus(pkg,"error",e.what());}}).detach();
  }catch(const std::exception& e){exception(env,e);} }
 // The converter's 3DMigoto backend: what the INI draws (logic_import.hpp drawsJson), UTF-8 JSON in and out.

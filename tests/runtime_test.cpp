@@ -45,7 +45,7 @@ struct Fake {
  Ptr array(unsigned stride,unsigned count,const void* data=nullptr){Ptr cls=alloc(0x200),p=alloc(0x20+stride*count);store<uint16_t>(cls+0xba,stride);store<Ptr>(p,cls);store<uint64_t>(p+0x18,count);if(data&&count)std::memcpy(reinterpret_cast<void*>(p+0x20),data,stride*count);return p;}
  Ptr object(std::string kind,std::string name){Ptr p=alloc(0x20),n=alloc(0x100);store<Ptr>(p,kindClass(kind));store<Ptr>(p+0x10,n);store<uint32_t>(n+8,nextId++);obj[p]=Obj{kind,name,0,0,0,n,0,0,{}};return p;}
  Ptr mesh(std::string name="Body",unsigned vertices=3){Ptr p=object("mesh",name),shared=alloc(0x120);auto&o=obj[p];o.shared=shared;store<Ptr>(o.native+0x48,shared);store<uint32_t>(shared+0x74,vertices);store<uint32_t>(shared+0xc0,1);store<uint64_t>(shared+0xe0,1);store<uint64_t>(o.native+0x90,1);store<uint32_t>(shared+0xf8,15);store<Ptr>(shared+0xf0,alloc(32*6));store<uint64_t>(shared+0x100,3);store<uint64_t>(shared+0x108,6);
-  for(auto c:{std::pair{abi::getPositions,12},std::pair{abi::getNormals,12},std::pair{abi::getUV,8},std::pair{abi::getTriangles,4},std::pair{abi::getColors,4},std::pair{abi::getTangents,16}})o.arrays[c.first]=array(c.second,vertices);
+  for(auto c:{std::pair{abi::getPositions,12},std::pair{abi::getUV,8},std::pair{abi::getTriangles,4},std::pair{abi::getColors,4},std::pair{abi::getTangents,16}})o.arrays[c.first]=array(c.second,vertices);
   Bytes binds(64);for(int i=0;i<4;i++){float f=1;std::memcpy(binds.data()+i*20,&f,4);}o.arrays[abi::getBindposes]=array(64,1,binds.data());return p;}
  Ptr renderer(Ptr mesh,const char* bone="BoneA",const char* name="Body",Ptr root=0){Ptr r=object("renderer",name);auto&o=obj[r];o.mesh=mesh;Ptr m=object("material","Material");o.materials=typed("material",m);Ptr b=object("bone",bone);obj[b].parent=root?root:skeletonRoot;o.bones=typed("bone",b);return r;}
  // Like Object.Instantiate of a renderer's GameObject: same mesh and material references, new bone transforms.
@@ -71,7 +71,7 @@ Ptr newArray(Ptr cls,uint64_t count){return f->array(load<uint16_t>(cls+0xba),co
 void submeshCount(Ptr m,int n,Ptr){assert(n>=1);store<uint32_t>(f->obj.at(m).shared+0xc0,n);}
 void sub(Ptr m,Ptr a,int i,Ptr){assert(i>=0&&unsigned(i)<load<uint32_t>(f->obj.at(m).shared+0xc0));unsigned n=unsigned(load<uint64_t>(a+0x18));f->triangles.push_back({m,n});
  auto& v=f->submeshIndices[{m,i}];v.assign(n,0);if(n)std::memcpy(v.data(),reinterpret_cast<const void*>(a+0x20),4ull*n);}
-Ptr getPos(Ptr p,Ptr){return f->obj.at(p).arrays.at(abi::getPositions);}Ptr getNorm(Ptr p,Ptr){return f->obj.at(p).arrays.at(abi::getNormals);}Ptr getUV(Ptr p,Ptr){return f->obj.at(p).arrays.at(abi::getUV);}Ptr getIdx(Ptr p,Ptr){return f->obj.at(p).arrays.at(abi::getTriangles);}Ptr getBinds(Ptr p,Ptr){f->bindposeReads++;return f->obj.at(p).arrays.at(abi::getBindposes);}Ptr getColors(Ptr p,Ptr){return f->obj.at(p).arrays.at(abi::getColors);}Ptr getTangents(Ptr p,Ptr){return f->obj.at(p).arrays.at(abi::getTangents);}
+Ptr getPos(Ptr p,Ptr){return f->obj.at(p).arrays.at(abi::getPositions);}Ptr getUV(Ptr p,Ptr){return f->obj.at(p).arrays.at(abi::getUV);}Ptr getIdx(Ptr p,Ptr){return f->obj.at(p).arrays.at(abi::getTriangles);}Ptr getBinds(Ptr p,Ptr){f->bindposeReads++;return f->obj.at(p).arrays.at(abi::getBindposes);}Ptr getColors(Ptr p,Ptr){return f->obj.at(p).arrays.at(abi::getColors);}Ptr getTangents(Ptr p,Ptr){return f->obj.at(p).arrays.at(abi::getTangents);}
 // Like il2cpp object_new: the managed shell has no native object until the constructor runs.
 Ptr texType(){static Ptr d=0;if(!d){d=f->alloc(0x20);store<Ptr>(d,f->kindClass("texture"));store<Ptr>(d+0x10,f->alloc(8));}return d;}/* Texture2D.whiteTexture: its class is Texture2D's */Ptr objectNew(Ptr cls){assert(cls);Ptr p=f->alloc(0x20);f->obj[p]=Obj{"texture","",0,0,0,0,0,0,{}};return p;}
 void texInit(Ptr o,int w,int h,int fmt,int mip,int linear,Ptr){assert(w>0&&h>0&&fmt==4&&mip==0&&(linear==0||linear==1)&&load<Ptr>(o+0x10)==0);Ptr n=f->alloc(0x80);store<Ptr>(o+0x10,n);f->obj[o].native=n;f->textures++;f->textureBytes[o]=unsigned(w*h*4);}
@@ -105,20 +105,6 @@ void glowColor(Ptr m,int32_t id,float* out,Ptr){std::memcpy(out,f->props[m][id].
 Ptr glowTexture(Ptr m,int32_t id,Ptr){if(id==5)return f->diffuse[m];auto it=f->named.find(m);return it!=f->named.end()&&it->second.count(id)?it->second.at(id):0;}
 // Shader.PropertyToID for names made by newString (the Runtime's own lookups): _MainTex 5, _ElementRimColor 7, others above 100.
 int32_t glowPropertyId(Ptr name,Ptr){auto it=f->strings.find(name);std::string n=it!=f->strings.end()?it->second:"";if(n=="_MainTex")return 5;if(n=="_ElementRimColor")return 7;return 100+int32_t(std::hash<std::string>()(n)%1000);}Ptr glowTextureIds(Ptr,Ptr){int32_t id=5;return f->array(4,1,&id);}float glowCustom(Ptr,int32_t,Ptr){return 0;}
-// Per-slot overrides (slotTextures experiment): MaterialPropertyBlock contents, the renderer's block per material index
-// (Get copies it into the block given, Set stores the block's contents, an empty block removes it), AllowPerMaterialProp
-// with garbage above bit 0, and the custom per-slot textures, which can only be written. Writing a slot's block drops
-// that slot's custom textures here: one way the engine may behave, and the order of a mode change must hold up to it.
-struct SlotFake {std::map<Ptr,std::map<int32_t,Ptr>> blocks;std::map<std::pair<Ptr,int32_t>,std::map<int32_t,Ptr>> slots,custom;std::map<Ptr,uint32_t> allow;unsigned ctors=0,sets=0;}slotFake;
-Ptr slotShared(Ptr){static Ptr b=0;if(!b){b=f->alloc(0x20);store<Ptr>(b,f->kindClass("block"));store<Ptr>(b+0x10,f->alloc(8));}return b;}
-void blockCtor(Ptr b,Ptr){assert(load<Ptr>(b+0x10)==0);store<Ptr>(b+0x10,f->alloc(8));slotFake.ctors++;}
-void blockClear(Ptr b,Ptr){assert(load<Ptr>(b+0x10));slotFake.blocks[b].clear();}
-void blockSet(Ptr b,int32_t id,Ptr t,Ptr){assert(load<Ptr>(b+0x10)&&t);slotFake.blocks[b][id]=t;}
-Ptr blockGet(Ptr b,int32_t id,Ptr){auto& m=slotFake.blocks[b];auto it=m.find(id);return it==m.end()?0:it->second;}
-void slotGet(Ptr r,Ptr b,int32_t i,Ptr){assert(f->obj.at(r).kind=="renderer"&&i>=0);auto it=slotFake.slots.find({r,i});slotFake.blocks[b]=it==slotFake.slots.end()?std::map<int32_t,Ptr>{}:it->second;}
-void slotSet(Ptr r,Ptr b,int32_t i,Ptr){assert(f->obj.at(r).kind=="renderer"&&i>=0);slotFake.sets++;slotFake.custom.erase({r,i});auto& m=slotFake.blocks[b];if(m.empty())slotFake.slots.erase({r,i});else slotFake.slots[{r,i}]=m;}
-uint32_t slotAllowed(Ptr r,Ptr){return 0xabcdef00u|slotFake.allow[r];}void slotAllow(Ptr r,int on,Ptr){assert(on==0||on==1);slotFake.allow[r]=uint32_t(on);}
-void slotCustom(Ptr r,int32_t i,int32_t id,Ptr t,int32_t update,Ptr){assert(f->obj.at(r).kind=="renderer"&&i>=0&&update==1);slotFake.custom[{r,i}][id]=t;}
 Ptr resolveGlow(abi::Offset o){
  for(auto x:{std::pair{glow::rvaFrameCount,reinterpret_cast<Ptr>(&glowFrame)},{glow::rvaGetShader,reinterpret_cast<Ptr>(&glowShader)},{glow::rvaGetRenderQueue,reinterpret_cast<Ptr>(&glowQueue)},
    {glow::rvaGetKeywords,reinterpret_cast<Ptr>(&glowKeywords)},{glow::rvaHasProperty,reinterpret_cast<Ptr>(&glowHas)},{glow::rvaGetFloat,reinterpret_cast<Ptr>(&glowFloat)},
@@ -136,11 +122,9 @@ uint32_t meshCount(Ptr m,int32_t i,Ptr){assert(i>=0&&i<meshSubs(m,0));auto it=te
 int32_t texSide(Ptr t,Ptr){assert(t&&load<Ptr>(t+0x10));return 4;}int32_t texFormat(Ptr t,Ptr){assert(load<Ptr>(t)==f->kindClass("texture"));return 4;}int32_t texMips(Ptr t,Ptr){assert(load<Ptr>(t)==f->kindClass("texture"));return 1;}
 Ptr resolve(abi::Offset o){if(Ptr g=resolveGlow(o))return g;switch(o){
 #define FN(x,y) case abi::x:return reinterpret_cast<Ptr>(&y)
- FN(getMesh,getMesh);FN(getMaterials,getMaterials);FN(getBones,getBones);FN(getName,getName);FN(getParent,parent);FN(clone,clone);FN(destroy,destroy);FN(pin,pin);FN(unpin,unpin);FN(setMesh,setMesh);FN(setMaterials,setMaterials);FN(arrayNew,newArray);FN(getBindposes,getBinds);FN(getPositions,getPos);FN(getNormals,getNorm);FN(getUV,getUV);FN(getTriangles,getIdx);FN(getColors,getColors);FN(getTangents,getTangents);FN(setColors,setChannel);FN(setTangents,setChannel);FN(setUV2,setChannel);FN(setPositions,setPos);FN(setNormals,setAny);FN(setUV,setAny);FN(setTriangles,setAny);FN(clear,op);FN(setIndexFormat,op);FN(setSubmeshCount,submeshCount);FN(meshUpload,op);FN(meshFinish,action);FN(meshDynamic,action);FN(setSubmeshTriangles,sub);FN(textureType,texType);FN(objectNew,objectNew);FN(textureInit,texInit);FN(texturePixels,texPixels);FN(textureApply,action);FN(setHideFlags,setHide);FN(getHideFlags,getHide);FN(mainTexture,setMainTexture);FN(newString,newString);FN(nativeAlloc,nativeAlloc);FN(hasProperty,hasProp);FN(setTexture,setTex);FN(classFromType,classFromType);FN(typeObject,typeObject);FN(findObjectsOfType,findObjects);FN(findObjectsNative,findNative);FN(componentsInChildren,children);FN(gameObject,goOf);FN(wrapperFor,wrapperFor);
- FN(blockShared,slotShared);FN(blockCtor,blockCtor);FN(blockClear,blockClear);FN(blockSetTexture,blockSet);FN(blockGetTexture,blockGet);FN(getSlotBlock,slotGet);FN(setSlotBlock,slotSet);
+ FN(getMesh,getMesh);FN(getMaterials,getMaterials);FN(getBones,getBones);FN(getName,getName);FN(getParent,parent);FN(clone,clone);FN(destroy,destroy);FN(pin,pin);FN(unpin,unpin);FN(setMesh,setMesh);FN(setMaterials,setMaterials);FN(arrayNew,newArray);FN(getBindposes,getBinds);FN(getPositions,getPos);FN(getUV,getUV);FN(getTriangles,getIdx);FN(getColors,getColors);FN(getTangents,getTangents);FN(setColors,setChannel);FN(setTangents,setChannel);FN(setUV2,setChannel);FN(setPositions,setPos);FN(setNormals,setAny);FN(setUV,setAny);FN(setTriangles,setAny);FN(setReadable,op);FN(setIndexFormat,op);FN(setSubmeshCount,submeshCount);FN(meshUpload,op);FN(meshFinish,action);FN(meshDynamic,action);FN(setSubmeshTriangles,sub);FN(textureType,texType);FN(objectNew,objectNew);FN(textureInit,texInit);FN(texturePixels,texPixels);FN(textureApply,action);FN(setHideFlags,setHide);FN(getHideFlags,getHide);FN(mainTexture,setMainTexture);FN(newString,newString);FN(nativeAlloc,nativeAlloc);FN(hasProperty,hasProp);FN(setTexture,setTex);FN(classFromType,classFromType);FN(typeObject,typeObject);FN(findObjectsOfType,findObjects);FN(findObjectsNative,findNative);FN(componentsInChildren,children);FN(gameObject,goOf);FN(wrapperFor,wrapperFor);
  FN(meshSubmeshes,meshSubs);FN(meshVertices,meshVerts);FN(meshReadable,meshReadable);FN(meshIndexStart,meshStart);FN(meshIndexCount,meshCount);
  FN(textureWidth,texSide);FN(textureHeight,texSide);FN(textureFormat,texFormat);FN(textureMips,texMips);
- FN(allowSlotProps,slotAllowed);FN(setAllowSlotProps,slotAllow);FN(setSlotCustomTexture,slotCustom);
 #undef FN
  default:throw std::runtime_error("Unexpected fake engine call: "+std::to_string(o));}}
 bool alive(Ptr p){return p&&load<Ptr>(p+0x10);}
@@ -876,34 +860,6 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
   assert(!glow::trace().armed.load()&&glow::trace().hooked==installed&&hooked.size()==entries&&glow::trace().everything);
   assert(text(sharedGlow+"/GIBox Log.txt").find("glow-note trace off: nothing is recorded; the engine entries stay hooked until the game restarts")!=std::string::npos);
   gr.shutdown();assert(meshOf(w)==original&&f->handles.empty()&&!glow::trace().armed.load());}
- // 49. Slot textures (debug experiment): the game's own material stays on our mesh and the mod's textures go into draw
- //     slot 0 as an override, through its per-material property block (1) or its custom texture (2). A block the game
- //     dropped is written again, materials the game swaps into the slot are kept, and a mode change or turning the model
- //     off takes the overrides away (mode 2 has no remover: the shown material's own textures are written into them).
- {std::string mediaSlot=root+"/mediaSlot",sharedSlot=mediaSlot+"/"+pkg+"/GIBox";Spec s;s.textures=true;s.withTarget(fixture::target("Body"));writeModel(sharedSlot+"/models/Slot",s);
-  Ptr original=f->mesh(),w=f->renderer(original),gameArray=f->obj[w].materials,gameMat=load<Ptr>(gameArray+0x20);f->world(w);f->scene={w};
-  auto control=[&](int mode){write(sharedSlot+"/control.json","{\"enabled\":true,\"logLevel\":\"debug\",\"selected\":[\"Slot\"],\"experiments\":{\"slotTextures\":"+std::to_string(mode)+"}}");};
-  auto shown=[&]{return load<Ptr>(f->obj[w].materials+0x20);};int32_t lightId=100+int32_t(std::hash<std::string>()("_LightMapTex")%1000);
-  auto log=[&]{return text(sharedSlot+"/GIBox Log.txt");};auto has=[&](const std::string& x){return log().find(x)!=std::string::npos;};
-  control(1);Runtime sr(e,pkg,root+"/privateSlot",mediaSlot,false);sr.tick(4000000);sr.tick(4000600);
-  assert(meshOf(w)!=original&&shown()==gameMat&&slotFake.ctors==1&&slotFake.allow[w]==1);   // the game's material, our block
-  Ptr main=slotFake.slots.at({w,0}).at(5),light=slotFake.slots.at({w,0}).at(lightId);assert(alive(main)&&alive(light)&&main!=light&&slotFake.slots.at({w,0}).size()==2);
-  assert(has("slot-textures Slot/Part0 on ")&&has(": per-material property block, 1 of 1 draw slots, 2 textures, read back 2 of 2; per-material properties were off, switched on"));
-  assert(has("experiments gameMaterials=off firstRefreshMs=default neutralColors=off noUv2=off glowTrace=off slotTextures=block"));
-  slotFake.slots.erase({w,0});sr.tick(4002600);                                                  // the game drops the block
-  assert(slotFake.slots.at({w,0}).at(5)==main&&has("slot-textures-lost Slot/Part0: 2 of 2 textures were gone from the blocks, written again (1 times so far)"));
-  Ptr instance=f->object("material","Material (Instance)");f->obj[w].materials=f->typed("material",instance);sr.tick(4004800);   // the game's own instance
-  assert(shown()==instance&&slotFake.slots.at({w,0}).at(5)==main&&has("slot-textures Slot/Part0: the game put other materials on the renderer, 1 of 1 slots (1 ours), slot 0: Material (Instance)"));
-  assert(log().find("(2 times so far)")==std::string::npos);
-  control(2);sr.tick(4005400);                                                                     // block -> custom texture
-  assert(shown()==gameMat&&!slotFake.slots.count({w,0})&&slotFake.custom.at({w,0}).at(5)==main&&slotFake.custom.at({w,0}).at(lightId)==light&&slotFake.allow[w]==1);
-  assert(has(": per-material custom texture, 1 of 1 draw slots, 2 textures, no getter of its own; the slots' property blocks show 0 of 2; per-material properties were off, switched on"));
-  control(0);sr.tick(4006000);Ptr clone=shown();                                                  // custom texture -> copies
-  assert(clone!=gameMat&&f->obj[clone].kind=="material"&&slotFake.custom.at({w,0}).at(5)==f->diffuse[clone]&&slotFake.custom.at({w,0}).at(lightId)==f->named[clone][lightId]&&alive(f->named[clone][lightId])&&slotFake.allow[w]==0);
-  assert(has("slot-textures Slot/Part0: per-material custom textures cannot be removed; the textures of the materials now shown were written into them"));
-  control(1);sr.tick(4006600);assert(shown()==gameMat&&slotFake.slots.at({w,0}).at(5)==main&&slotFake.allow[w]==1);
-  sr.shutdown();                                                                                    // restore: no block left, flag back off
-  assert(meshOf(w)==original&&f->obj[w].materials==gameArray&&!slotFake.slots.count({w,0})&&slotFake.allow[w]==0&&f->handles.empty());}
  // 50. Merged draws: neighbours with the same material row share a submesh, their index ranges joined in draw order.
  //     A draw hidden by the variant between two of them is not drawn, ranges that continue each other become one, a
  //     neighbour with another material keeps its own submesh and slot, and switching back reads the model's indices
