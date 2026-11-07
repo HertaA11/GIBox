@@ -153,7 +153,7 @@ fun PickScreen(state: AppState, pick: Screen.Pick) {
             )
             val names = guess.recommended.joinToString("、") { it.name }
             Text(
-                if (guess.recommended.isEmpty()) "没认出角色，请按 ID 或名称查找" else "根据 MOD 名称推荐：$names",
+                if (guess.recommended.isEmpty()) "没认出角色，请按 ID 或名称查找" else "根据 MOD 名称和 hash 推荐：$names",
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
                 style = MaterialTheme.typography.bodyMedium,
                 color = if (guess.recommended.isEmpty()) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary,

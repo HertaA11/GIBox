@@ -470,6 +470,22 @@ public final class ModelConverter {
             return Json.of("renderer",Json.str(t.get("renderer"),"renderer",256),"mesh",mesh==null?"":mesh,"vertices",Json.integer(t.get("vertices"),"vertices",1,500000),"submeshes",Json.integer(t.get("submeshes"),"submeshes",1,64),"bones",Json.integer(t.get("bones"),"bones",1,512));}
         catch(IllegalArgumentException e){return null;}
     }
+    /**
+     * Parts by the renderer their IB hash is on in the game (Options.deviceRenderers), before names: a mod names its parts
+     * freely (Alyosha's Hat_Off is "Hood" in his mods), and a part no renderer name matches would go to Body and be
+     * skinned with Body's bones. Without a bone library the renderer is added like the default ones (the runtime takes
+     * its bones from the game); with one that lacks it, the part is left out rather than put on another renderer.
+     */
+    private static void deviceParts(Ini ini,List<Bones> bones,Map<String,String> map,Options o,StringBuilder log){
+        if(o.deviceRenderers.isEmpty())return;boolean synthetic=true;for(Bones b:bones)synthetic&=b.synthetic;
+        for(Section s:ini.sections.values()){if(!lower(s.name).startsWith("textureoverride"))continue;String h=null;boolean draws=false;
+            for(String l:s.lines){String[] a=kv(l);if(a==null)continue;if(a[0].equals("hash"))h=lower(a[1].trim());if(a[0].equals("ib")||a[0].equals("draw")||a[0].equals("drawindexed"))draws=true;}
+            String r=h==null?null:o.deviceRenderers.get(h),part=s.name.substring(15);if(r==null||map.containsKey(lower(part)))continue;
+            Bones have=null;for(Bones b:bones)if(b.name.equalsIgnoreCase(r))have=b;
+            if(have==null&&synthetic){have=new Bones(r);bones.add(have);}
+            if(have!=null){map.put(lower(part),have.name);if(draws)log.append(part).append(" -> ").append(have.name).append("（IB hash ").append(h).append(" 在设备 hash 表中是游戏的 ").append(have.name).append("）\n");}
+            else{map.put(lower(part),"skip");if(draws)log.append(part).append("：IB hash ").append(h).append(" 在设备 hash 表中是游戏的 ").append(r).append("，骨骼库中没有它的记录，此部件不转换（让角色出场一次更新骨骼库后重新转换）\n");}}
+    }
     private static Bones target(String part,List<Bones> bones,Map<String,String> map){String manual=map.get(lower(part));if(manual!=null){for(Bones b:bones)if(b.name.equalsIgnoreCase(manual))return b;throw new IllegalArgumentException("映射目标不存在："+manual);}String a=lower(part).replaceFirst("[a-z]$","");Bones best=null;int score=0;boolean tie=false;for(Bones b:bones){String n=lower(b.name).replaceFirst("_lod[0-9]+$","");int k=lower(part).endsWith(n)||a.endsWith(n)?n.length():0;if(k>score){score=k;best=b;tie=false;}else if(k>0&&k==score)tie=true;}check(!tie,"渲染器映射有歧义："+part);if(best!=null)return best;if(bones.size()==1)return bones.get(0);throw new IllegalArgumentException("请手工映射部件："+part);}
     static final class IntList {int[] data;int size;IntList(){this(1024);}IntList(int capacity){data=new int[capacity];}int size(){return size;}void add(int n){check(size<15000000,"索引数超限");if(size==data.length)data=Arrays.copyOf(data,Math.min(15000000,Math.max(size+1,size+size/2)));data[size++]=n;}}
     static final class Vertex {byte[] pos,norm,uv,tangent,color,weights;List<byte[]> extra=new ArrayList<>();boolean unweighted;int trimmedWeights;}
@@ -577,6 +593,7 @@ public final class ModelConverter {
         // Reject a mod only after examining all available assignments, not before its active state is visited.
         List<Draw> core=ini.coreDraws==null?null:ini.coreDraws.get(vars);List<Draw> draws=new ArrayList<>();
         if(core!=null)for(Draw d:core){Draw x=new Draw(d.part,d.bindings,d.count,d.start);x.hash=d.hash;x.issuer=d.issuer;draws.add(x);}else draws=drawCalls(ini,vars,rs,mapping);
+        gimiTextures(ini,vars,draws);
         if(draws.isEmpty())return new LinkedHashMap<>();
         LinkedHashMap<Draw,Bones> targets=new LinkedHashMap<>();Map<String,Bones> byHash=new HashMap<>();List<Draw> pending=new ArrayList<>();
         for(Draw d:draws){if("skip".equalsIgnoreCase(mapping.get(lower(d.part))))continue;try{Bones b=target(d.part,boneRecords,mapping);targets.put(d,b);if(!d.hash.isEmpty()){Bones prev=byHash.putIfAbsent(d.hash,b);check(prev==null||prev==b,"同一 IB hash 的部件映射到了不同渲染器："+d.hash);}}catch(IllegalArgumentException e){if(d.hash.isEmpty()||mapping.containsKey(lower(d.part)))throw e;pending.add(d);}}
@@ -599,7 +616,25 @@ public final class ModelConverter {
             // ResourceAyakaHeadDiffuse.hair_type_2.black points at HairDifuse_Type_2_black.dds). Preserve file hints first.
             String role=file.contains("lightmap")||file.contains("normal")||file.contains("diffuse")?file:lower(binding.getValue());
             if(role.contains("lightmap"))light=r;else if(role.contains("normal"))normal=r;else if(role.contains("diffuse"))diffuse=r;}
-        return new Resource[]{diffuse,light,normal};}
+        Resource[] out={diffuse,light,normal};String[] gimi={"gimi:diffuse","gimi:lightmap","gimi:normalmap"};
+        for(int k=0;k<3;k++)if(d.bindings.containsKey(gimi[k])){String v=d.bindings.get(gimi[k]);out[k]=unbound(v)?null:resource(rs,v);}
+        return out;}
+    /**
+     * GIMI's own way to give a draw its textures: Resource\GIMI\Diffuse / LightMap / NormalMap = ref ..., then
+     * run = CommandList\GIMI\SetTextures, which GIMI's d3dx.ini (not the mod) binds to the shader's slots. The roles are
+     * named, so they are taken as named (bindings gimi:diffuse ...), over what file names suggest; only when the draw's
+     * section runs SetTextures, as on PC nothing is bound without it.
+     */
+    private static void gimiTextures(Ini ini,Map<String,Integer> vars,List<Draw> draws){
+        for(Draw d:draws){Section s=ini.sections.get("textureoverride"+lower(d.part));if(s==null)continue;Map<String,String> roles=new LinkedHashMap<>();boolean[] run={false};
+            gimiScan(ini,s,vars,roles,run,0);if(run[0])for(Map.Entry<String,String> e:roles.entrySet())d.bindings.put("gimi:"+e.getKey(),e.getValue());}}
+    private static void gimiScan(Ini ini,Section s,Map<String,Integer> vars,Map<String,String> roles,boolean[] run,int depth){
+        if(depth>=16)return;
+        for(String l:ini.active(s,vars)){String[] a=kv(l);if(a==null)continue;
+            if(a[0].startsWith("resource\\gimi\\")){String role=a[0].substring(14);if(!role.equals("diffuse")&&!role.equals("lightmap")&&!role.equals("normalmap"))continue;
+                String v=a[1].trim(),lv=lower(v);if(lv.startsWith("ref "))v=v.substring(4).trim();else if(lv.startsWith("copy "))v=v.substring(5).trim();roles.put(role,v);}
+            else if(a[0].equals("run")){Section t=ini.sections.get(lower(a[1].trim()));if(t!=null)gimiScan(ini,t,vars,roles,run,depth+1);else if(gimiSetTextures(a[1]))run[0]=true;}}}
+    private static boolean gimiSetTextures(String commandList){return lower(commandList).replace(" ","").endsWith("\\settextures")&&lower(commandList).contains("gimi");}
     private static String path(Resource r){return r==null?"-":r.file.getPath();}
     /**
      * The renderer material slot of a draw: a part name ending in a capital letter picks it (BodyA = 0, BodyB = 1 …);
@@ -1093,6 +1128,10 @@ public final class ModelConverter {
         public Options names(List<String> n){names=new ArrayList<>(n);return this;}
         /** The outfit (prefab, Outfits) the model is for: model.json character.outfit, so the game shows it only there. */
         public String outfit;public Options outfit(String prefab){outfit=prefab;return this;}
+        /** IB hash -> the game renderer it is on, for this character (DeviceHashes: this device's hash map): a part whose
+         *  hash is here goes to that renderer whatever its name says; a manual mapping still wins. */
+        public Map<String,String> deviceRenderers=new HashMap<>();
+        public Options deviceRenderers(Map<String,String> m){deviceRenderers=new HashMap<>();if(m!=null)for(Map.Entry<String,String> e:m.entrySet())deviceRenderers.put(lower(e.getKey()),e.getValue());return this;}
         Map<String,Object> character(int id){Map<String,Object> c=Json.of("id",id,"names",new ArrayList<Object>(names));if(outfit!=null&&!outfit.isEmpty())c.put("outfit",outfit);return c;}
         /** Where a texture-only mod's read-only diagnostic goes (GIBox/texture-diag, TextureDiag); null: none. */
         public File textureDiag=null;
@@ -1124,6 +1163,7 @@ public final class ModelConverter {
         else if(boneDir==null){check((id==0&&!o.names.isEmpty())||(id>=10000000&&id<=10001999),"没有骨骼目录时需要角色 ID 或角色名");bones=new ArrayList<>();for(String r:DEFAULT_RENDERERS)bones.add(new Bones(r));if(o.fallback==null)o.fallback="Body";}
         else{check(id>=10000000&&id<=10001999,"角色 ID 越界");bones=bones(boneDir,id);}Map<String,String> map=new LinkedHashMap<>();
         if(!o.mapping.trim().isEmpty())for(String row:o.mapping.split(";")){String[] a=row.trim().split("=",-1);check(a.length==2&&!a[0].trim().isEmpty()&&!a[1].trim().isEmpty(),"映射格式：部件=渲染器;部件=skip");check(map.put(lower(a[0].trim()),a[1].trim())==null,"重复映射");}
+        deviceParts(ini,bones,map,o,log);
         Animation animation;String driven=null;try{animation=Animation.parse(ini,src,o.rehearsal);}catch(Driven d){animation=null;driven=d.getMessage();}
         if(animation!=null)return convertAnimation(ini,src,bones,map,dest,id,o,decoder,log,animation);
         // Variants: every assignment of the variables that an if of a drawing section reads (not the ones only key or
@@ -1174,7 +1214,7 @@ public final class ModelConverter {
                 for(Group g:b.groups.values())g.draws=g.combos.isEmpty()?null:drawTable(g,none,only,1,shown);}
             for(Group g:b.groups.values()){int trimmed=g.vertices.trimmed;if(trimmed>0)log.append(g.bones.name).append("：已清理 ").append(trimmed).append(" 个顶点中占比不超过 ").append(WEIGHT_EPSILON).append(" 的微小权重，并重新归一化\n");int fixed=fixUnweighted(g);if(fixed>0)log.append(g.bones.name).append("：").append(fixed).append(" 个顶点没有权重（MOD 本身的问题，PC 上这些点会被拉到原点），已沿用最近顶点的权重\n");}
             for(Group g:b.groups.values())log.append(g.bones.name).append(": ").append(g.vertices.size()).append(" 顶点，").append(g.indices.size()).append(" 索引").append(g.bones.synthetic?"（骨骼取自游戏内角色）":g.bones.target==null?"（骨骼库没有网格特征，首次在场景中出现时识别）":"").append('\n');
-            for(String x:ini.external){if(nnFix(x))log.append("已按 NNFix 识别贴图：ps-t0 为颜色图，ps-t1 为材质遮罩，不使用法线图\n");else if(!texFxComponent(x))log.append("已忽略外部 CommandList：").append(x).append('\n');}ini.external.clear();
+            for(String x:ini.external){if(nnFix(x))log.append("已按 NNFix 识别贴图：ps-t0 为颜色图，ps-t1 为材质遮罩，不使用法线图\n");else if(gimiSetTextures(x))log.append("已按 GIMI 命名空间识别贴图：Resource\\GIMI\\Diffuse / LightMap / NormalMap 按名称对应颜色、光照和法线贴图（").append(x).append(" 由 GIMI 提供）\n");else if(!texFxComponent(x))log.append("已忽略外部 CommandList：").append(x).append('\n');}ini.external.clear();
             for(String note:ini.compatibility)log.append(note).append('\n');
             // Every assignment, not only the kept ones: a value that only changes the face draws the same geometry.
             Resource face=faceTexture(ini,src,var.runs,log);List<Object> swaps=face==null?null:faceSwap(face,b);

@@ -40,6 +40,16 @@ struct Material {std::string name;unsigned slot;};
 struct Skin {Bytes data;std::set<unsigned> used;};
 struct Submesh {unsigned start,count;};
 struct Texture {unsigned w,h;Bytes pixels;};
+// Halved with a 2x2 box filter (edge pixels averaged with what exists) until neither side exceeds maxSide: exactly what
+// the converter and the texture-only import do in Java (ModelConverter.texture, TextureMod, 1024). Done here, in native
+// memory, a 4096x8192 texture never reaches the App's Java heap as 128 MiB of RGBA.
+inline Texture shrinkTexture(Texture t,unsigned maxSide){
+ while(t.w>maxSide||t.h>maxSide){unsigned nw=t.w/2?t.w/2:1,nh=t.h/2?t.h/2:1;Bytes n(size_t(nw)*nh*4);
+  for(unsigned j=0;j<nh;j++)for(unsigned i=0;i<nw;i++)for(unsigned c=0;c<4;c++){unsigned sum=0,count=0;
+   for(unsigned dy=0;dy<2&&j*2+dy<t.h;dy++)for(unsigned dx=0;dx<2&&i*2+dx<t.w;dx++){sum+=t.pixels[(size_t(j*2+dy)*t.w+i*2+dx)*4+c];count++;}
+   n[(size_t(j)*nw+i)*4+c]=uint8_t(sum/count);}
+  t.pixels=std::move(n);t.w=nw;t.h=nh;}
+ return t;}
 // Rows in the other order. model.bin keeps textures with rows bottom to top, for the converter's meshes (whose UVs it
 // flips, 1 - v); a texture put on one of the game's own meshes (its UVs untouched) needs the PC rows back.
 inline void flipRows(Texture& t){size_t row=size_t(t.w)*4;if(!row||t.pixels.size()!=row*t.h)return;for(unsigned i=0,j=t.h?t.h-1:0;i<j;i++,j--)std::swap_ranges(t.pixels.begin()+long(i*row),t.pixels.begin()+long((i+1)*row),t.pixels.begin()+long(j*row));}

@@ -162,7 +162,7 @@ public final class Characters {
         a(10000140, "沃雅妮莎", "vodyanitsa", ""),
         a(10000143, "薇斯纳", "vesna", ""),
         a(10000147, "达妮卡", "danica", ""),
-        a(10000148, "阿罗夏", "alyosha", ""),
+        a(10000148, "阿罗夏", "alyosha", "aloysha"),
         a(10000149, "安娜丝塔夏", "anastasya", "tsaritsa"),
         a(10000150, "奥黛塔", "odette", "")
     };
@@ -230,6 +230,19 @@ public final class Characters {
         }
         if (best > 0) for (Avatar a : ALL) if (g.scores.getOrDefault(a.id, 0) == best) g.recommended.add(a);
         g.evidence = why.toString(); return g;
+    }
+    /** Adds what the mod's hashes say (DeviceHashes.characters: character -> its hashes), ten per hash: a hash this
+     *  device or the PC database ties to one character outweighs any name. The recommendation is made again. */
+    public static void hashEvidence(Guess g, Map<Integer, List<String>> hits) {
+        if (hits.isEmpty()) return;
+        StringBuilder why = new StringBuilder(g.evidence);
+        for (Map.Entry<Integer, List<String>> e : hits.entrySet()) {
+            int add = 10 * e.getValue().size(); g.scores.merge(e.getKey(), add, Integer::sum);
+            if (why.length() < 300) why.append(why.length() == 0 ? "" : ", ").append("hash ").append(e.getValue().get(0)).append(e.getValue().size() > 1 ? " 等 " + e.getValue().size() + " 个" : "").append('=').append(add);
+        }
+        int best = 0; for (int v : g.scores.values()) best = Math.max(best, v);
+        g.recommended.clear(); if (best > 0) for (Avatar a : ALL) if (g.scores.getOrDefault(a.id, 0) == best) g.recommended.add(a);
+        g.evidence = why.toString();
     }
     /** Picker order: the recommended characters first, then everyone else in ID order. */
     public static List<Avatar> ordered(Guess g, String query) {

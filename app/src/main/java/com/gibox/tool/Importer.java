@@ -107,7 +107,11 @@ public final class Importer {
     /** The character the mod most likely belongs to, from the name it was imported under and its INI. */
     public static Characters.Guess guess(File mod, String importedAs, File boneRoot) {
         try { File ini = ModLibrary.schemes(mod).size() > 1 && !ModLibrary.overrides(mod).containsKey("ini") ? ModConfig.geometryInis(mod).get(0) : ModLibrary.mainIni(mod);
-            return Characters.guess(ini.getParentFile(), ini, importedAs, ModLibrary.library(boneRoot)); }
+            Characters.Guess g = Characters.guess(ini.getParentFile(), ini, importedAs, ModLibrary.library(boneRoot));
+            // The INI's hashes, where this device's hash map or the PC database names their character, weigh more than names.
+            try { Characters.hashEvidence(g, DeviceHashes.load(boneRoot.getAbsoluteFile().getParentFile()).characters(ModelConverter.overrideHashes(ini.getParentFile(), ini))); }
+            catch (Exception ignored) {}
+            return g; }
         catch (Exception e) { return new Characters.Guess(); }
     }
 
@@ -160,6 +164,7 @@ public final class Importer {
         // full model the mod is made for: it is not used. The game records the full model the next time the character appears.
         String lodLibrary = recorded != null ? recorded.lodMesh : ""; if (!lodLibrary.isEmpty()) recorded = null;
         ModelConverter.Options opt = new ModelConverter.Options().mapping(o.containsKey("map") ? o.get("map") : "").variants(true).replace(true).fallback("Body").ini(ini);
+        opt.deviceRenderers(DeviceHashes.load(boneRoot.getAbsoluteFile().getParentFile()).renderers(id, outfit != null ? outfit.prefab : null));
         opt.animationBoneFallback(animationBoneFallback(mod)).textureDiag(textureDiagDir(modelsRoot)).textureMods(true);
         opt.core(request -> { try { return NativeBridge.draws(request); } catch (UnsatisfiedLinkError e) { throw new IllegalStateException("3dm 后端不可用：" + e.getMessage()); } });
         opt.rehearsal(request -> { try { return NativeBridge.rehearse(request); } catch (UnsatisfiedLinkError e) { throw new IllegalStateException("逻辑核心预演不可用：" + e.getMessage()); } });

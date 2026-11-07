@@ -264,6 +264,43 @@ public final class ConverterTest {
   for(String j:new String[]{"{\"a\":1,\"a\":2}","[01]","[1,]","{\"a\":1} x","[\"\u0001\"]","[1e999]"}){bad=false;try{Json.parse(j);}catch(IllegalArgumentException e){bad=true;}ok(bad,"JSON accepted: "+j);}
   Object third=((List<?>)Json.parse(Json.write(Arrays.<Object>asList(1f/3,-2.5e-7f)))).get(0);ok(Json.finite(third,"f")==1f/3,"float round trip");
   ok(Json.parse("{\"s\":\"\\u6a21\\\"\"}").equals(Collections.singletonMap("s","模\"")),"escapes");
-  System.out.println("Java converter: PASS (groups that affect each other merged after a check, drawindexed = 0 ignored, variables enumerated per independent group, 3DMigoto === / !== / // / **, weights merged and sorted, variants by condition beyond 32 assignments, unweighted vertices repaired, GIBox model.json + model.bin, shared vb1, nested commands, inherited auto draw, component scopes, explicit overrides, real ambiguity, merged variants, conditional streams, targets, atomic replace keeping runtime files per character, skeleton.json, no-library conversion, strict JSON, binary interoperability)");
+  // A part named for something no renderer is called ("Hood": Alyosha's Hat_Off) goes where its IB hash is in the game
+  // (this device's hash map), not to Body with Body's bones; GIMI's Resource\GIMI\... textures with SetTextures are
+  // taken by the role they name, whatever the files are called.
+  {File g=new File(root,"gimi");g.mkdirs();for(String f:new String[]{"Position.buf","Blend.buf","Texcoord.buf","Index.buf"})Files.copy(new File(src,f).toPath(),new File(g,f).toPath());
+   put(g,"a.dds",new byte[]{11});put(g,"b.dds",new byte[]{22});put(g,"c.dds",new byte[]{33});
+   String gi="[TextureOverridePosition]\nvb0 = ResourcePosition\n[TextureOverrideBlend]\nvb1 = ResourceBlend\n[TextureOverrideTexcoord]\nvb2 = ResourceTexcoord\n"
+    +"[TextureOverrideBodyA]\nhash = aaaa0001\nmatch_first_index = 0\nib = ResourceIndex\nps-t0 = ResourceA\ndrawindexed = 3, 0, 0\n"
+    +"[TextureOverrideHoodA]\nhash = 8c11d133\nmatch_first_index = 0\nib = ResourceIndex\nResource\\GIMI\\Diffuse = ref ResourceA\nResource\\GIMI\\LightMap = ref ResourceB\nResource\\GIMI\\NormalMap = ref ResourceC\nrun = CommandList\\GIMI\\SetTextures\ndrawindexed = 3, 3, 0\n"
+    +"[ResourcePosition]\nfilename = Position.buf\nstride = 40\n[ResourceBlend]\nfilename = Blend.buf\nstride = 32\n[ResourceTexcoord]\nfilename = Texcoord.buf\nstride = 12\n[ResourceIndex]\nfilename = Index.buf\nformat = R32_UINT\n"
+    +"[ResourceA]\nfilename = a.dds\n[ResourceB]\nfilename = b.dds\n[ResourceC]\nfilename = c.dds\n";
+   put(g,"mod.ini",gi);ModelConverter.TextureDecoder first=img->b(12).putInt(1).putInt(1).putInt(img[0]&255).array();
+   Map<String,String> device=new HashMap<>();device.put("aaaa0001","Body");device.put("8C11D133","Hat_Off");
+   File gOut=new File(root,"gimi_out");StringBuilder gl=new StringBuilder();
+   ModelConverter.convert(g,null,gOut,10000148,new ModelConverter.Options().names(Collections.singletonList("alyosha")).fallback("Body").deviceRenderers(device),first,gl);
+   ok("Hat_Off".equals(Fixtures.part(gOut,1).get("renderer"))&&"Body".equals(Fixtures.part(gOut,0).get("renderer"))&&gl.toString().contains("HoodA -> Hat_Off（IB hash 8c11d133 在设备 hash 表中是游戏的 Hat_Off）")&&!gl.toString().contains("按默认渲染器"),"Hood goes to Hat_Off by its IB hash: "+gl);
+   Object hoodMat=Json.obj(Fixtures.draws(gOut,1,new HashMap<>()).get(0),"draw").get("material");Map<String,Object> hm=Fixtures.material(gOut,(String)hoodMat);
+   int[] px=new int[3];String[] roles={"main","lightmap","normalmap"};for(int k=0;k<3;k++)px[k]=Fixtures.view(gOut,Json.obj(hm.get(roles[k]),roles[k]).get("data")).getInt(0);
+   ok(px[0]==11&&px[1]==22&&px[2]==33&&gl.toString().contains("已按 GIMI 命名空间识别贴图")&&!gl.toString().contains("已忽略外部 CommandList：CommandList\\GIMI\\SetTextures"),"GIMI roles as named: "+Arrays.toString(px)+"\n"+gl);
+   // Without SetTextures nothing is bound on PC: the GIMI lines alone give no textures.
+   put(g,"mod.ini",gi.replace("run = CommandList\\GIMI\\SetTextures\n",""));File gOut2=new File(root,"gimi_out2");
+   ModelConverter.convert(g,null,gOut2,10000148,new ModelConverter.Options().names(Collections.singletonList("alyosha")).fallback("Body").deviceRenderers(device),first,new StringBuilder());
+   ok(Fixtures.material(gOut2,(String)Json.obj(Fixtures.draws(gOut2,1,new HashMap<>()).get(0),"draw").get("material")).get("main")==null,"no SetTextures, no GIMI textures");
+   put(g,"mod.ini",gi);
+   // With a bone library that has no Hat_Off: the part is left out (said why), not skinned with Body's bones.
+   File gBones=new File(root,"gimi_bones");gBones.mkdirs();Fixtures.skeleton(gBones,10000148,"Scene/Avatar_Boy_Pole_Alyosha",new String[]{"Body"},new String[]{"BoneA"},Collections.singletonMap("Body",Fixtures.target("Body",23521,3,1)));
+   File gOut3=new File(root,"gimi_out3");StringBuilder gl3=new StringBuilder();
+   ModelConverter.convert(g,gBones,gOut3,10000148,new ModelConverter.Options().fallback("Body").deviceRenderers(device),first,gl3);
+   ok(Json.arr(Fixtures.manifest(gOut3).get("parts"),"parts",1,64).size()==1&&gl3.toString().contains("HoodA：IB hash 8c11d133 在设备 hash 表中是游戏的 Hat_Off，骨骼库中没有它的记录，此部件不转换"),"no Hat_Off in the library: left out: "+gl3);
+   // The hash map names the character too (Alyosha's mods call him Aloysha), and the name is an alias as well.
+   File shared=new File(root,"gimi_shared");shared.mkdirs();
+   put(shared,"device-hashes.json","{\"format\":\"gibox-hash-map\",\"version\":1,\"meshes\":[{\"ib\":\"8c11d133\",\"avatar\":\"avatar_boy_pole_alyosha\",\"renderer\":\"hat_off\",\"mesh\":\"Hat_Off\",\"vertices\":5443,\"bones\":15,\"submeshes\":[[0,22932]]},"
+    +"{\"ib\":\"fdbdb407\",\"avatar\":\"avatar_boy_pole_alyosha\",\"renderer\":\"body\",\"mesh\":\"Body\",\"vertices\":25862,\"bones\":148,\"submeshes\":[[0,17973]]},{\"ib\":\"9e1e8513\",\"avatar\":\"avatar_male_claymore_varka\",\"renderer\":\"bang\",\"mesh\":\"Bang\",\"vertices\":1920,\"bones\":12,\"submeshes\":[[0,7554]]}]}");
+   DeviceHashes dh=DeviceHashes.load(shared);
+   ok(dh.renderers(10000148,null).toString().equals("{8c11d133=Hat_Off, fdbdb407=Body}")&&dh.characters(Arrays.asList("8c11d133","fdbdb407","12345678")).equals(Collections.singletonMap(10000148,Arrays.asList("8c11d133","fdbdb407"))),"device map: renderers and character: "+dh.renderers(10000148,null));
+   Characters.Guess cg=Characters.guess(g,new File(g,"mod.ini"),"Something",null);ok(cg.recommended.isEmpty(),"no name says who");
+   Characters.hashEvidence(cg,dh.characters(ModelConverter.overrideHashes(g,new File(g,"mod.ini"))));ok(cg.recommends(10000148)&&cg.recommended.size()==1&&cg.evidence.contains("hash 8c11d133=10"),"hash says Alyosha: "+cg.evidence);
+   File spelled=new File(root,"AloyshaStripdown");spelled.mkdirs();put(spelled,"Aloysha.ini","[TextureOverrideAloyshaBodyA]\nhash = 1\n");ok(Characters.guess(spelled,new File(spelled,"Aloysha.ini"),null,null).recommends(10000148),"the Aloysha spelling");}
+  System.out.println("Java converter: PASS (Hood by IB hash on Hat_Off, GIMI namespace textures by role, Alyosha by hash and name, groups that affect each other merged after a check, drawindexed = 0 ignored, variables enumerated per independent group, 3DMigoto === / !== / // / **, weights merged and sorted, variants by condition beyond 32 assignments, unweighted vertices repaired, GIBox model.json + model.bin, shared vb1, nested commands, inherited auto draw, component scopes, explicit overrides, real ambiguity, merged variants, conditional streams, targets, atomic replace keeping runtime files per character, skeleton.json, no-library conversion, strict JSON, binary interoperability)");
  }
 }
