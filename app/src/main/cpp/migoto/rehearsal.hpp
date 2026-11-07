@@ -74,7 +74,7 @@ private:
   for(auto& g:e.globalSaves)if(modulus.count(g.first)||std::find(state.begin(),state.end(),g.first)!=state.end()){k.append(reinterpret_cast<const char*>(&g.second.save),sizeof(float));k.append(reinterpret_cast<const char*>(&g.second.refcount),sizeof(int));}
   return k;}
  std::map<std::string,int> assignment()const{std::map<std::string,int> a;
-  for(auto& s:seeds){float v=s.first->value;if(!(std::fabs(v)<=1000000)||v!=std::floor(v))refuse("the draws read "+s.second+" = "+std::to_string(v)+", which is not an integer; frames are converted by integer values");a[s.second]=int(v);}
+  for(auto& s:seeds){float v=s.first->value;if(!(std::fabs(v)<=1000000)||v!=std::floor(v))refuse("绘制读取的 "+s.second+" = "+std::to_string(v)+" 不是整数；帧按整数取值转换");a[s.second]=int(v);}
   return a;}
 
  // ---- the phase of a counter: which variables are only read as x % c and only written as x + d or a constant
@@ -94,7 +94,7 @@ private:
   return nullptr;}
  // Every command once: an else-if chain shares its branches between pre and post, and following both is exponential.
  template<class F>void commands(CommandList& l,F f){std::set<const Command*> done;std::vector<std::pair<CommandList*,int>> todo{{&l,0}};std::set<const CommandList*> lists;
-  while(!todo.empty()){auto [list,depth]=todo.back();todo.pop_back();if(!lists.insert(list).second)continue;if(depth>1024)refuse("command lists nested too deep to rehearse");
+  while(!todo.empty()){auto [list,depth]=todo.back();todo.pop_back();if(!lists.insert(list).second)continue;if(depth>1024)refuse("命令列表嵌套过深，无法预演");
    for(auto& c:list->commands){if(!done.insert(c.get()).second)continue;f(*c);
     if(c->kind()==Kind::If){auto* i=static_cast<If*>(c.get());for(auto* sub:{&i->truePre,&i->truePost,&i->falsePre,&i->falsePost})todo.push_back({sub,depth+1});}}}}
  template<class F>void everyList(F f){for(auto& kv:e.lists)if(kv.first!="constants"){f(kv.second->pre);f(kv.second->post);}for(auto& k:e.keys)for(auto& p:k.presets)if(p.run){f(p.run->pre);f(p.run->post);}}
@@ -115,45 +115,45 @@ private:
 
  void run(const std::string& mainNs,std::chrono::steady_clock::time_point started){
   ImportScan scan(e);
-  if(!scan.inputs.empty())refuse("what is drawn depends on more than the mod's own variables: "+scan.inputs.front(),true);
-  for(auto& r:scan.reasons)if(r.find("nested too deep")!=std::string::npos)refuse(r);
-  if(!scan.unported.empty())refuse("commands the logic core does not port: "+scan.unported.front());
-  if(!scan.customShaders.empty())refuse("custom shaders run: "+scan.customShaders.front());
+  if(!scan.inputs.empty())refuse("绘制内容依赖 MOD 自身变量以外的数据："+scan.inputs.front(),true);
+  for(auto& r:scan.reasons)if(r.find("嵌套过深")!=std::string::npos)refuse(r);
+  if(!scan.unported.empty())refuse("包含逻辑核心未移植的命令："+scan.unported.front());
+  if(!scan.customShaders.empty())refuse("运行了自定义着色器："+scan.customShaders.front());
   for(auto& g:e.globals)name[&g.second]=g.first;
   for(auto& kv:e.lists)for(auto& v:kv.second->locals)name[&v]=kv.second->name+" local "+v.name;
   for(auto& k:e.keys)for(auto& p:k.presets)if(p.run)for(auto& v:p.run->locals)name[&v]=k.name+" local "+v.name;
-  for(auto& w:scan.writes)if(w.inDraw&&scan.drawVars.count(w.var))refuse("draws change "+name[w.var]+" ("+w.where+"); what that does depends on the game's draw order",true);
+  for(auto& w:scan.writes)if(w.inDraw&&scan.drawVars.count(w.var))refuse("绘制过程中修改了 "+name[w.var]+"（"+w.where+"），其效果取决于游戏的绘制顺序",true);
   // What the draws read, by the name the main INI gives it.
   std::string prefix="$\\"+lower(mainNs)+"\\";
   for(auto* v:scan.seeds){auto n=name[v];if(n.empty())continue;
    if(n.compare(0,prefix.size(),prefix)==0)seeds.push_back({v,"$"+n.substr(prefix.size())});
    else if(n.find('\\')==std::string::npos&&n[0]=='$')seeds.push_back({v,n});
-   else refuse("the draws read "+n+", which is not a global of the main INI; frames are converted by the main INI's variables");}
+   else refuse("绘制读取的 "+n+" 不是主 INI 的全局变量；帧按主 INI 的变量转换");}
   for(auto& g:e.globals)all.push_back(&g.second);
   for(auto& kv:e.lists)for(auto& v:kv.second->locals)all.push_back(&v);
   for(auto& k:e.keys)for(auto& p:k.presets){presets.push_back(&p);if(p.run)for(auto& v:p.run->locals)all.push_back(&v);}
   for(auto* v:all)if(scan.drawVars.count(v))state.push_back(v);
   phasesOf();
-  for(auto* v:state)if(v->flags&VarPersist){notes.push_back(name[v]+" is persist: the rehearsal starts from the INI's value; a saved value outside the states found is not converted");}
+  for(auto* v:state)if(v->flags&VarPersist){notes.push_back(name[v]+" 为 persist 变量：预演从 INI 中的初始值开始，保存值若不在预演得到的状态内则不会被转换");}
   // The keys that set a draw variable (directly or through their run lists), and the events they take.
   struct Input {KeySection* key;int kind;};std::vector<Input> inputs;
   for(auto& k:e.keys){bool sets=false;for(auto& p:k.presets){for(auto& v:p.vars)sets|=scan.drawVars.count(v.first)>0;
     if(p.run)for(auto* l:{&p.run->pre,&p.run->post})commands(*l,[&](Command& c){if(c.kind()==Kind::Assign&&!static_cast<Assign&>(c).param)sets|=scan.drawVars.count(static_cast<Assign&>(c).var)>0;});}
    if(!sets||k.presets.empty())continue;
-   if(k.delay||k.releaseDelay)refuse("["+k.name+"] sets what is drawn after a delay, which the core does not port");
+   if(k.delay||k.releaseDelay)refuse("["+k.name+"] 延迟改变绘制内容，逻辑核心未移植此功能");
    relevant.push_back(&k);keys.push_back(k.name);
    if(k.type=="hold"){inputs.push_back({&k,0});inputs.push_back({&k,1});}
    else{inputs.push_back({&k,0});if(k.type=="cycle"&&!k.backs.empty())inputs.push_back({&k,2});}}
   // ---- the walk
   std::unordered_map<std::string,size_t> index;std::vector<Snap> snaps;std::vector<size_t> frameOf;std::map<std::map<std::string,int>,size_t> frameIndex;size_t bytes=0;
   std::map<Var*,std::set<float>> seen;
-  auto check=[&]{if(uint64_t(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now()-started).count())>lim.ms)refuse("more than "+std::to_string(lim.ms)+" ms of rehearsal ("+std::to_string(presents)+" Presents, "+std::to_string(snaps.size())+" states)");
-   if(!e.contextBindings.empty())refuse("a slot is bound outside a draw ("+e.contextBindings.begin()->first+"); the converter cannot know what the game draws with it");
-   if(!e.customResources.empty())refuse("a [Resource] is assigned while the program runs ("+e.customResources.begin()->first+"); frames are converted by variables only");};
+  auto check=[&]{if(uint64_t(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now()-started).count())>lim.ms)refuse("预演超过 "+std::to_string(lim.ms)+" ms（"+std::to_string(presents)+" 次 Present，"+std::to_string(snaps.size())+" 个状态）");
+   if(!e.contextBindings.empty())refuse("在绘制调用之外绑定了槽位（"+e.contextBindings.begin()->first+"），转换器无法得知游戏会用它绘制什么");
+   if(!e.customResources.empty())refuse("程序运行中对 [Resource] 赋值（"+e.customResources.begin()->first+"），帧只按变量转换");};
   auto visit=[&]()->size_t{check();auto k=key();auto it=index.find(k);if(it!=index.end())return it->second;
-   if(snaps.size()>=lim.states)refuse("more than "+std::to_string(lim.states)+" program states"+(inputs.empty()?"":" with key presses ("+std::to_string(inputs.size())+" key events)"));
-   auto a=assignment();auto f=frameIndex.find(a);if(f==frameIndex.end()){if(frameIndex.size()>=lim.frames)refuse("more than "+std::to_string(lim.frames)+" different frames (combinations of what the draws read)");f=frameIndex.emplace(a,frames.size()).first;frames.push_back(a);}
-   snaps.push_back(inputs.empty()?Snap{}:take());bytes+=snaps.back().bytes();if(bytes>lim.bytes)refuse("rehearsal states over "+std::to_string(lim.bytes>>20)+" MiB");
+   if(snaps.size()>=lim.states)refuse("程序状态超过 "+std::to_string(lim.states)+" 个"+(inputs.empty()?"":"（含按键，"+std::to_string(inputs.size())+" 种按键事件）"));
+   auto a=assignment();auto f=frameIndex.find(a);if(f==frameIndex.end()){if(frameIndex.size()>=lim.frames)refuse("不同的帧超过 "+std::to_string(lim.frames)+" 个（按绘制读取的值组合计）");f=frameIndex.emplace(a,frames.size()).first;frames.push_back(a);}
+   snaps.push_back(inputs.empty()?Snap{}:take());bytes+=snaps.back().bytes();if(bytes>lim.bytes)refuse("预演状态超过 "+std::to_string(lim.bytes>>20)+" MiB");
    frameOf.push_back(f->second);index.emplace(std::move(k),snaps.size()-1);return snaps.size()-1;};
   auto present=[&]{presents++;e.frame(double(presents)/60.0);};
   // No input, from the start, until a state repeats.
@@ -162,7 +162,7 @@ private:
    size_t next=visit();auto it=stepOf.find(next);if(it!=stepOf.end()){loop=it->second;break;}
    stepOf[next]=sequence.size();sequence.push_back(frameOf[next]);
    if(sequence.size()>=lim.presents){std::string growing;for(auto& kv:seen)if(kv.second.size()*2>=sequence.size())growing+=(growing.empty()?"":", ")+name[kv.first];
-    refuse("the program state does not repeat within "+std::to_string(lim.presents)+" Presents"+(growing.empty()?"":"; keeps taking new values: "+growing+" (a counter read other than as x % c)"));}}
+    refuse("程序状态在 "+std::to_string(lim.presents)+" 次 Present 内没有重复"+(growing.empty()?"":"；持续出现新值："+growing+"（计数器未以 x % c 的形式读取）"));}}
   size_t trajectory=snaps.size();std::set<size_t> plain(frameOf.begin(),frameOf.end());
   // Key events, from every state found, until no new state appears.
   for(size_t i=0;i<snaps.size()&&!inputs.empty();i++){
@@ -171,7 +171,7 @@ private:
     if(edge>=0){auto& in=inputs[size_t(edge)];if(in.kind==0)e.keyDown(in.key->name);else if(in.kind==1)e.keyUp(in.key->name);else e.keyBack(in.key->name);if(in.kind==0&&in.key->type!="hold")e.keyUp(in.key->name);}
     present();visit();}}
   states=snaps.size();for(size_t f=0;f<frames.size();f++)if(!plain.count(f))keyFrames++;
-  if(!relevant.empty()&&keyFrames)notes.push_back(std::to_string(keyFrames)+" frames only key presses reach: the logic core shows them; without it the frames play as with no key pressed");}
+  if(!relevant.empty()&&keyFrames)notes.push_back(std::to_string(keyFrames)+" 帧只能通过按键到达：逻辑核心驱动时可显示；未启用时按无按键的顺序播放");}
 };
 
 }  // namespace migoto

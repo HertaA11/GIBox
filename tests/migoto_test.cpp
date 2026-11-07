@@ -72,11 +72,11 @@ static void conditions(){
  CHECK_EQ(var(e,"$count"),5.0f);   // a local keeps its value between runs (upstream static_vars)
  CHECK_EQ(e.diag.count(Diagnostic::Warning),size_t(0));   // the same local name in sibling branches is allowed
  Engine bad=loaded({{"","[Constants]\nglobal $g = 0\n[CommandListX]\nlocal $p\nif 1\n local $p\nendif\nif 1\n local $q = 1\nendif\n$g = $q\nlocal $g\n"}});
- CHECK_EQ(count(bad,Diagnostic::Warning,"Illegal redeclaration of local variable \"$p\""),size_t(1));
- CHECK_EQ(count(bad,Diagnostic::Warning,"Variable not recognized: $q"),size_t(1));   // out of its scope after endif
- CHECK_EQ(count(bad,Diagnostic::Notice,"masks a global"),size_t(1));
+ CHECK_EQ(count(bad,Diagnostic::Warning,"局部变量重复声明：\"$p\""),size_t(1));
+ CHECK_EQ(count(bad,Diagnostic::Warning,"无法识别的变量：$q"),size_t(1));   // out of its scope after endif
+ CHECK_EQ(count(bad,Diagnostic::Notice,"遮蔽了同名全局变量"),size_t(1));
  Engine unbalanced=loaded({{"","[CommandListX]\nif 1\nendif\nendif\nif 1\n"}});
- CHECK_EQ(count(unbalanced,Diagnostic::Warning,"missing \"if\""),size_t(1));CHECK_EQ(count(unbalanced,Diagnostic::Warning,"Scope unbalanced"),size_t(1));}
+ CHECK_EQ(count(unbalanced,Diagnostic::Warning,"缺少对应的 \"if\""),size_t(1));CHECK_EQ(count(unbalanced,Diagnostic::Warning,"作用域不平衡"),size_t(1));}
 
 // AddCommandToList: an assignment goes to pre unless it says post; run and if go to both lists; "post run" runs the
 // target's pre and post together; handling = skip is pre only; abort stops the rest of the run.
@@ -93,7 +93,7 @@ static void prePost(){
  std::vector<std::string> runs;for(auto& ev:trace)if(ev.kind==Event::Run)runs.push_back(ev.detail);
  CHECK(runs==std::vector<std::string>({"CommandListInner (pre)","CommandListInner (post)","CommandListInner2 (pre+post)"}));
  e.draw(drawOf({{"ib",Ref::game(0x44444444)}},{"ib"}));CHECK_EQ(var(e,"$z"),10.0f);   // pre aborted before $z = 1; the post run is a new state
- e.draw(drawOf({{"ib",Ref::game(0x55555555)}},{"ib"}));CHECK(count(e,Diagnostic::Warning,"recursion limit")>=1);}
+ e.draw(drawOf({{"ib",Ref::game(0x55555555)}},{"ib"}));CHECK(count(e,Diagnostic::Warning,"递归超过上限")>=1);}
 
 // HackerDXGI.cpp RunFrameActions: [Present] pre, input, transitions, frame_number++, the game's Present, [Present]
 // post. A key's run list runs when the key is dispatched, before its values are applied; its post part after them.
@@ -156,7 +156,7 @@ static void matching(){
 static void postRematch(){
  Engine e=loaded({{"","[Constants]\nglobal $post = 0\nglobal $post2 = 0\n[ResourceA]\nfilename = a.ib\n"
   "[TextureOverrideRebind]\nhash = f0000001\nib = ResourceA\npost $post = 1\n[TextureOverrideKeep]\nhash = f0000002\npost $post2 = 1\n"}});
- e.draw(drawOf({{"ib",Ref::game(0xf0000001)}},{"ib"}));CHECK_EQ(var(e,"$post"),0.0f);CHECK(count(e,Diagnostic::Notice,"no tracked hash")>=1);
+ e.draw(drawOf({{"ib",Ref::game(0xf0000001)}},{"ib"}));CHECK_EQ(var(e,"$post"),0.0f);CHECK(count(e,Diagnostic::Notice,"没有可追踪的 hash")>=1);
  e.draw(drawOf({{"ib",Ref::game(0xf0000002)}},{"ib"}));CHECK_EQ(var(e,"$post2"),1.0f);}
 
 static void selection(){
@@ -170,7 +170,7 @@ static void selection(){
  e.globals["$\\mods\\s\\s.ini\\sel"].value=1;auto changed=s.tick({{"sel",d}},0.2);CHECK_EQ(changed.size(),size_t(1));
  CHECK(s.last["sel"].bindings["vb0"]=="ResourceB");
  ImportScan scan(e);CHECK_EQ(scan.resources.size(),size_t(3));CHECK(!scan.finiteStates);   // ResourceSave = ref ps-t0: what it holds is the game's
- bool game=false;for(auto& r:scan.reasons)game|=r.find("uses a game resource")!=std::string::npos;CHECK(game);}
+ bool game=false;for(auto& r:scan.reasons)game|=r.find("使用了游戏资源")!=std::string::npos;CHECK(game);}
 
 // An outfit set a key cycles: three styles with consecutive file names and a drawindexed each. It is finite (every
 // write is a key value or a constant), so the importer may prepare all three; nothing about it is an animation.
@@ -206,11 +206,11 @@ static void finiteness(){
   auto& pick=s.vars["CommandList\\Mods\\S\\s.ini\\Pick local $pick"];CHECK(s.finiteStates);CHECK(pick.readByDraws);CHECK(pick.values==std::set<float>({0,2}));}
  // A counter, even one that wraps: not provable here, so not finite.
  {auto s=scanOf(head+"[Present]\nif $a < 20\n $a = $a + 1\nelse\n $a = 0\nendif\n[TextureOverrideP]\nhash = 1\nif $a == 3\n ib = ResourceB\nendif\n");
-  CHECK(!s.finiteStates);CHECK(!s.vars["$"+k+"a"].finite);CHECK(reason(s,"a counter"));}
+  CHECK(!s.finiteStates);CHECK(!s.vars["$"+k+"a"].finite);CHECK(reason(s,"可能是计数器"));}
  // The clock, random() and a texture filter make the decision depend on what is outside the mod.
- {auto s=scanOf(head+"[Present]\n$b = time\n[TextureOverrideP]\nhash = 1\nif $b > 5\n ib = ResourceB\nendif\n");CHECK(!s.finiteStates);CHECK(reason(s,"reads time"));}
+ {auto s=scanOf(head+"[Present]\n$b = time\n[TextureOverrideP]\nhash = 1\nif $b > 5\n ib = ResourceB\nendif\n");CHECK(!s.finiteStates);CHECK(reason(s,"读取了 time"));}
  {auto s=scanOf(head+"[Present]\n$b = random(3)\n[TextureOverrideP]\nhash = 1\nif $b > 1\n ib = ResourceB\nendif\n");CHECK(!s.finiteStates);CHECK(reason(s,"random()"));}
- {auto s=scanOf(head+"[TextureOverrideP]\nhash = 1\nif ps-t0 == 1\n ib = ResourceB\nendif\n");CHECK(!s.finiteStates);CHECK(reason(s,"texture filter ps-t0"));}
+ {auto s=scanOf(head+"[TextureOverrideP]\nhash = 1\nif ps-t0 == 1\n ib = ResourceB\nendif\n");CHECK(!s.finiteStates);CHECK(reason(s,"贴图过滤 ps-t0"));}
  // A transition passes through values in between.
  {auto s=scanOf(head+"[KeyA]\nkey = 1\n$a = 1\ntransition = 100\n[TextureOverrideP]\nhash = 1\nif $a == 1\n ib = ResourceB\nendif\n");CHECK(!s.finiteStates);CHECK(reason(s,"transition"));}
  // A variable only Present uses (not what is drawn) does not count.
@@ -223,7 +223,7 @@ static void finiteness(){
   auto s=scanOf(o.str());CHECK(s.finiteStates);CHECK_EQ(s.states,uint64_t(64));CHECK_EQ(s.resources.size(),size_t(64));CHECK_EQ(s.bindings.size(),size_t(64));}
  // Deeper than the scan follows: refused with a reason, never cut short as if the rest did not exist.
  {std::ostringstream o;o<<head<<"[TextureOverrideP]\nhash = 1\n";for(int i=0;i<1100;i++)o<<(i?"else if":"if")<<" $a == "<<i<<"\n ib = ResourceA\n";o<<"endif\n";
-  auto s=scanOf(o.str());CHECK(!s.finiteStates);CHECK(reason(s,"nested too deep"));}
+  auto s=scanOf(o.str());CHECK(!s.finiteStates);CHECK(reason(s,"嵌套过深"));}
  // A list reached under different conditions keeps both: the write in CommandListSet depends on $c and on $d.
  {std::string h=head;h.replace(h.find("[ResourceA]"),0,"global $c = 0\nglobal $d = 0\n");auto s=scanOf(h+"[KeyC]\nkey = 1\ntype = toggle\n$c = 1\n[KeyD]\nkey = 2\ntype = toggle\n$d = 1\n"
    "[Present]\nif $d\n run = CommandListSet\nendif\nif $c\n run = CommandListSet\nendif\n[CommandListSet]\n$b = 1\n[TextureOverrideP]\nhash = 1\nif $b == 1\n ib = ResourceB\nendif\n");
@@ -237,7 +237,7 @@ static void finiteness(){
   CHECK_EQ(early.size(),size_t(1));
   for(int f=100;f<103;f++)run.tick(passes,f/60.0,&sel);
   CHECK(sel["p"].bindings["ib"]!=*early.begin());
-  ImportScan scan(e);CHECK(!scan.finiteStates);CHECK(!scan.vars["$"+k+"t"].finite);CHECK(reason(scan,"a counter"));}}
+  ImportScan scan(e);CHECK(!scan.finiteStates);CHECK(!scan.vars["$"+k+"t"].finite);CHECK(reason(scan,"可能是计数器"));}}
 
 // The Present frame loop of a merged GIMI animation (as in the uploaded Traveler MOD, three frames here), run by
 // the core and by the old path (model.hpp FrameLoop with the values the old converter extracts), side by side.
@@ -280,24 +280,24 @@ static void rehearsal(){
   for(int i=0;i<3;i++){ms::AnimationFrame f;f.value=i;spec.frames.push_back(f);}ms::FrameLoop old(spec);old.tick(0);
   for(uint32_t t=0;t<60;t++){size_t at=t<r.sequence.size()?t:r.loop+(t-r.loop)%(r.sequence.size()-r.loop);CHECK_EQ(r.frames[r.sequence[at]].at("$swapvar"),old.spec.frames[old.current].value);old.tick(t+1);}}
  // A period that is not a 1/1024 step: the counter is not a phase here, and its full value never repeats.
- {auto r=rehearse(animationIni("0.3",3),{4096,4096,64,3000,64ull<<20});CHECK(!r.ok&&says(r,"does not repeat within 4096 Presents")&&says(r,"auxtime"));}
+ {auto r=rehearse(animationIni("0.3",3),{4096,4096,64,3000,64ull<<20});CHECK(!r.ok&&says(r,"在 4096 次 Present 内没有重复")&&says(r,"auxtime"));}
  // Back and forth (not the pattern the converter matches): 0 1 2 1, then the start state again.
  {auto r=rehearse("[Constants]\nglobal $f = 0\nglobal $dir = 1\n[Present]\n$f = $f + $dir\nif $f >= 2\n $dir = -1\nendif\nif $f <= 0\n $dir = 1\nendif\n"+draws);CHECK(r.ok);
   std::vector<int> shown;for(auto i:r.sequence)shown.push_back(r.frames[i].at("$f"));CHECK(shown==std::vector<int>({0,1,2,1}));CHECK_EQ(r.loop,size_t(0));CHECK(r.keys.empty()&&r.keyFrames==0);}
  // What is drawn repeats for 100 Presents, then a counter opens another branch: refused, not cut short.
  {auto r=rehearse("[Constants]\nglobal $t = 0\nglobal $f = 0\n[Present]\n$t = $t + 1\nif $t > 100\n $f = 1\nendif\n"+draws,{1000,4096,64,3000,64ull<<20});
-  CHECK(!r.ok&&says(r,"does not repeat within 1000 Presents")&&says(r,"$\\mods\\r\\r.ini\\t"));}
+  CHECK(!r.ok&&says(r,"在 1000 次 Present 内没有重复")&&says(r,"$\\mods\\r\\r.ini\\t"));}
  // A key the Present program does not touch: its frames come from key presses only.
  {auto r=rehearse("[Constants]\nglobal $f = 0\nglobal $blink = 0\n[KeyF]\nkey = 1\ntype = cycle\n$f = 0,1,2\n[Present]\nif $blink == 0\n $blink = 1\nelse\n $blink = 0\nendif\n"
    "[TextureOverrideQ]\nhash = 2\nif $blink == 1\n ps-t0 = ResourceA\nendif\n"+draws);CHECK(r.ok);
   CHECK_EQ(r.frames.size(),size_t(6));CHECK_EQ(r.sequence.size(),size_t(2));CHECK_EQ(r.loop,size_t(0));CHECK_EQ(r.keyFrames,size_t(4));CHECK(r.keys==std::vector<std::string>({"Key\\Mods\\R\\r.ini\\F"}));CHECK(!r.notes.empty());}
  // Refused: the clock, a condition on the clock, draws that change a draw variable (a global, a local), too many frames.
- {auto r=rehearse("[Constants]\nglobal $f = 0\n[Present]\n$f = time % 3\n"+draws);CHECK(!r.ok&&says(r,"depends on more than the mod")&&says(r,"time"));}
- {auto r=rehearse("[Constants]\nglobal $f = 0\n[Present]\nif time > 5\n $f = 1\nendif\n"+draws);CHECK(!r.ok&&says(r,"under a condition that depends on more than the mod"));}
- {auto r=rehearse("[Constants]\nglobal $f = 0\n[Present]\n$f = 1\n[TextureOverrideZ]\nhash = 3\n$f = 2\n"+draws);CHECK(!r.ok&&says(r,"draws change $\\mods\\r\\r.ini\\f"));}
+ {auto r=rehearse("[Constants]\nglobal $f = 0\n[Present]\n$f = time % 3\n"+draws);CHECK(!r.ok&&says(r,"依赖 MOD 自身变量以外的数据")&&says(r,"time"));}
+ {auto r=rehearse("[Constants]\nglobal $f = 0\n[Present]\nif time > 5\n $f = 1\nendif\n"+draws);CHECK(!r.ok&&says(r,"所在条件依赖 MOD 自身变量以外的数据"));}
+ {auto r=rehearse("[Constants]\nglobal $f = 0\n[Present]\n$f = 1\n[TextureOverrideZ]\nhash = 3\n$f = 2\n"+draws);CHECK(!r.ok&&says(r,"绘制过程中修改了 $\\mods\\r\\r.ini\\f"));}
  {auto r=rehearse("[Constants]\nglobal $g = 0\n[Present]\n$g = 1 - $g\n[CommandListPick]\nlocal $f\n$f = $g\nif $f == 1\n ib = ResourceA\nendif\n[TextureOverrideP]\nhash = 1\nrun = CommandListPick\n[ResourceA]\nfilename = a.ib\n");
-  CHECK(!r.ok&&says(r,"draws change CommandList\\Mods\\R\\r.ini\\Pick local $f"));}   // a local of a list the draws run
- {auto r=rehearse("[Constants]\nglobal $f = 0\n[Present]\nif $f < 99\n $f = $f + 1\nelse\n $f = 0\nendif\n"+draws);CHECK(!r.ok&&says(r,"more than 64 different frames"));}}
+  CHECK(!r.ok&&says(r,"绘制过程中修改了 CommandList\\Mods\\R\\r.ini\\Pick local $f"));}   // a local of a list the draws run
+ {auto r=rehearse("[Constants]\nglobal $f = 0\n[Present]\nif $f < 99\n $f = $f + 1\nelse\n $f = 0\nendif\n"+draws);CHECK(!r.ok&&says(r,"不同的帧超过 64 个"));}}
 
 int main(){
  expressions();namespaces();conditions();prePost();timing();keys();matching();postRematch();selection();outfits();finiteness();animation();rehearsal();

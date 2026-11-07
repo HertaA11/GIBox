@@ -5,12 +5,12 @@
 #include <memory>
 namespace ms {
 using Ptr=uintptr_t;
-template<class T>T load(Ptr p){require(p!=0,"Null native pointer");T v;std::memcpy(&v,reinterpret_cast<void*>(p),sizeof(v));return v;}
-template<class T>void store(Ptr p,T v){require(p!=0,"Null native pointer");std::memcpy(reinterpret_cast<void*>(p),&v,sizeof(v));}
+template<class T>T load(Ptr p){require(p!=0,"原生指针为空");T v;std::memcpy(&v,reinterpret_cast<void*>(p),sizeof(v));return v;}
+template<class T>void store(Ptr p,T v){require(p!=0,"原生指针为空");std::memcpy(reinterpret_cast<void*>(p),&v,sizeof(v));}
 struct Engine {
  Ptr base;std::function<Ptr(abi::Offset)> resolver;
  explicit Engine(Ptr b):base(b){}
- template<class R,class... A>R call(abi::Offset o,A... a){Ptr p=resolver?resolver(o):base+o;require(p!=0,"Unresolved engine function");return reinterpret_cast<R(*)(A...)>(p)(a...);}
+ template<class R,class... A>R call(abi::Offset o,A... a){Ptr p=resolver?resolver(o):base+o;require(p!=0,"引擎函数未解析");return reinterpret_cast<R(*)(A...)>(p)(a...);}
  Ptr get(abi::Offset o,Ptr p){return call<Ptr>(o,p,Ptr(0));}
  void set(abi::Offset o,Ptr p,Ptr v){call<void>(o,p,v,Ptr(0));}
  void op(abi::Offset o,Ptr p,int v){call<void>(o,p,v,Ptr(0));}

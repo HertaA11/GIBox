@@ -145,7 +145,7 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
   f->obj[r].bones=f->array(8,114,bones.data());f->obj[low].arrays[abi::getBindposes]=f->array(64,114,binds.data());f->world(r);f->scene={r};write(shared+"/control.json","{\"enabled\":true,\"selected\":[\"Actual\"],\"logLevel\":\"debug\"}");
   {Runtime actual(e,pkg,root+"/actual-private",media,false);for(uint64_t now=1000000;now<=1004000;now+=200)actual.tick(now);Ptr mod=f->obj[r].mesh;auto log=text(shared+"/GIBox Log.txt");
    if(expectWait){assert(mod==low&&f->meshClones==0&&JsonParser(text(shared+"/status.json")).parse().at("state").string=="waiting");actual.shutdown();assert(f->handles.empty());std::filesystem::remove_all(root);std::cout<<"Prior runtime: reproduced waiting on the real export with no skeleton library\n";return 0;}
-   assert(mod!=low&&log.find("matched-used=101")!=std::string::npos&&load<uint32_t>(f->obj[mod].shared+0x74)==20757&&!exists(boneRoot+"/10000007/skeleton.json"));
+   assert(mod!=low&&log.find("用到并已核对 101 根")!=std::string::npos&&load<uint32_t>(f->obj[mod].shared+0x74)==20757&&!exists(boneRoot+"/10000007/skeleton.json"));
    Ptr skin=load<Ptr>(f->obj[mod].shared+0xf0);for(unsigned v=0;v<part.geo.n;v++){std::map<unsigned,float> expected,observed;for(unsigned k=0;k<4;k++){auto p=part.weights.data()+32ull*v;float w=f32(p+4*k);if(w>0)expected[u32(p+16+4*k)]+=w;auto q=reinterpret_cast<const uint8_t*>(skin)+32ull*v;w=f32(q+4*k);if(w>0)observed[u32(q+16+4*k)]+=w;}assert(expected.size()==observed.size());for(auto& pair:expected)assert(observed.count(pair.first)&&std::abs(pair.second-observed[pair.first])<2e-6);}
    auto recorded=readLegacyBoneNames(dest+"/bonemap-"+part.spec.name+".tsv",part.spec.bones);for(unsigned i=0;i<part.spec.bones;i++)if(!part.used.count(i))assert(recorded[i].empty());
    unsigned clones=f->meshClones;uint64_t switchAt=1005000;for(unsigned mode:{1u,2u,0u}){write(shared+"/control.json","{\"enabled\":true,\"selected\":[\"Actual\"],\"logLevel\":\"debug\",\"experiments\":{\"animationMode\":"+std::to_string(mode)+"}}");actual.tick(switchAt);switchAt+=1000;assert(f->obj[r].mesh==mod&&f->meshClones==clones);}
@@ -165,7 +165,7 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
  control(true,0,0,{"A","B"});runtime.tick(10000);Ptr a1=meshOf(world);
  assert(state()=="active"&&a1!=original&&meshOf(ui)==a1&&f->obj[ui].materials!=uiMaterials&&f->obj[ui].materials!=f->obj[world].materials);
  assert(meshOf(npc)!=a1&&meshOf(odd)==original&&meshOf(other)==otherMesh);
- assert(f->findCalls==1&&f->typeLookups>0&&text(shared+"/GIBox Log.txt").find("byval_arg at class+0x98 this_arg +0x40")!=std::string::npos&&status().at("scan").string=="ok"&&learnedAt(models+"/A").targets.at("Part0").mesh=="Body");
+ assert(f->findCalls==1&&f->typeLookups>0&&text(shared+"/GIBox Log.txt").find("byval_arg 位于 class+0x98，this_arg 位于 +0x40")!=std::string::npos&&status().at("scan").string=="ok"&&learnedAt(models+"/A").targets.at("Part0").mesh=="Body");
  // Skin weights: a new engine block of exactly the model's size, written and installed in the clone's skin array.
  {Ptr d=f->obj[a1].shared;float w;std::memcpy(&w,reinterpret_cast<void*>(load<Ptr>(d+0xf0)),4);assert(f->weightAllocs==1&&load<Ptr>(d+0xf0)==f->lastWeights&&w==1&&load<uint64_t>(d+0x100)==3&&load<uint64_t>(d+0x108)==3);}
  // Skeleton library for the import: per-renderer bones, bindposes and mesh identity, plus the skeleton's transform chain.
@@ -181,14 +181,14 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
  control(true,1,0,{"B","A"});runtime.tick(10600);Ptr b1=meshOf(world);
  assert(state()=="active"&&b1!=a1&&meshOf(ui)==b1&&meshOf(ui2)==b1&&f->textures==2&&f->lightProperty=="_LightMapTex"&&f->meshClones==4&&channelSets==3);
  assert(status().at("models").array.size()==1&&status().at("models").array[0].string=="B");
- control(true,2,0,{"A","B"});runtime.tick(10700);assert(meshOf(world)==a1&&meshOf(ui)==a1&&meshOf(ui2)==a1&&f->meshClones==4&&text(shared+"/GIBox Log.txt").find("outranked B/Part0 on Body")!=std::string::npos);
+ control(true,2,0,{"A","B"});runtime.tick(10700);assert(meshOf(world)==a1&&meshOf(ui)==a1&&meshOf(ui2)==a1&&f->meshClones==4&&text(shared+"/GIBox Log.txt").find("outranked B/Part0，Body")!=std::string::npos);
  // 4. Character leaves (renderers destroyed) and returns as new objects: no rebuild.
  for(Ptr r:{world,ui,ui2}){store<Ptr>(r+0x10,0);}f->scene={npc,odd,other};f->world(0);store<uint32_t>(f->manager+kCurrent,0);runtime.tick(11200);assert(state()=="waiting");
  Ptr world2=f->renderer(original);f->world(world2);f->scene={world2,npc,odd,other};store<uint32_t>(f->manager+kCurrent,7);runtime.tick(11700);assert(state()=="active"&&meshOf(world2)==a1&&f->meshClones==4);
  // Game 7.2: the element size is found at +0xba (the fake's 7.1 layout; 7.2's allocator reads +0xb4), and the skin
  // weights get the mesh's own skin label (the fake's, like 7.1's, is 15).
- {auto l=text(shared+"/GIBox Log.txt");assert(l.find("array-layout managed array element size at +0xba")!=std::string::npos&&l.find("array-layout-error")==std::string::npos);
-  assert(l.find("skin-label weights allocated with label 15 (the mesh's own skin array)")!=std::string::npos);}
+ {auto l=text(shared+"/GIBox Log.txt");assert(l.find("array-layout 托管数组元素大小位于 +0xba")!=std::string::npos&&l.find("array-layout-error")==std::string::npos);
+  assert(l.find("skin-label 权重按标签 15 分配（取自网格自带的蒙皮数组）")!=std::string::npos);}
  // 5. Manual bone export keeps working; renderer names are filtered.
  f->obj[world2].name="Body (1)";control(true,2,1,{"A","B"});runtime.tick(11800);runtime.tick(12300);{bool found=false;for(auto& d:std::filesystem::directory_iterator(boneRoot))if(d.path().filename().string().rfind("10000107-",0)==0&&text(d.path().string()+"/skeleton.json").find("\"name\":\"Body1\"")!=std::string::npos)found=true;assert(found&&state()=="active");}f->obj[world2].name="Body";
  // 6. Hot reload: a new generation is built and takes over in one tick; the old mesh is destroyed.
@@ -223,7 +223,7 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
  Ptr model=meshOf(world2),source=f->renderer(original),sourceMats=f->obj[source].materials;f->scene.push_back(source);runtime.tick(25000);
  assert(model!=original&&meshOf(source)==model&&f->obj[source].materials!=sourceMats);
  Ptr copy=f->instantiate(source);assert(meshOf(copy)==model);f->scene.push_back(copy);runtime.tick(25600);
- assert(text(shared+"/GIBox Log.txt").find("adopted A/Part0 -> Body")!=std::string::npos&&meshOf(copy)==model&&state()=="active");
+ assert(text(shared+"/GIBox Log.txt").find("adopted A/Part0 → Body")!=std::string::npos&&meshOf(copy)==model&&state()=="active");
  Ptr shared0=load<Ptr>(f->obj[copy].materials+0x20);store<Ptr>(source+0x10,0);runtime.tick(26200);assert(alive(shared0)&&meshOf(copy)==model);
  // 12c. Async hand-off: the game passes a new, still inactive model GameObject before activating it. A built model is
  //      attached right there, with no tick in between. D was never in the scene: the tick preloads its files and the
@@ -231,24 +231,24 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
  //      The game's own callback then puts its mesh back on the renderer (seen on device): ours goes back right after it.
  {Ptr handed=f->renderer(original),go=f->gameObjectOf({handed}),handedMats=f->obj[handed].materials;unsigned calls=f->childCalls;runtime.spawned(go);
   assert(meshOf(handed)==model);f->obj[handed].mesh=original;runtime.spawnedAfter();
-  assert(f->childCalls==calls+1&&meshOf(handed)==model&&text(shared+"/GIBox Log.txt").find("spawn Avatar_Girl_Catalyst_Citlali_Manekin: attached 1, adopted 0, built 0")!=std::string::npos);
-  assert(text(shared+"/GIBox Log.txt").find("spawn-after after the game's hand-off callback: kept 0, put back 1, lost 0")!=std::string::npos);
+  assert(f->childCalls==calls+1&&meshOf(handed)==model&&text(shared+"/GIBox Log.txt").find("spawn Avatar_Girl_Catalyst_Citlali_Manekin：挂载 1，接管 0，构建 0")!=std::string::npos);
+  assert(text(shared+"/GIBox Log.txt").find("spawn-after 游戏交接回调之后：保持 0，重新放回 1，丢失 0")!=std::string::npos);
   writeModel(models+"/D",Spec().character(10000300).withTarget(fixture::target("SpawnBody")));
   control(true,4,1,{"A","D"});runtime.tick(26300);
   Ptr spawnMesh=f->mesh("SpawnBody"),dr=f->renderer(spawnMesh,"BoneA","Body",f->kavehRoot),dgo=f->gameObjectOf({dr});unsigned before=f->meshClones;
   runtime.spawned(dr);assert(meshOf(dr)==spawnMesh);
-  runtime.spawned(dgo);runtime.spawnedAfter();assert(meshOf(dr)!=spawnMesh&&f->meshClones==before+2&&text(shared+"/GIBox Log.txt").find("attached 1, adopted 0, built 1")!=std::string::npos);
+  runtime.spawned(dgo);runtime.spawnedAfter();assert(meshOf(dr)!=spawnMesh&&f->meshClones==before+2&&text(shared+"/GIBox Log.txt").find("挂载 1，接管 0，构建 1")!=std::string::npos);
   // 12d. Level-of-detail swap by the game between ticks: ours is back on the next frame; disabling later restores the
   //      LOD0 original (the renderer's bones stay bound for that layout).
-  Ptr lod=f->mesh("Body_LOD3",2);f->obj[world2].mesh=lod;runtime.tick(26310);assert(meshOf(world2)==model&&text(shared+"/GIBox Log.txt").find("reclaimed A/Part0 <- Body_LOD3")!=std::string::npos);
+  Ptr lod=f->mesh("Body_LOD3",2);f->obj[world2].mesh=lod;runtime.tick(26310);assert(meshOf(world2)==model&&text(shared+"/GIBox Log.txt").find("reclaimed A/Part0 ← Body_LOD3")!=std::string::npos);
   // 12e. The game's own rebinding (native LOD switch / BindMeshBones) asks for its mesh on a renderer we attached: it gets
   //      ours, LODs included (an LOD never seen before is resolved through its managed wrapper). Other meshes, renderers
   //      we did not attach, and a mesh whose bone-name hashes differ from the original's pass unchanged.
   {Ptr wn=load<Ptr>(world2+0x10),ourN=load<Ptr>(model+0x10),origN=load<Ptr>(original+0x10),lod2=f->mesh("Body_LOD2",2),capeN=load<Ptr>(f->mesh("Cape",3)+0x10);
    assert(runtime.bindMesh(wn,origN)==ourN&&runtime.bindMesh(wn,load<Ptr>(lod2+0x10))==ourN&&runtime.bindMesh(wn,capeN)==capeN&&runtime.bindMesh(wn,ourN)==ourN);
-   assert(runtime.bindMesh(load<Ptr>(npc+0x10),origN)==origN&&text(shared+"/GIBox Log.txt").find("bind-substituted A/Part0: game asked for Body_LOD2 (2 vertices)")!=std::string::npos);
+   assert(runtime.bindMesh(load<Ptr>(npc+0x10),origN)==origN&&text(shared+"/GIBox Log.txt").find("bind-substituted A/Part0：游戏请求绑定 Body_LOD2（2 顶点）")!=std::string::npos);
    // Off the Tick thread nothing is touched: the game's request passes as it is.
-   {Ptr got=0;std::thread other([&]{got=runtime.bindMesh(wn,origN);});other.join();assert(got==origN&&text(shared+"/GIBox Log.txt").find("hook-skip mesh binding called on another thread than Tick")!=std::string::npos);}
+   {Ptr got=0;std::thread other([&]{got=runtime.bindMesh(wn,origN);});other.join();assert(got==origN&&text(shared+"/GIBox Log.txt").find("hook-skip 网格绑定 在 Tick 以外的线程调用")!=std::string::npos);}
    Ptr dN=load<Ptr>(dr+0x10),spawnN=load<Ptr>(spawnMesh+0x10);store<uint64_t>(load<Ptr>(meshOf(dr)+0x10)+0x90,0);
    assert(runtime.bindMesh(dN,spawnN)==spawnN&&text(shared+"/GIBox Log.txt").find("bind-incompatible D/Part0")!=std::string::npos);}
   // A different mesh is left to the game, and the renderer gets its original materials back before our clones are
@@ -274,7 +274,7 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
   {Runtime threaded(e,pkg,root+"/private2",media2,true);bool ok=false;
    for(int i=0;i<300&&!ok;i++){threaded.tick(100000+uint64_t(i)*100);std::this_thread::sleep_for(std::chrono::milliseconds(10));try{ok=JsonParser(text(shared2+"/status.json")).parse().at("state").string=="active";}catch(const std::exception&){}}
    assert(ok&&meshOf(world2)!=original);threaded.tick(200000);threaded.shutdown();assert(meshOf(world2)==original&&f->handles.empty());}
-  assert(exists(shared2+"/skeletons/10000107/skeleton.json")&&text(shared2+"/GIBox Log.txt").find("byval_arg at class+0x98 no this_arg pair, array votes 2")!=std::string::npos);}
+  assert(exists(shared2+"/skeletons/10000107/skeleton.json")&&text(shared2+"/GIBox Log.txt").find("byval_arg 位于 class+0x98，没有 this_arg 配对，数组票数 2")!=std::string::npos);}
  // 14. Neither sign: three failed searches turn the scan off, the classes are dumped once, the world character keeps
  //     working and a model of another character says why it waits.
  f->linkArrays(false);
@@ -291,9 +291,9 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
   std::filesystem::create_directories(shared4);write(shared4+"/control.json","{\"enabled\":true,\"selected\":[\"A\"],\"cycle\":0,\"exportBones\":0}");
   Ptr updated=f->mesh("Body",5);Ptr world5=f->renderer(updated);f->world(world5);
   Runtime upd(e,pkg,root+"/private4",media4,false);upd.tick(400000);upd.tick(400300);auto st=JsonParser(text(shared4+"/status.json")).parse();
-  assert(st.at("state").string=="active"&&meshOf(world5)!=updated&&learnedAt(models4+"/A").targets.at("Part0").vertices==5&&text(shared4+"/GIBox Log.txt").find("target-updated A/Part0: Body vertices 3->5")!=std::string::npos);
+  assert(st.at("state").string=="active"&&meshOf(world5)!=updated&&learnedAt(models4+"/A").targets.at("Part0").vertices==5&&text(shared4+"/GIBox Log.txt").find("target-updated A/Part0：网格 Body，顶点 3 → 5")!=std::string::npos);
   store<Ptr>(world5+0x10,0);Ptr outfit=f->renderer(f->mesh("BodyCostume",4));f->world(outfit);upd.tick(400600);st=JsonParser(text(shared4+"/status.json")).parse();
-  assert(st.at("state").string=="waiting"&&st.at("detail").string.find("和导入时不同")!=std::string::npos&&meshOf(outfit)==f->obj[outfit].mesh&&learnedAt(models4+"/A").targets.at("Part0").vertices==5);
+  assert(st.at("state").string=="waiting"&&st.at("detail").string.find("与导入时不同")!=std::string::npos&&meshOf(outfit)==f->obj[outfit].mesh&&learnedAt(models4+"/A").targets.at("Part0").vertices==5);
   upd.shutdown();assert(f->handles.empty());}
  // 16. Manual import for a chosen character without its skeleton library: ID plus model name (model.json "character"). The part is learned
  //     from that character's skeleton while another one is on the field (party / detail page) and the ID stays. Imported
@@ -310,7 +310,7 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
   Runtime idm(e,pkg,root+"/private5",media5,false);idm.tick(500000);idm.tick(500600);
   auto log=text(logFile);
   assert(meshOf(kaveh)!=kavehMesh&&meshOf(statue)==statueMesh&&meshOf(world6)==original&&readSummary(models5+"/K").id==10000081&&learnedAt(models5+"/K").id==0&&learnedAt(models5+"/K").targets.at("Part0").mesh=="KavehBody");
-  assert(log.find("runtime INFO target-learned K/Part0 by name kaveh (KavehBody, 3 vertices)")!=std::string::npos);
+  assert(log.find("runtime INFO target-learned K/Part0：按角色名 kaveh 识别，网格 KavehBody，3 顶点")!=std::string::npos);
   {auto first=log.substr(0,log.find('\n'));auto digits=[&](size_t at,size_t n){for(size_t i=at;i<at+n;i++)if(first.size()<=i||!std::isdigit(static_cast<unsigned char>(first[i])))return false;return true;};
    assert(digits(0,4)&&first[4]=='-'&&digits(5,2)&&first[7]=='-'&&digits(8,2)&&first[10]==' '&&digits(11,2)&&first[13]==':'&&digits(14,2)&&first[16]==':'&&digits(17,2)&&first[19]==','&&digits(20,3)&&first[23]==' '&&digits(24,6)&&first.compare(30,9," runtime ")==0);
    for(size_t p=0;(p=log.find('\n',p))!=std::string::npos&&p+1<log.size();p++)if(log[p+1]!=' ')assert(log.compare(p+1+24,6,first,24,6)==0);}  // one instance id per process
@@ -331,8 +331,8 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
   Runtime lib(e,pkg,root+"/private6",media6,false);lib.tick(600000);lib.tick(600500);
   assert(!exists(shared6+"/skeletons/10000107/skeleton.json")&&(!exists(logFile)||text(logFile).find("bone-library-error")==std::string::npos));
   Ptr broken=f->renderer(f->mesh());store<uint64_t>(f->obj[f->obj[broken].mesh].arrays[abi::getBindposes]+0x18,2);f->world(broken);
-  lib.tick(601200);lib.tick(612000);lib.tick(623000);auto log=text(logFile);auto at=log.find("bone-library-error 10000107: Incomplete skeleton: 1 renderers, 0 still loading, 1 with bone/bindpose counts that differ");
-  assert(at!=std::string::npos&&log.find("bone-library-error",at+1)==std::string::npos&&log.find("Body 1 bones / 2 bindposes")!=std::string::npos);
+  lib.tick(601200);lib.tick(612000);lib.tick(623000);auto log=text(logFile);auto at=log.find("bone-library-error 10000107：骨骼不完整：渲染器 1 个，加载中 0，骨骼数与绑定矩阵数不符 1");
+  assert(at!=std::string::npos&&log.find("bone-library-error",at+1)==std::string::npos&&log.find("Body 骨骼 1 根，绑定矩阵 2 个")!=std::string::npos);
   Ptr good=f->renderer(original);f->world(good);lib.tick(634000);lib.tick(634500);assert(exists(shared6+"/skeletons/10000107/skeleton.json"));lib.shutdown();assert(f->handles.empty());}
  // 18. Why a model waits: before the character is known the scan has not started; then the same mesh at another level of
  //     detail is named with the number that differs (status and log); once LOD0 shows, it attaches.
@@ -342,9 +342,9 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
   Runtime why(e,pkg,root+"/private7",media7,false);why.tick(700000);auto st=JsonParser(text(shared7+"/status.json")).parse();
   assert(st.at("state").string=="waiting"&&st.at("detail").string.find("还没认出当前操控的角色")!=std::string::npos&&st.at("detail").string.find("任一处")==std::string::npos);
   store<uint32_t>(f->manager+kCurrent,7);why.tick(700600);st=JsonParser(text(shared7+"/status.json")).parse();auto log=text(logFile);
-  assert(st.at("state").string=="waiting"&&st.at("detail").string.find("和导入时不同（顶点 3→2）")!=std::string::npos&&meshOf(lod)==f->obj[lod].mesh);
-  assert(log.find("runtime INFO character none")!=std::string::npos&&log.find("runtime INFO character 10000107")!=std::string::npos);
-  assert(log.find("wait-reason A: 当前角色 10000107，它的渲染器 1 个，全场景 1 个")!=std::string::npos&&log.find("Part0 要 Body / Body（顶点 3，子网格 1，骨骼 1）：同名 Mesh 数字不同 Body / Body_LOD1（顶点 2，子网格 1，骨骼 1）")!=std::string::npos);
+  assert(st.at("state").string=="waiting"&&st.at("detail").string.find("与导入时不同（顶点 3→2）")!=std::string::npos&&meshOf(lod)==f->obj[lod].mesh);
+  assert(log.find("runtime INFO character 无")!=std::string::npos&&log.find("runtime INFO character 10000107")!=std::string::npos);
+  assert(log.find("wait-reason A：当前角色 10000107，其渲染器 1 个，全场景 1 个")!=std::string::npos&&log.find("Part0 目标 Body / Body（顶点 3，子网格 1，骨骼 1）：同名网格的数据不同 Body / Body_LOD1（顶点 2，子网格 1，骨骼 1）")!=std::string::npos);
   Ptr near=f->renderer(original);f->world(near);f->scene={lod,near};why.tick(701200);why.tick(701800);
   assert(JsonParser(text(shared7+"/status.json")).parse().at("state").string=="active"&&meshOf(near)!=original);why.shutdown();assert(f->handles.empty());}
  // 19. Lower levels of detail. Right after loading the character shows one (Body_LOD3): the skeleton library waits and
@@ -380,7 +380,7 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
   store<float>(binds+0x20,1.f);capture.tick(818000);capture.tick(818500);assert(text(file)==old); // two healthy full captures required
   capture.tick(820000);assert(st().at("boneRefreshState").string=="saving"&&text(file)!=old);capture.tick(820100);assert(st().at("boneRefreshState").string=="complete");
   auto records=readSkeleton(file);assert(records.size()==2&&records[0].target.mesh=="Body"&&records[0].target.vertices==12022&&records[1].target.mesh=="Face");
-  assert(text(file).find("LOD")==std::string::npos&&text(sharedFull+"/GIBox Log.txt").find("bone-library-source 10000107: active same-avatar full model instead of Body / Body_LOD1")!=std::string::npos);
+  assert(text(file).find("LOD")==std::string::npos&&text(sharedFull+"/GIBox Log.txt").find("bone-library-source 10000107：改用同 avatar 的完整模型实例，代替 Body / Body_LOD1")!=std::string::npos);
   auto searches=f->findCalls;capture.tick(822000);capture.tick(830000);assert(f->findCalls==searches&&f->findAllCalls==assetCalls&&meshOf(body)==low);
   capture.shutdown();assert(f->handles.empty());f->assets.clear();f->world(world);f->scene={world};}
  // 20. A version 2 model: draws carry their conditions. The default shows one draw; $halo=3 (with $legs at its default 1)
@@ -443,7 +443,7 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
   Runtime part(e,pkg,root+"/privatePartial",mediaPartial,false);uint64_t t=1100000;
   for(;t<1100000+20000;t+=500){part.tick(t);}assert(!exists(bonesPartial+"/10000107/skeleton.json"));
   for(;t<1100000+40000;t+=500){part.tick(t);}auto lib=text(bonesPartial+"/10000107/skeleton.json");auto log=text(logFile);
-  assert(lib.find("\"name\":\"Body\"")!=std::string::npos&&lib.find("Cloak")==std::string::npos&&log.find("runtime WARNING bone-library-partial 10000107: recording the complete renderers without Cloak")!=std::string::npos);
+  assert(lib.find("\"name\":\"Body\"")!=std::string::npos&&lib.find("Cloak")==std::string::npos&&log.find("runtime WARNING bone-library-partial 10000107：只记录完整的渲染器，排除 Cloak")!=std::string::npos);
   assert(log.find("bone-library-partial")==log.rfind("bone-library-partial"));auto reads=f->bindposeReads;part.tick(t+1000);part.tick(t+10000);assert(f->bindposeReads==reads);
   part.shutdown();assert(f->handles.empty());}
  // 24. Default-off geometry leaves the original visible. Enabling builds/attaches it; disabling restores both mesh and
@@ -478,7 +478,7 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
  {std::string mediaMiss=root+"/mediaMiss",sharedMiss=mediaMiss+"/"+pkg+"/GIBox";Spec s;s.edit=[](std::string& j){fixture::replaceIn(j,"\"renderer\":\"Body\"","\"renderer\":\"Cloak\"");};writeModel(sharedMiss+"/models/Miss",s);
   Ptr w=f->renderer(original);f->world(w);f->scene={w};write(sharedMiss+"/control.json","{\"enabled\":true,\"selected\":[\"Miss\"]}");
   Runtime miss(e,pkg,root+"/privateMiss",mediaMiss,false);for(uint64_t t=1500000;t<=1505000;t+=500){miss.tick(t);}
-  auto log=text(sharedMiss+"/GIBox Log.txt");auto at=log.find("target-missing Miss/Part0: renderer match missing: Cloak");assert(at!=std::string::npos&&log.find("target-missing",at+1)==std::string::npos&&meshOf(w)==original);
+  auto log=text(sharedMiss+"/GIBox Log.txt");auto at=log.find("target-missing Miss/Part0：匹配渲染器未找到：Cloak");assert(at!=std::string::npos&&log.find("target-missing",at+1)==std::string::npos&&meshOf(w)==original);
   miss.shutdown();assert(f->handles.empty());}
  // 27. Phone mesh with fewer materials than the mod's parts (Shenhe: 4 parts, 3 submeshes): the extra slot borrows the
  //     last material's shader. Clones are taken again after the switch-in effect (twice), adopted copies follow.
@@ -492,10 +492,10 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
   slot.tick(1602800);Ptr second=f->obj[w].materials;assert(second!=first&&load<Ptr>(second+0x20)!=c0&&load<Ptr>(second+0x28)!=c1&&alive(c0));
   slot.tick(1605400);assert(f->obj[w].materials!=second);auto third=f->obj[w].materials;assert(load<Ptr>(f->obj[copy].materials+0x20)==load<Ptr>(third+0x20));
   slot.tick(1609000);assert(f->obj[w].materials==third);
-  auto log=text(sharedSlot+"/GIBox Log.txt");assert(log.find("material-slot-borrowed Slot/Part0: slot 1 has no game material")!=std::string::npos&&log.find("material-slot-borrowed")==log.rfind("material-slot-borrowed"));
+  auto log=text(sharedSlot+"/GIBox Log.txt");assert(log.find("material-slot-borrowed Slot/Part0：Body 上槽 1 没有游戏材质")!=std::string::npos&&log.find("material-slot-borrowed")==log.rfind("material-slot-borrowed"));
   // The same character now shows only Body_LOD1 (same bone names): ours goes on, and the LOD comes back on restore.
   Ptr lodMesh=f->mesh("Body_LOD1",2),lod=f->renderer(lodMesh);f->world(lod);f->scene={w,copy,lod};slot.tick(1609600);slot.tick(1610200);
-  assert(meshOf(lod)==meshOf(w)&&text(sharedSlot+"/GIBox Log.txt").find("attached-lod Slot/Part0 over Body_LOD1")!=std::string::npos);
+  assert(meshOf(lod)==meshOf(w)&&text(sharedSlot+"/GIBox Log.txt").find("attached-lod Slot/Part0：挂载在低精度网格 Body_LOD1 上")!=std::string::npos);
   Ptr other=f->renderer(f->mesh("Body_LOD1",2),"BoneZ");f->scene={w,copy,lod,other};f->world(other);slot.tick(1610800);slot.tick(1611400);assert(meshOf(other)!=meshOf(w));
   write(sharedSlot+"/control.json","{\"enabled\":false,\"selected\":[\"Slot\"]}");slot.tick(1612000);assert(meshOf(lod)==lodMesh&&meshOf(w)==full);
   slot.shutdown();assert(f->handles.empty());}
@@ -508,7 +508,7 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
   rec.bindposes.assign(reinterpret_cast<const uint8_t*>(f->obj[lodMesh].arrays[abi::getBindposes]+0x20),reinterpret_cast<const uint8_t*>(f->obj[lodMesh].arrays[abi::getBindposes]+0x20+64));
   std::filesystem::create_directories(sharedLod+"/skeletons/10000107");write(sharedLod+"/skeletons/10000107/skeleton.json",skeletonJson(10000107,"Scene/Avatar_Girl_Catalyst_Citlali",{rec}));
   Runtime second(e,pkg,root+"/privateLod2",mediaLod,false);for(uint64_t t=1710000;t<=1713000;t+=500){second.tick(t);}
-  auto log=text(sharedLod+"/GIBox Log.txt");assert(meshOf(lod)!=lodMesh&&log.find("template-lod Lod: Body only shows Body_LOD1")!=std::string::npos&&log.find("attached-lod Lod/Part0 over Body_LOD1")!=std::string::npos);
+  auto log=text(sharedLod+"/GIBox Log.txt");assert(meshOf(lod)!=lodMesh&&log.find("template-lod Lod：Body 只显示 Body_LOD1")!=std::string::npos&&log.find("attached-lod Lod/Part0：挂载在低精度网格 Body_LOD1 上")!=std::string::npos);
   second.shutdown();assert(meshOf(lod)==lodMesh&&f->handles.empty());}
  // A converted legacy mod already contains the same full skeleton proof as the library. The checked preload is
  // enough when that separate file is missing; a same-sized palette with different names or bindposes is not.
@@ -516,7 +516,7 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
   write(sharedE+"/control.json","{\"enabled\":true,\"selected\":[\"Legacy\"],\"experiments\":{\"animationMode\":2}}");
   Ptr low=f->mesh("Body_LOD1",2),renderer=f->renderer(low);f->world(renderer);f->scene={renderer};
   Runtime saved(e,pkg,root+"/embedded-lod-private",mediaE,false);for(uint64_t t=1720000;t<=1723000;t+=500)saved.tick(t);
-  assert(meshOf(renderer)!=low&&!exists(sharedE+"/skeletons/10000107/skeleton.json")&&text(sharedE+"/GIBox Log.txt").find("bones and bindposes equal the model's saved Body")!=std::string::npos);
+  assert(meshOf(renderer)!=low&&!exists(sharedE+"/skeletons/10000107/skeleton.json")&&text(sharedE+"/GIBox Log.txt").find("其骨骼和绑定矩阵与模型保存的 Body 一致")!=std::string::npos);
   saved.shutdown();assert(meshOf(renderer)==low&&f->handles.empty());
   Ptr wrong=f->renderer(f->mesh("Body_LOD1",2),"BoneZ");f->world(wrong);f->scene={wrong};auto wrongMesh=meshOf(wrong);unsigned clones=f->meshClones;
   {Runtime rejected(e,pkg,root+"/embedded-lod-wrong-name",mediaE,false);for(uint64_t t=1730000;t<=1732000;t+=500)rejected.tick(t);assert(meshOf(wrong)==wrongMesh&&f->meshClones==clones);rejected.shutdown();}
@@ -530,7 +530,7 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
   Ptr low=f->mesh("Body_LOD1",2),r=f->renderer(low),bone0=load<Ptr>(f->obj[r].bones+0x20),unused=f->object("bone","UnusedBone");f->obj[unused].parent=f->skeletonRoot;Ptr bones[]={bone0,unused};f->obj[r].bones=f->array(8,2,bones);Bytes matrices(128);for(unsigned n=0;n<2;n++)for(unsigned k=0;k<4;k++)store<float>(reinterpret_cast<Ptr>(matrices.data())+n*64+k*20,1.f);
   auto binds=f->array(64,2,matrices.data());f->obj[low].arrays[abi::getBindposes]=binds;store<uint64_t>(f->obj[low].shared+0xe0,2);f->world(r);f->scene={r};write(sharedL+"/control.json","{\"enabled\":true,\"selected\":[\"Legacy\"]}");
   {Runtime recovered(e,pkg,root+"/legacy-map-private",mediaL,false);recovered.tick(1800000);recovered.tick(1800200);assert(meshOf(r)==low);store<float>(binds+0x20,2.f);recovered.tick(1800400);recovered.tick(1800600);assert(meshOf(r)==low);recovered.tick(1801000);
-   assert(meshOf(r)!=low&&text(sharedL+"/GIBox Log.txt").find("matched-used=1")!=std::string::npos&&!exists(sharedL+"/skeletons/10000107/skeleton.json"));recovered.shutdown();assert(meshOf(r)==low&&f->handles.empty());}
+   assert(meshOf(r)!=low&&text(sharedL+"/GIBox Log.txt").find("用到并已核对 1 根")!=std::string::npos&&!exists(sharedL+"/skeletons/10000107/skeleton.json"));recovered.shutdown();assert(meshOf(r)==low&&f->handles.empty());}
   auto rejects=[&](const std::string& priv){unsigned clones=f->meshClones;Runtime rejected(e,pkg,root+priv,mediaL,false);for(uint64_t now=1810000;now<=1812000;now+=200)rejected.tick(now);assert(meshOf(r)==low&&f->meshClones==clones);rejected.shutdown();assert(f->handles.empty());};
   f->obj[bone0].name="WrongUsedBone";rejects("/legacy-map-name-mismatch");f->obj[bone0].name="BoneA";
   write(file,header+"0\t-1\t#0\t\n1\t-1\t#1\t\n");rejects("/legacy-map-used-missing");
@@ -567,13 +567,13 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
   Ptr grandchild=f->instantiate(child);f->scene.push_back(grandchild);heir.tick(2001200);assert(load<Ptr>(f->obj[child].materials+0x20)==firstMat);
   heir.tick(2001800);Ptr secondMat=load<Ptr>(f->obj[child].materials+0x20);assert(secondMat!=firstMat&&f->glow[secondMat]==0&&load<Ptr>(f->obj[grandchild].materials+0x20)==secondMat);
   heir.tick(2004400);Ptr thirdMat=load<Ptr>(f->obj[child].materials+0x20);assert(thirdMat!=secondMat&&f->glow[thirdMat]==0&&load<Ptr>(f->obj[grandchild].materials+0x20)==thirdMat);heir.tick(2009000);assert(load<Ptr>(f->obj[child].materials+0x20)==thirdMat);
-  auto heirLog=text(sharedHeir+"/GIBox Log.txt");assert(heirLog.find("material-state Heir/Part0 early-sample")!=std::string::npos&&heirLog.find("material-refresh Heir: attempt 1 applied")!=std::string::npos&&heirLog.find("material-refresh Heir: attempt 2 applied")!=std::string::npos);
+  auto heirLog=text(sharedHeir+"/GIBox Log.txt");assert(heirLog.find("material-state Heir/Part0：阶段 挂载后采样")!=std::string::npos&&heirLog.find("material-refresh Heir：第 1 次刷新已应用")!=std::string::npos&&heirLog.find("material-refresh Heir：第 2 次刷新已应用")!=std::string::npos);
   heir.shutdown();assert(meshOf(child)==originalMesh&&meshOf(grandchild)==originalMesh&&f->handles.empty());}
  // 32. A present but destroyed game material is a loading/lifetime problem, not an extra PC part. Do not borrow a
  //     different slot's shader for it; wait without changing the original pair, then retry on the SAME renderer.
  {std::string mediaDead=root+"/mediaDead",sharedDead=mediaDead+"/"+pkg+"/GIBox";Spec s;s.withTarget(fixture::target("Body"));s.draws={"[{\"start\":0,\"count\":3,\"material\":\"Material0\",\"slot\":0},{\"start\":0,\"count\":3,\"material\":\"Material0\",\"slot\":1}]"};writeModel(sharedDead+"/models/Dead",s);
   Ptr originalMesh=f->mesh(),w=f->renderer(originalMesh),first=load<Ptr>(f->obj[w].materials+0x20),dead=f->object("material","Not ready");store<Ptr>(dead+0x10,0);Ptr ms[]={first,dead};Ptr saved=f->array(8,2,ms);f->obj[w].materials=saved;f->world(w);f->scene={w};write(sharedDead+"/control.json","{\"enabled\":true,\"selected\":[\"Dead\"]}");
-  Runtime missing(e,pkg,root+"/privateDead",mediaDead,false);missing.tick(2100000);missing.tick(2100600);auto log=text(sharedDead+"/GIBox Log.txt");assert(meshOf(w)==originalMesh&&f->obj[w].materials==saved&&log.find("material-wait Dead:")!=std::string::npos&&log.find("material-wait")==log.rfind("material-wait")&&log.find("material-slot-borrowed")==std::string::npos);
+  Runtime missing(e,pkg,root+"/privateDead",mediaDead,false);missing.tick(2100000);missing.tick(2100600);auto log=text(sharedDead+"/GIBox Log.txt");assert(meshOf(w)==originalMesh&&f->obj[w].materials==saved&&log.find("material-wait Dead：")!=std::string::npos&&log.find("material-wait")==log.rfind("material-wait")&&log.find("material-slot-borrowed")==std::string::npos);
   assert(JsonParser(text(sharedDead+"/status.json")).parse().at("detail").string.find("原材质槽 1 尚未就绪")!=std::string::npos);
   Ptr ready=f->object("material","Ready");ms[1]=ready;Ptr complete=f->array(8,2,ms);f->obj[w].materials=complete;missing.tick(2101200);assert(meshOf(w)!=originalMesh);
   missing.shutdown();assert(meshOf(w)==originalMesh&&f->obj[w].materials==complete&&f->handles.empty());}
@@ -583,7 +583,7 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
   Ptr originalMesh=f->mesh(),w=f->renderer(originalMesh),saved=f->obj[w].materials;f->world(w);f->scene={w};write(sharedTrace+"/control.json","{\"enabled\":true,\"selected\":[\"Trace\"]}");
   Runtime trace(e,pkg,root+"/privateTrace",mediaTrace,false);trace.tick(2200000);Ptr copy=clone(load<Ptr>(f->obj[w].materials+0x20),0);Ptr copied=f->array(8,1,&copy);f->obj[w].materials=copied;
   trace.tick(2200600);assert(f->obj[w].materials==copied);trace.tick(2201800);assert(f->obj[w].materials==copied);
-  auto traceLog=text(sharedTrace+"/GIBox Log.txt");assert(traceLog.find("material-state Trace/Part0 early-sample")!=std::string::npos&&traceLog.find("current=[0=untracked:")!=std::string::npos&&traceLog.find("attempt 1 skipped (current materials are not the owned clones)")!=std::string::npos);
+  auto traceLog=text(sharedTrace+"/GIBox Log.txt");assert(traceLog.find("material-state Trace/Part0：阶段 挂载后采样")!=std::string::npos&&traceLog.find("当前 [0=未跟踪:")!=std::string::npos&&traceLog.find("第 1 次刷新跳过（当前材质不是 GIBox 的副本）")!=std::string::npos);
   trace.shutdown();assert(meshOf(w)==originalMesh&&f->obj[w].materials==saved&&f->handles.empty());}
  // 34. Party hand-off instantiates each draw's material (two draws sharing one base slot become two instances).
  //     Repair that recognized palette early, cap early attempts, retain the delayed recovery and original palette.
@@ -594,7 +594,7 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
   auto instantiatePalette=[&]{Ptr list[2];for(unsigned i=0;i<2;i++){list[i]=clone(load<Ptr>(f->obj[w].materials+0x20+8*i),0);f->obj[list[i]].name="Avatar_Mat_Body(Clone) (Instance) #"+std::to_string(i);f->glow[list[i]]=1;gameCopies.push_back(list[i]);}Ptr arr=f->array(8,2,list);f->obj[w].materials=arr;return arr;};
   for(uint64_t now:{2300050ull,2300100ull}){Ptr gameArray=instantiatePalette();copy.tick(now);assert(f->obj[w].materials!=gameArray&&meshOf(w)==ourMesh);for(Ptr m:{load<Ptr>(f->obj[w].materials+0x20),load<Ptr>(f->obj[w].materials+0x28)}){assert(f->glow[m]==0&&f->diffuse[m]==texture);}}
   Ptr third=instantiatePalette();copy.tick(2300150);assert(f->obj[w].materials==third);copy.tick(2301800);assert(f->obj[w].materials!=third&&f->glow[load<Ptr>(f->obj[w].materials+0x20)]==0);
-  auto copyLog=text(sharedCopy+"/GIBox Log.txt");assert(copyLog.find("material-reclaimed Copy/Part0")!=std::string::npos&&copyLog.find("attempt 1 applied")!=std::string::npos&&copyLog.find("skipped (current materials are not the owned clones)")==std::string::npos);
+  auto copyLog=text(sharedCopy+"/GIBox Log.txt");assert(copyLog.find("material-reclaimed Copy/Part0")!=std::string::npos&&copyLog.find("第 1 次刷新已应用")!=std::string::npos&&copyLog.find("跳过（当前材质不是 GIBox 的副本）")==std::string::npos);
   copy.shutdown();assert(meshOf(w)==originalMesh&&f->obj[w].materials==saved&&f->handles.empty());for(Ptr m:gameCopies){assert(alive(m));}}
  // 35. Similar names by themselves are insufficient: wrong row count, another material stem and an unrelated mesh
  //     must all remain untouched by the early guard.
@@ -691,7 +691,7 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
   store<uint32_t>(f->obj[mobMesh].shared+0x74,5);filter.meshBound(native);assert(f->nameReads[mobMesh]==names+4&&f->boneReads[mob]==bones);
   Ptr ttl=f->renderer(mobMesh);filter.meshBound(load<Ptr>(ttl+0x10));unsigned beforeExpiry=f->nameReads[mobMesh];filter.tick(3102700);
   filter.meshBound(load<Ptr>(ttl+0x10));filter.meshBound(load<Ptr>(ttl+0x10));assert(f->nameReads[mobMesh]==beforeExpiry+1);
-  assert(text(sharedFilter+"/GIBox Log.txt").find("runtime DEBUG bind-filter-stats checks ")!=std::string::npos);
+  assert(text(sharedFilter+"/GIBox Log.txt").find("runtime DEBUG bind-filter-stats 本次运行累计：检查 ")!=std::string::npos);
   Ptr incoming=f->mesh();f->obj[mob].mesh=incoming;filter.meshBound(native);assert(meshOf(mob)==mod);filter.shutdown();assert(meshOf(mob)==incoming&&f->handles.empty());}
  // 43. Incomplete headers, bones, parent chains and materials stay retryable on the SAME object. A matching
  //     fingerprint on the wrong avatar must still be rejected; reparenting a pooled candidate is observed afresh.
@@ -713,7 +713,7 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
  {std::string mediaGate=root+"/mediaBindLodGate",sharedGate=mediaGate+"/"+pkg+"/GIBox";Spec s;s.withTarget(fixture::target("Body"));writeModel(sharedGate+"/models/LodGate",s);
   Ptr full=f->mesh(),w=f->renderer(full);f->world(w);f->scene={w};write(sharedGate+"/control.json","{\"enabled\":true,\"selected\":[\"LodGate\"]}");
   Runtime gate(e,pkg,root+"/privateBindLodGate",mediaGate,false);gate.tick(3300000);gate.tick(3300600);Ptr mod=meshOf(w),lm=f->mesh("Body_LOD1",2),lr=f->renderer(lm);f->world(lr);gate.meshBound(load<Ptr>(lr+0x10));
-  assert(meshOf(lr)==mod&&text(sharedGate+"/GIBox Log.txt").find("attached-lod LodGate/Part0 over Body_LOD1")!=std::string::npos);
+  assert(meshOf(lr)==mod&&text(sharedGate+"/GIBox Log.txt").find("attached-lod LodGate/Part0：挂载在低精度网格 Body_LOD1 上")!=std::string::npos);
   gate.shutdown();assert(meshOf(lr)==lm&&f->handles.empty());}
  // 45. Enabling a new model, hot-reloading an existing target and learning a moved target clear prior rejections.
  {std::string mediaEpoch=root+"/mediaBindEpoch",sharedEpoch=mediaEpoch+"/"+pkg+"/GIBox";Spec a;a.withTarget(fixture::target("Body"));writeModel(sharedEpoch+"/models/Epoch",a);
@@ -744,14 +744,14 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
   writeModel(sharedLazy+"/models/Lazy",s);auto textures=[&]{unsigned n=0;for(auto& kv:f->obj)if(kv.second.kind=="texture"&&alive(kv.first))n++;return n;};
   f->world(0);f->scene={};write(sharedLazy+"/control.json","{\"enabled\":true,\"logLevel\":\"debug\",\"selected\":[\"Lazy\"]}");
   Runtime lazy(e,pkg,root+"/privateLazy",mediaLazy,false);unsigned before=textures();lazy.tick(2700000);lazy.tick(2700600);
-  assert(text(sharedLazy+"/GIBox Log.txt").find("preload Lazy g:")!=std::string::npos&&textures()==before);
+  assert(text(sharedLazy+"/GIBox Log.txt").find("preload Lazy：生成号 g:")!=std::string::npos&&textures()==before);
   Ptr full=f->mesh(),w=f->renderer(full);f->world(w);f->scene={w};lazy.tick(2701200);lazy.tick(2701800);
   assert(meshOf(w)!=full&&textures()==before+2);   // Material0: main + lightmap; Material1/2 not made
   write(sharedLazy+"/control.json","{\"enabled\":true,\"logLevel\":\"debug\",\"selected\":[\"Lazy\"],\"variables\":{\"Lazy\":{\"$look\":2}}}");lazy.tick(2702400);
-  auto log=text(sharedLazy+"/GIBox Log.txt");assert(log.find("variant-textures-loading Lazy $look=2")!=std::string::npos&&log.find("variant Lazy $look=2")==std::string::npos&&textures()==before+2);
-  lazy.tick(2703000);assert(text(sharedLazy+"/GIBox Log.txt").find("variant Lazy $look=2")!=std::string::npos&&textures()==before+3);
+  auto log=text(sharedLazy+"/GIBox Log.txt");assert(log.find("variant-textures-loading Lazy：$look=2")!=std::string::npos&&log.find("variant Lazy：$look=2")==std::string::npos&&textures()==before+2);
+  lazy.tick(2703000);assert(text(sharedLazy+"/GIBox Log.txt").find("variant Lazy：$look=2")!=std::string::npos&&textures()==before+3);
   write(sharedLazy+"/control.json","{\"enabled\":true,\"logLevel\":\"debug\",\"selected\":[\"Lazy\"],\"variables\":{\"Lazy\":{\"$look\":0}}}");lazy.tick(2703600);
-  assert(text(sharedLazy+"/GIBox Log.txt").find("variant Lazy $look=0")!=std::string::npos&&textures()==before+3);   // already made: switches at once
+  assert(text(sharedLazy+"/GIBox Log.txt").find("variant Lazy：$look=0")!=std::string::npos&&textures()==before+3);   // already made: switches at once
   lazy.shutdown();assert(meshOf(w)==full&&textures()==before&&f->handles.empty());}
  // 43. A party member that is loaded but not switched in (not the controlled character's renderer): its identity comes
  //     from the bone library's avatar before any set of the model exists, so it is built and taken over while hidden.
@@ -762,7 +762,7 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
   write(sharedParty+"/control.json","{\"enabled\":true,\"selected\":[\"Party\"]}");
   Ptr original=f->mesh(),hidden=f->renderer(original);
   {Runtime party(e,pkg,root+"/privateParty",mediaParty,false);party.tick(3100000);party.tick(3100600);party.meshBound(load<Ptr>(hidden+0x10));
-   assert(meshOf(hidden)==original&&text(sharedParty+"/GIBox Log.txt").find("avatar identity is not verified")!=std::string::npos);party.shutdown();}
+   assert(meshOf(hidden)==original&&text(sharedParty+"/GIBox Log.txt").find("avatar 未通过核对")!=std::string::npos);party.shutdown();}
   SkeletonRenderer rec;rec.name="Body";rec.target=fingerprintOf(JsonParser(fixture::target("Body")).parse());rec.bones={"BoneA"};rec.parents={-1};rec.bindposes.resize(64);for(int i=0;i<4;i++){float one=1;std::memcpy(rec.bindposes.data()+i*20,&one,4);}
   std::filesystem::create_directories(sharedParty+"/skeletons/10000107");write(sharedParty+"/skeletons/10000107/skeleton.json",skeletonJson(10000107,"Scene/EntityRoot/Avatar_Girl_Catalyst_Citlali(Clone)/OffsetDummy/BoneA",{rec}));
   Ptr foreignMesh=f->mesh(),foreignHidden=f->renderer(foreignMesh,"BoneA","Body",f->kavehRoot);
@@ -778,7 +778,7 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
   assert(text(root+"/privateCrc/verified-models.txt").find(dir+"/model.bin\t")!=std::string::npos);
   auto bin=text(dir+"/model.bin");bin.back()=char(bin.back()^0x5a);write(dir+"/model.bin.new",bin);std::filesystem::rename(dir+"/model.bin.new",dir+"/model.bin");
   {Runtime crc(e,pkg,root+"/privateCrc",mediaCrc,false);crc.tick(3400000);crc.tick(3400600);
-   assert(meshOf(w)==original&&text(sharedCrc+"/GIBox Log.txt").find("model-error Crc: model.bin: checksum mismatch")!=std::string::npos);crc.shutdown();}}
+   assert(meshOf(w)==original&&text(sharedCrc+"/GIBox Log.txt").find("model-error Crc：model.bin：校验和不符")!=std::string::npos);crc.shutdown();}}
  // 45. Experiments (control.json "experiments", debug only): an earlier first material re-copy, vertex colours set to the
  //     game mesh's usual value and UV2 zeroed (models rebuilt when switched). gameMaterials (0.7.93) is no longer read.
  {std::string mediaExp=root+"/mediaExp",sharedExp=mediaExp+"/"+pkg+"/GIBox";Spec s;s.textures=true;s.channels=true;s.withTarget(fixture::target("Body"));writeModel(sharedExp+"/models/Exp",s);
@@ -788,9 +788,9 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
   Runtime exp(e,pkg,root+"/privateExp",mediaExp,false);exp.tick(3500000);exp.tick(3500600);
   Ptr clone0=load<Ptr>(f->obj[w].materials+0x20);assert(meshOf(w)!=original&&clone0!=gameMat&&f->obj[clone0].kind=="material");   // our materials all the same
   bool white=false;for(auto& d:channelData)white|=d==Bytes(12,255);assert(white);   // the mod's vertex colours as converted
-  auto log=text(sharedExp+"/GIBox Log.txt");assert(log.find("experiments firstRefreshMs=300 neutralColors=off")!=std::string::npos&&log.find("glow-")==std::string::npos);
+  auto log=text(sharedExp+"/GIBox Log.txt");assert(log.find("experiments firstRefreshMs 300，neutralColors 关")!=std::string::npos&&log.find("glow-")==std::string::npos);
   control("\"neutralColors\":true,\"noUv2\":true");channelData.clear();exp.tick(3501800);exp.tick(3502400);exp.tick(3503000);
-  log=text(sharedExp+"/GIBox Log.txt");assert(log.find("experiment-rebuild Exp")!=std::string::npos&&log.find("experiment-mesh Exp/Part0 colours=(0,0,0,0) uv2=0")!=std::string::npos&&meshOf(w)!=original);
+  log=text(sharedExp+"/GIBox Log.txt");assert(log.find("experiment-rebuild Exp")!=std::string::npos&&log.find("experiment-mesh Exp/Part0：顶点色 (0,0,0,0)，UV2 置零")!=std::string::npos&&meshOf(w)!=original);
   bool zero=false;for(auto& d:channelData)zero|=d==Bytes(12,0);assert(zero);
   exp.shutdown();assert(meshOf(w)==original&&f->handles.empty());}
  // The first re-copy follows firstRefreshMs: 300 ms after attaching instead of 1.5 s.
@@ -799,7 +799,7 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
   for(int run=0;run<2;run++){std::string x=run?",\"experiments\":{\"firstRefreshMs\":300}":"";std::filesystem::remove(sharedRef+"/GIBox Log.txt");
    write(sharedRef+"/control.json","{\"enabled\":true,\"selected\":[\"Ref\"]"+x+"}");
    Runtime ref(e,pkg,root+"/privateRef"+std::to_string(run),mediaRef,false);uint64_t t=3600000+run*100000;ref.tick(t);ref.tick(t+600);ref.tick(t+1200);
-   bool refreshed=text(sharedRef+"/GIBox Log.txt").find("material-refresh Ref: attempt 1 applied")!=std::string::npos;assert(meshOf(w)!=original&&refreshed==(run==1));ref.shutdown();}}
+   bool refreshed=text(sharedRef+"/GIBox Log.txt").find("material-refresh Ref：第 1 次刷新已应用")!=std::string::npos;assert(meshOf(w)!=original&&refreshed==(run==1));ref.shutdown();}}
  // 46. Appearance timeline (debug): hand-offs and binds of a part's mesh are logged also before replacement is ready.
  {std::string mediaTl=root+"/mediaTimeline",sharedTl=mediaTl+"/"+pkg+"/GIBox";Spec s;s.withTarget(fixture::target("Body"));writeModel(sharedTl+"/models/Tl",s);
   Ptr original=f->mesh(),w=f->renderer(original),go=f->gameObjectOf({w});f->world(w);f->scene={w};
@@ -807,8 +807,8 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
   Runtime tl(e,pkg,root+"/privateTimeline",mediaTl,false);tl.tick(3700000);tl.spawned(go);tl.meshBound(load<Ptr>(w+0x10));
   Ptr mob=f->renderer(f->mesh("MonsterBody"),"BoneA","Mob",f->kavehRoot);tl.meshBound(load<Ptr>(mob+0x10));
   auto log=text(sharedTl+"/GIBox Log.txt");
-  assert(log.find("appearance handoff gameobject Avatar_Girl_Catalyst_Citlali_Manekin")!=std::string::npos);
-  assert(log.find("appearance bind-early renderer")!=std::string::npos&&log.find("avatar avatar_girl_catalyst_citlali mesh Body (3 vertices) controlled")!=std::string::npos);
+  assert(log.find("appearance handoff GameObject Avatar_Girl_Catalyst_Citlali_Manekin")!=std::string::npos);
+  assert(log.find("appearance bind-early 渲染器")!=std::string::npos&&log.find("avatar avatar_girl_catalyst_citlali，网格 Body（3 顶点），当前操控角色")!=std::string::npos);
   assert(log.find("MonsterBody")==std::string::npos&&meshOf(w)==original);tl.shutdown();}
  // 52. Outfits (0.7.94): the outfit the world character shows names its bone library folder. Wearing a skin writes
  //     skeletons/<id>/<skin prefab> and never the original's skeletons/<id>, also in a later session (before, every
@@ -829,23 +829,23 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
    assert(exists(main)&&text(main).find("/Avatar_Girl_Catalyst_Citlali/BoneA")!=std::string::npos&&!exists(skinDir));          // the original: skeletons/<id>
    std::string original=text(main);f->world(ws);f->scene={ws};for(int i=1;i<=4;i++)rt.tick(t+600+600*i);
    assert(exists(skinFile)&&text(skinFile).find("CostumeXia/BoneA")!=std::string::npos&&text(main)==original);         // the skin: its own folder
-   assert(has("bone-library "+bonesOut+"/10000107/avatar_girl_catalyst_citlalicostumexia (avatar_girl_catalyst_citlalicostumexia)"));rt.shutdown();
+   assert(has("bone-library "+bonesOut+"/10000107/avatar_girl_catalyst_citlalicostumexia（外观 avatar_girl_catalyst_citlalicostumexia）"));rt.shutdown();
    {Runtime again(e,pkg,root+"/privateOutfit",mediaOut,false);t+=100000;again.tick(t);again.tick(t+600);again.tick(t+1200);   // next session, the skin worn
     assert(text(main)==original&&has("bone-library-unchanged "+skinDir));again.shutdown();}
    // Before 0.7.94 the skin landed in skeletons/<id>: capturing the original moves it to its own folder first.
    std::string skinRecord=text(skinFile);std::filesystem::remove_all(skinDir);write(main,skinRecord);f->world(w);f->scene={w};t+=100000;
    {Runtime old(e,pkg,root+"/privateOutfit",mediaOut,false);old.tick(t);old.tick(t+600);
-    assert(text(skinFile)==skinRecord&&text(main)==original&&has("bone-library-moved "+bonesOut+"/10000107 was recorded from the skin avatar_girl_catalyst_citlalicostumexia"));old.shutdown();}}
+    assert(text(skinFile)==skinRecord&&text(main)==original&&has("bone-library-moved "+bonesOut+"/10000107 中是皮肤 avatar_girl_catalyst_citlalicostumexia 的骨骼"));old.shutdown();}}
   // A preview of the skin while the original is worn (replacement on: the scene scan sees it): its own folder, once.
   std::filesystem::remove_all(skinDir);std::string original=text(main);ctlOut(true,"");f->world(w);f->scene={w,ws};t+=100000;
   {Runtime pv(e,pkg,root+"/privateOutfit",mediaOut,false);for(int i=0;i<12;i++)pv.tick(t+500*i);
    assert(exists(skinFile)&&text(skinFile).find("CostumeXia/BoneA")!=std::string::npos&&text(main)==original);
-   assert(has("bone-library "+skinDir+" (avatar_girl_catalyst_citlalicostumexia, preview)"));pv.shutdown();}
+   assert(has("bone-library "+skinDir+"（外观 avatar_girl_catalyst_citlalicostumexia，来源 预览）"));pv.shutdown();}
   // A model for the skin: not on the original even though the two Body meshes look alike; on the skin when it is worn.
   Spec sk;sk.withTarget(fixture::target("Body"));sk.edit=[](std::string& j){fixture::replaceIn(j,"\"character\":{","\"character\":{\"outfit\":\"avatar_girl_catalyst_citlalicostumexia\",");};
   writeModel(sharedOut+"/models/Skin",sk);ctlOut(true,"Skin");f->world(w);f->scene={w};t+=100000;
   {Runtime gate(e,pkg,root+"/privateOutfitGate",mediaOut,false);for(int i=0;i<4;i++)gate.tick(t+600*i);
-   assert(meshOf(w)==baseMesh&&has("当前角色穿的是另一套外观（avatar_girl_catalyst_citlali），这个 MOD 是 avatar_girl_catalyst_citlalicostumexia 的"));
+   assert(meshOf(w)==baseMesh&&has("外观不符：当前角色的外观为 avatar_girl_catalyst_citlali，此 MOD 适用于 avatar_girl_catalyst_citlalicostumexia"));
    f->world(ws);f->scene={ws};for(int i=4;i<10;i++)gate.tick(t+600*i);assert(meshOf(ws)!=skinMesh&&meshOf(w)==baseMesh);
    gate.shutdown();assert(meshOf(ws)==skinMesh&&f->handles.empty());}}
  // 50. Merged draws: neighbours with the same material row share a submesh, their index ranges joined in draw order.
@@ -864,22 +864,22 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
   using V=std::vector<uint32_t>;control(0,false);Runtime mr(e,pkg,root+"/privateMerge",mediaMerge,false);mr.tick(4100000);mr.tick(4100600);Ptr ours=meshOf(w);
   assert(ours!=original&&subs()==2&&slots()==2&&indices(0)==(V{0,1,2,1,2,0})&&indices(1)==(V{0,2,1}));      // hidden middle draw skipped
   auto texture=[&](int i){return f->diffuse[load<Ptr>(f->obj[w].materials+0x20+8*i)];};Ptr tex0=texture(0),tex1=texture(1);assert(alive(tex0)&&alive(tex1)&&tex0!=tex1);
-  assert(has("submeshes Merge/Part0: 3 draws in effect, 2 submeshes"));
+  assert(has("submeshes Merge/Part0：生效的绘制段 3 个，子网格 2 个"));
   control(1,false);mr.tick(4101200);mr.tick(4101800);                                               // three neighbours, one range
-  assert(meshOf(w)==ours&&subs()==2&&slots()==2&&indices(0)==(V{0,1,2,2,1,0,1,2,0})&&indices(1)==(V{0,2,1})&&has("submeshes Merge/Part0: 4 draws in effect, 2 submeshes"));
+  assert(meshOf(w)==ours&&subs()==2&&slots()==2&&indices(0)==(V{0,1,2,2,1,0,1,2,0})&&indices(1)==(V{0,2,1})&&has("submeshes Merge/Part0：生效的绘制段 4 个，子网格 2 个"));
   control(0,false);mr.tick(4102400);mr.tick(4103000);
   assert(meshOf(w)==ours&&subs()==2&&slots()==2&&indices(0)==(V{0,1,2,1,2,0})&&texture(0)==tex0&&texture(1)==tex1);   // re-copies keep each slot's texture
   control(0,true);for(uint64_t t=4103600;t<4110000&&!(meshOf(w)!=original&&meshOf(w)!=ours&&subs()==3);t+=600)mr.tick(t);   // one submesh per draw
   assert(has("experiment-rebuild Merge")&&subs()==3&&slots()==3&&indices(0)==(V{0,1,2})&&indices(1)==(V{1,2,0})&&indices(2)==(V{0,2,1}));
   assert(f->diffuse[load<Ptr>(f->obj[w].materials+0x20)]==f->diffuse[load<Ptr>(f->obj[w].materials+0x28)]&&f->diffuse[load<Ptr>(f->obj[w].materials+0x30)]!=f->diffuse[load<Ptr>(f->obj[w].materials+0x20)]);
-  assert(has("submeshes Merge/Part0: 3 draws in effect, 3 submeshes (not merged: experiments.separateDraws)"));
+  assert(has("submeshes Merge/Part0：生效的绘制段 3 个，子网格 3 个（未合并：experiments.separateDraws）"));
   mr.shutdown();assert(meshOf(w)==original&&f->handles.empty());
   // flags.originalMaterials puts the game's palette on by position (submesh i, material i): its draws stay apart.
   Spec o;o.version=2;o.withTarget(fixture::target("Body"));o.indices={0,1,2,2,1,0};o.draws={"[{\"start\":0,\"count\":3,\"material\":\"Material0\",\"slot\":0},{\"start\":3,\"count\":3,\"material\":\"Material0\",\"slot\":0}]"};
   o.edit=[](std::string& j){fixture::replaceIn(j,"\"parts\":[","\"flags\":{\"originalMaterials\":true},\"parts\":[");};writeModel(sharedMerge+"/models/Orig",o);
   Ptr ow=f->renderer(original);f->world(ow);f->scene={ow};write(sharedMerge+"/control.json","{\"enabled\":true,\"selected\":[\"Orig\"]}");
   Runtime orr(e,pkg,root+"/privateOrig",mediaMerge,false);orr.tick(4200000);orr.tick(4200600);
-  assert(meshOf(ow)!=original&&load<uint32_t>(f->obj[meshOf(ow)].shared+0xc0)==2&&has("submeshes Orig/Part0: 2 draws in effect, 2 submeshes (not merged: original materials by position)"));
+  assert(meshOf(ow)!=original&&load<uint32_t>(f->obj[meshOf(ow)].shared+0xc0)==2&&has("submeshes Orig/Part0：生效的绘制段 2 个，子网格 2 个（未合并：按位置使用原材质）"));
   orr.shutdown();assert(meshOf(ow)==original&&f->handles.empty());}
  // 51. Direct textures: the mod's textures go into the game's own material of a slot when it was made at runtime and no
  //     other renderer shows it; what it held goes back when the model is switched off, the renderer dies or attaching fails. A main texture the game puts back is replaced again; a game copy of the
@@ -895,32 +895,32 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
   control(true);Runtime dr(e,pkg,root+"/privateDirect",mediaDirect,false);dr.tick(4300000);dr.tick(4300600);
   Ptr ours=f->diffuse[gameMat],light=f->named[gameMat][lightId];
   assert(meshOf(w)!=original&&shown()==gameMat&&alive(ours)&&ours!=gameTex&&alive(light));                   // no copy: the game's material, our textures
-  assert(has("direct-textures Direct/Part0 on Body: slot 0 Material: written (instance id -7; "));
+  assert(has("direct-textures Direct/Part0，Body：槽 0 Material：已写入（instance id -7，"));
   f->diffuse[gameMat]=gameTex;dr.tick(4301200);dr.tick(4301800);                                              // the game puts its own back
-  assert(f->diffuse[gameMat]==ours&&has("direct-textures-lost Direct/Part0: the game put its own main texture on Material, ours written again (1 times so far)"));
+  assert(f->diffuse[gameMat]==ours&&has("direct-textures-lost Direct/Part0：游戏在 Material 上放回了自己的主贴图，已重新写入 GIBox 的贴图（累计 1 次）"));
   Ptr copy=clone(gameMat,0);f->obj[copy].name="Material (Instance)";f->obj[w].materials=f->typed("material",copy);dr.tick(4302400);dr.tick(4303000);   // the game's own instance
-  assert(shown()==copy&&f->diffuse[copy]==ours&&has("direct-textures Direct/Part0: the game's copy Material (Instance) of Material carries our textures"));
+  assert(shown()==copy&&f->diffuse[copy]==ours&&has("direct-textures Direct/Part0：游戏由 Material 复制出的 Material (Instance) 带有 GIBox 的贴图"));
   control(false);dr.tick(4304800);dr.tick(4305400);                                                            // the model off
   assert(meshOf(w)==original&&f->obj[w].materials==gameArray&&f->diffuse[gameMat]==gameTex&&f->named[gameMat][lightId]==0);
   assert(f->diffuse[copy]==gameTex&&f->named[copy][lightId]==0);                                             // the game's copy too
-  assert(has("direct-textures Direct/Part0 (restore): own textures written back into 2 game materials (1 of them game copies)"));dr.shutdown();assert(f->handles.empty());
+  assert(has("direct-textures Direct/Part0（还原）：已在 2 个游戏材质中写回原贴图，其中游戏副本 1 个"));dr.shutdown();assert(f->handles.empty());
   // A loaded asset (positive instance id) and a runtime material on another renderer as well: copied, the game's untouched.
   Ptr w2=f->renderer(original),asset=load<Ptr>(f->obj[w2].materials+0x20);f->diffuse[asset]=gameTex;f->world(w2);f->scene={w2};control(true);
   {Runtime d2(e,pkg,root+"/privateDirect2",mediaDirect,false);d2.tick(4400000);d2.tick(4400600);Ptr on=load<Ptr>(f->obj[w2].materials+0x20);
-   assert(meshOf(w2)!=original&&on!=asset&&f->diffuse[on]!=gameTex&&f->diffuse[asset]==gameTex&&has("direct-textures-copied Direct/Part0 on Body: slot 0 Material: a loaded asset (instance id "));d2.shutdown();assert(f->handles.empty());}
+   assert(meshOf(w2)!=original&&on!=asset&&f->diffuse[on]!=gameTex&&f->diffuse[asset]==gameTex&&has("direct-textures-copied Direct/Part0，Body：槽 0 Material：资源材质（instance id "));d2.shutdown();assert(f->handles.empty());}
   Ptr w3=f->renderer(original),sharedMat=load<Ptr>(f->obj[w3].materials+0x20),npc=f->renderer(f->mesh("Other"));runtimeMade(sharedMat);f->diffuse[sharedMat]=gameTex;
   f->obj[npc].materials=f->typed("material",sharedMat);f->world(w3);f->scene={w3,npc};
   {Runtime d3(e,pkg,root+"/privateDirect3",mediaDirect,false);d3.tick(4500000);d3.tick(4500600);Ptr on=load<Ptr>(f->obj[w3].materials+0x20);
-   assert(meshOf(w3)!=original&&on!=sharedMat&&f->diffuse[sharedMat]==gameTex&&has("slot 0 Material: also on "));d3.shutdown();assert(f->handles.empty());}
+   assert(meshOf(w3)!=original&&on!=sharedMat&&f->diffuse[sharedMat]==gameTex&&has("槽 0 Material：也用于 "));d3.shutdown();assert(f->handles.empty());}
   // The renderer destroyed by the game, nothing adopted from it: the material it showed (still alive) gets its own back.
   Ptr w4=f->renderer(original),mat4=load<Ptr>(f->obj[w4].materials+0x20);runtimeMade(mat4);f->diffuse[mat4]=gameTex;f->world(w4);f->scene={w4};
   {Runtime d4(e,pkg,root+"/privateDirect4",mediaDirect,false);d4.tick(4600000);d4.tick(4600600);assert(meshOf(w4)!=original&&load<Ptr>(f->obj[w4].materials+0x20)==mat4&&f->diffuse[mat4]!=gameTex);
    destroy(w4,0);f->world(0);f->scene={};d4.tick(4601200);d4.tick(4601800);
-   assert(f->diffuse[mat4]==gameTex&&f->named[mat4][lightId]==0&&has("direct-textures Direct/Part0 (detach): own textures written back into 1 game materials"));d4.shutdown();assert(f->handles.empty());}
+   assert(f->diffuse[mat4]==gameTex&&f->named[mat4][lightId]==0&&has("direct-textures Direct/Part0（卸下）：已在 1 个游戏材质中写回原贴图"));d4.shutdown();assert(f->handles.empty());}
   // The renderer refusing the material array while attaching: what was written into its material goes back first.
   Ptr w5=f->renderer(original),mat5=load<Ptr>(f->obj[w5].materials+0x20);runtimeMade(mat5);f->diffuse[mat5]=gameTex;f->world(w5);f->scene={w5};
   {Runtime d5(e,pkg,root+"/privateDirect5",mediaDirect,false);f->failMaterials=true;d5.tick(4700000);d5.tick(4700600);
-   assert(!f->failMaterials&&has("direct-textures Direct/Part0 (attach failed): own textures written back into 1 game materials"));
+   assert(!f->failMaterials&&has("direct-textures Direct/Part0（挂载失败）：已在 1 个游戏材质中写回原贴图"));
    assert(meshOf(w5)==original&&load<Ptr>(f->obj[w5].materials+0x20)==mat5&&f->diffuse[mat5]==gameTex&&f->named[mat5][lightId]==0);   // left as the game had it
    d5.shutdown();assert(f->handles.empty());}}
  // Both animation modes loop through full frames, restore on switch/off and reuse dynamic weights/arrays.
@@ -931,12 +931,12 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
   // The character's renderer gone while the frames are being built (a switch, loading): preparing waits, then goes on
   // on the renderer the character gets.
   for(int n=0;n<2;n++){animated.tick(now);now+=120;}destroy(renderer,0);
-  for(int n=0;n<6;n++){animated.tick(now);now+=120;}assert(log().find("animation-wait Animated mode=cached prepare waits: the character's renderer for part 0 is not there")!=std::string::npos&&log().find("animation-error")==std::string::npos);
+  for(int n=0;n<6;n++){animated.tick(now);now+=120;}assert(log().find("animation-wait Animated：模式 缓存帧，准备等待：部件 0 对应的角色渲染器不在")!=std::string::npos&&log().find("animation-error")==std::string::npos);
   renderer=f->renderer(original);f->world(renderer);f->scene={renderer};
-  for(int n=0;n<25;n++){animated.tick(now);now+=120;}assert(log().find("animation-ready Animated mode=cached")!=std::string::npos&&log().find("animation-error")==std::string::npos&&log().find("prepare goes on: the character is back")!=std::string::npos);
+  for(int n=0;n<25;n++){animated.tick(now);now+=120;}assert(log().find("animation-ready Animated：模式 缓存帧")!=std::string::npos&&log().find("animation-error")==std::string::npos&&log().find("角色已回来，继续准备")!=std::string::npos);
   std::set<Ptr> cached;for(int n=0;n<15;n++){animated.tick(now++);cached.insert(meshOf(renderer));}assert(cached.size()==3);unsigned allocations=f->weightAllocs;
   for(int n=0;n<15;n++){animated.tick(now++);}assert(f->weightAllocs==allocations);
-  control(1);now+=200;for(int n=0;n<25;n++){animated.tick(now);now+=120;}assert(log().find("animation-ready Animated mode=dynamic")!=std::string::npos&&log().find("animation-error")==std::string::npos);
+  control(1);now+=200;for(int n=0;n<25;n++){animated.tick(now);now+=120;}assert(log().find("animation-ready Animated：模式 动态")!=std::string::npos&&log().find("animation-error")==std::string::npos);
   allocations=f->weightAllocs;unsigned handles=f->handles.size();std::set<Ptr> dynamic;for(int n=0;n<30;n++){animated.tick(now++);dynamic.insert(meshOf(renderer));}assert(dynamic.size()==2&&f->weightAllocs==allocations&&f->handles.size()==handles);
   Ptr front=meshOf(renderer);f->failPosition=true;animated.tick(now++);assert(meshOf(renderer)==front&&log().find("fake-animation-channel-error")!=std::string::npos);
   control(2);now+=200;for(int n=0;n<10;n++){animated.tick(now);now+=120;}Ptr paused=meshOf(renderer);for(int n=0;n<8;n++)animated.tick(now++);assert(meshOf(renderer)==paused);
@@ -950,20 +950,20 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
   auto control=[&](const std::string& selected,bool logic){write(sharedLg+"/control.json","{\"enabled\":true,\"selected\":[\""+selected+"\"],\"logLevel\":\"debug\",\"revision\":"+std::to_string(++revision)+",\"experiments\":{\"animationMode\":0,\"logicCore\":"+(logic?"true":"false")+"}}");};
   auto log=[&]{return text(sharedLg+"/GIBox Log.txt");};
   // The frame values the log shows for one model and driver, in order.
-  auto values=[&](const std::string& name,const std::string& driver){std::vector<int> out;std::string l=log(),key="animation-frame "+name+" mode=cached driver="+driver;
-   for(size_t at=l.find(key);at!=std::string::npos;at=l.find(key,at+1)){auto v=l.find(" value=",at);out.push_back(std::stoi(l.substr(v+7)));}return out;};
+  auto values=[&](const std::string& name,const std::string& driver){std::vector<int> out;std::string l=log(),key="animation-frame "+name+"：模式 缓存帧，驱动 "+(driver=="logic"?std::string("逻辑核心"):std::string("FrameLoop"));
+   for(size_t at=l.find(key);at!=std::string::npos;at=l.find(key,at+1)){auto v=l.find("，帧值 ",at);out.push_back(std::stoi(l.substr(v+10)));}return out;};
   Runtime logic(e,pkg,root+"/logic-private",mediaL,false);uint64_t now=6000000;control("Logic",true);
   for(int n=0;n<25;n++){logic.tick(now);now+=120;}for(int n=0;n<9;n++)logic.tick(now++);
-  assert(log().find("logic-start Logic: 1 INI")!=std::string::npos&&log().find("logic-error")==std::string::npos);
+  assert(log().find("logic-start Logic：INI 1 个")!=std::string::npos&&log().find("logic-error")==std::string::npos);
   auto seen=values("Logic","logic");assert(seen.size()>=6);for(size_t i=0;i<seen.size();i++)assert(seen[i]==int((i+1)%3));   // as FrameLoop: 1, 2, 0, ...
-  control("Logic",false);now+=200;for(int n=0;n<6;n++)logic.tick(now++);assert(log().find("logic-off Logic: switched off; FrameLoop from here (frame value")!=std::string::npos&&log().find("logicCore=off")!=std::string::npos&&!values("Logic","frameloop").empty());   // the frame log stops after 32 updates
+  control("Logic",false);now+=200;for(int n=0;n<6;n++)logic.tick(now++);assert(log().find("logic-off Logic：已关闭；此后由 FrameLoop 控制（当前 帧值")!=std::string::npos&&log().find("logicCore 关")!=std::string::npos&&!values("Logic","frameloop").empty());   // the frame log stops after 32 updates
   control("Miss",true);now+=200;for(int n=0;n<25;n++){logic.tick(now);now+=120;}for(int n=0;n<8;n++)logic.tick(now++);
   auto missed=values("Miss","logic");assert(missed.size()>=4);for(int v:missed)assert(v!=2);   // frame 2's resources are not the ones selected: 1 stays
-  assert(log().find("logic-miss Miss: the draws select what nothing prebuilt has; frame value 1 stays. closest prebuilt frame index 0 (0 of 1 parts equal); Part: prebuilt "+fixture::logicSignature("file:a.ib")+" selected "+fixture::logicSignature("file:c.ib"))!=std::string::npos);
+  assert(log().find("logic-miss Miss：绘制段选中的内容没有预先转换的对应项，保持 帧值 1。最接近的预先转换帧为第 0 帧（1 个部件中 0 个相同）；Part：预先转换的为 "+fixture::logicSignature("file:a.ib")+"，当前选中 "+fixture::logicSignature("file:c.ib"))!=std::string::npos);
   control("Early",true);now+=200;for(int n=0;n<25;n++){logic.tick(now);now+=120;}for(int n=0;n<6;n++)logic.tick(now++);
-  assert(log().find("logic-error Early: what the draws select at the start matches no prebuilt frame; FrameLoop kept.")!=std::string::npos&&values("Early","frameloop").size()>=4&&values("Early","logic").empty());
+  assert(log().find("logic-error Early：启动时绘制段选中的内容与预先转换的帧都不符，保持 FrameLoop。")!=std::string::npos&&values("Early","frameloop").size()>=4&&values("Early","logic").empty());
   control("Plain",true);now+=200;for(int n=0;n<25;n++){logic.tick(now);now+=120;}for(int n=0;n<6;n++)logic.tick(now++);
-  assert(log().find("logic-unavailable Plain: converted without logic data")!=std::string::npos&&values("Plain","frameloop").size()>=4);
+  assert(log().find("logic-unavailable Plain：转换时没有生成逻辑数据")!=std::string::npos&&values("Plain","frameloop").size()>=4);
   logic.shutdown();assert(meshOf(renderer)==original);}
  // experiments.logicCore for an outfit model: the App's outfit value goes into the INI logic, and the converted outfit
  // whose draws match what the logic selects is shown; here the mod's own Present turns $look = 1 into 2. Off: the
@@ -985,15 +985,15 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
   auto control=[&](const std::string& selected,bool logic,int look){write(sharedO+"/control.json","{\"enabled\":true,\"logLevel\":\"debug\",\"revision\":"+std::to_string(++revision)+",\"selected\":[\""+selected+"\"],\"variables\":{\""+selected+"\":{\"$look\":"+std::to_string(look)+"}},\"experiments\":{\"logicCore\":"+(logic?"true":"false")+"}}");};
   auto log=[&]{return text(sharedO+"/GIBox Log.txt");};
   Runtime outfits(e,pkg,root+"/outfit-private",mediaO,false);uint64_t now=7000000;control("Outfit",true,0);for(int n=0;n<12;n++){outfits.tick(now);now+=600;}
-  assert(log().find("logic-start Outfit: 1 INI")!=std::string::npos&&log().find("draw variables finite")!=std::string::npos&&log().find("first outfit $look=0")!=std::string::npos);
+  assert(log().find("logic-start Outfit：INI 1 个")!=std::string::npos&&log().find("绘制变量 有限")!=std::string::npos&&log().find("初始 款式 $look=0")!=std::string::npos);
   control("Outfit",true,1);for(int n=0;n<8;n++){outfits.tick(now);now+=600;}
-  assert(log().find("variant Outfit $look=2")!=std::string::npos&&log().find("logic-outfit Outfit")!=std::string::npos);   // the App asked for 1; the mod's Present made it 2
+  assert(log().find("variant Outfit：$look=2")!=std::string::npos&&log().find("logic-outfit Outfit")!=std::string::npos);   // the App asked for 1; the mod's Present made it 2
   control("Outfit",false,1);for(int n=0;n<8;n++){outfits.tick(now);now+=600;}
-  assert(log().find("logic-off Outfit: switched off; the App's outfit choice from here")!=std::string::npos&&log().rfind("variant Outfit $look=1")>log().find("variant Outfit $look=2"));
+  assert(log().find("logic-off Outfit：已关闭；此后由 App 选择的款式 控制")!=std::string::npos&&log().rfind("variant Outfit：$look=1")>log().find("variant Outfit：$look=2"));
   control("Counter",true,0);for(int n=0;n<12;n++){outfits.tick(now);now+=600;}
-  assert(log().find("logic-unavailable Counter: the outfit logic is not shown to be finite (")!=std::string::npos&&log().find("a counter?")!=std::string::npos);
+  assert(log().find("logic-unavailable Counter：无法证明款式逻辑是有限的（")!=std::string::npos&&log().find("可能是计数器")!=std::string::npos);
   control("Missing",true,0);for(int n=0;n<12;n++){outfits.tick(now);now+=600;}
-  assert(log().find("logic-error Missing: the outfit variable $look is not in the INI logic; the App's outfit choice stays")!=std::string::npos);
+  assert(log().find("logic-error Missing：款式变量 $look 不在 INI 逻辑中，保持 App 选择的款式")!=std::string::npos);
   outfits.shutdown();assert(meshOf(w)==full);}
  // App keys and persist (logicCore): a press is a key event of the core (cycle, toggle with its saved value), taken once by
  // its number; presses already in control.json when the game starts are not replayed. The persist variable is saved
@@ -1018,41 +1018,41 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
   Runtime keys(e,pkg,root+"/keys-private",mediaK,false);uint64_t now=7500000;
   auto run=[&](int n){for(int i=0;i<n;i++){keys.tick(now);now+=600;}};
   press("KeyLook");control(true);run(12);   // a press made before this game start
-  assert(log().find("skin-label weights written into the mesh's own skin block (capacity 6); 7.2 engine allocation not used until verified")!=std::string::npos);abi::allocVerified=true;
-  assert(log().find("logic-start Keys: 1 INI")!=std::string::npos&&log().find("first outfit $look=0")!=std::string::npos&&log().find("logic-key")==std::string::npos);
+  assert(log().find("skin-label 权重写入网格自带的蒙皮数据块（容量 6）；7.2 的引擎分配在验证前不使用")!=std::string::npos);abi::allocVerified=true;
+  assert(log().find("logic-start Keys：INI 1 个")!=std::string::npos&&log().find("初始 款式 $look=0")!=std::string::npos&&log().find("logic-key")==std::string::npos);
   press("KeyLook");control(true);run(6);
-  assert(log().find("logic-key Keys: KeyLook (cycle) press, input 2")!=std::string::npos&&log().find("variant Keys $look=1")!=std::string::npos);
+  assert(log().find("logic-key Keys：KeyLook（cycle）按下，输入序号 2")!=std::string::npos&&log().find("variant Keys：$look=1")!=std::string::npos);
   run(4);assert(exists(persisted)&&!exists(persisted+".tmp"));
   {Json p=JsonParser(text(persisted)).parse();assert(p.at("main").string=="Mods\\Keys\\a.ini"&&p.at("values").object.size()==1&&p.at("values").at("$\\mods\\keys\\a.ini\\look").number==1);}
-  press("KeyFlip");control(true);run(6);assert(log().find("logic-key Keys: KeyFlip (toggle) press, input 3")!=std::string::npos&&log().find("variant Keys $look=2")!=std::string::npos);
-  press("KeyFlip");control(true);run(6);assert(log().rfind("variant Keys $look=1")>log().find("variant Keys $look=2"));   // the toggle puts back what it saved
+  press("KeyFlip");control(true);run(6);assert(log().find("logic-key Keys：KeyFlip（toggle）按下，输入序号 3")!=std::string::npos&&log().find("variant Keys：$look=2")!=std::string::npos);
+  press("KeyFlip");control(true);run(6);assert(log().rfind("variant Keys：$look=1")>log().find("variant Keys：$look=2"));   // the toggle puts back what it saved
   // The App's panel: a cycle's preset chosen directly, its state in status.json; a hold key held and let go.
   press("KeyLook",",\"select\":0");control(true);run(6);
-  assert(log().find("logic-key Keys: KeyLook (cycle) preset 1, input 5")!=std::string::npos&&log().rfind("variant Keys $look=0")>log().rfind("variant Keys $look=1"));
+  assert(log().find("logic-key Keys：KeyLook（cycle）预设 1，输入序号 5")!=std::string::npos&&log().rfind("variant Keys：$look=0")>log().rfind("variant Keys：$look=1"));
   {Json st=JsonParser(text(sharedK+"/status.json")).parse();auto& ks=st.at("keys").at("Keys").array;
    assert(ks.size()==3&&ks[0].at("section").string=="KeyLook"&&ks[0].at("current").number==0&&!ks[1].at("active").boolean&&!ks[2].at("active").boolean);}
   press("KeyHold",",\"hold\":\"down\"");control(true);run(6);
-  assert(log().find("logic-key Keys: KeyHold (hold) hold down, input 6")!=std::string::npos&&log().rfind("variant Keys $look=2")>log().rfind("variant Keys $look=0"));
+  assert(log().find("logic-key Keys：KeyHold（hold）按住，输入序号 6")!=std::string::npos&&log().rfind("variant Keys：$look=2")>log().rfind("variant Keys：$look=0"));
   {Json st=JsonParser(text(sharedK+"/status.json")).parse();assert(st.at("keys").at("Keys").array[2].at("active").boolean);}
-  press("KeyHold",",\"hold\":\"up\"");control(true);run(6);assert(log().rfind("variant Keys $look=0")>log().rfind("variant Keys $look=2"));
+  press("KeyHold",",\"hold\":\"up\"");control(true);run(6);assert(log().rfind("variant Keys：$look=0")>log().rfind("variant Keys：$look=2"));
   press("KeyHold");press("KeyNone");press("KeyFlip",",\"select\":0");press("KeyLook",",\"select\":1");control(true);run(6);   // back to $look = 1, the persist value below
-  assert(log().find("logic-key Keys: KeyHold press: not a key of this model that takes it; not pressed")!=std::string::npos&&log().find("logic-key Keys: KeyNone press: not a key of this model")!=std::string::npos
-   &&log().find("logic-key Keys: KeyFlip preset 1: not a key of this model")!=std::string::npos);
-  control(false);run(6);assert(log().find("logic-off Keys: switched off; the App's outfit choice from here")!=std::string::npos&&log().rfind("variant Keys $look=0")>log().rfind("variant Keys $look=1"));
-  press("KeyLook");control(false);run(4);assert(log().find("logic-key Keys: KeyLook not pressed: the logic core does not run this model")!=std::string::npos);
+  assert(log().find("logic-key Keys：KeyHold 按下：不是这个模型可接受该操作的按键，未按下")!=std::string::npos&&log().find("logic-key Keys：KeyNone 按下：不是这个模型可接受该操作的按键")!=std::string::npos
+   &&log().find("logic-key Keys：KeyFlip 预设 1：不是这个模型可接受该操作的按键")!=std::string::npos);
+  control(false);run(6);assert(log().find("logic-off Keys：已关闭；此后由 App 选择的款式 控制")!=std::string::npos&&log().rfind("variant Keys：$look=0")>log().rfind("variant Keys：$look=1"));
+  press("KeyLook");control(false);run(4);assert(log().find("logic-key Keys：KeyLook 未按下：逻辑核心没有运行这个模型")!=std::string::npos);
   // Again on: the saved $look = 1 stands over the App's 0.
   auto before=log().size();control(true);run(12);auto again=log().substr(before);
-  assert(again.find("logic-persist Keys: 1 of 1 saved values restored")!=std::string::npos&&again.find("first outfit $look=1")!=std::string::npos&&again.find("variant Keys $look=1")!=std::string::npos);
+  assert(again.find("logic-persist Keys：已恢复保存的值 1/1 个")!=std::string::npos&&again.find("初始 款式 $look=1")!=std::string::npos&&again.find("variant Keys：$look=1")!=std::string::npos);
   // Saved for another INI under this model name: not restored.
   control(false);run(6);{std::string t=text(persisted);t.replace(t.find("Mods\\\\Keys"),10,"Mods\\\\Else");write(persisted,t);}
   before=log().size();control(true);run(12);again=log().substr(before);
-  assert(again.find("logic-persist Keys: the saved values belong to another INI (Mods\\Else\\a.ini); not restored")!=std::string::npos&&again.find("first outfit $look=0")!=std::string::npos);
+  assert(again.find("logic-persist Keys：保存的值属于另一个 INI（Mods\\Else\\a.ini），不恢复")!=std::string::npos&&again.find("初始 款式 $look=0")!=std::string::npos);
   // A scene change (the login screen, a domain): GIBox's objects carry DontUnloadUnusedAsset; one the game destroys anyway
   // (here the built mesh, while the character is away) is noticed at the next attach and the model is built again.
   {Ptr built=meshOf(w);assert(built!=full&&hideFlags[built]==32);
    store<Ptr>(w+0x10,0);f->world(0);f->scene={};run(6);
    destroy(built,0);Ptr w2=f->renderer(full);f->world(w2);f->scene={w2};run(20);
-   Ptr rebuilt=meshOf(w2);assert(rebuilt&&rebuilt!=built&&load<Ptr>(rebuilt+0x10)&&rebuilt!=full&&log().find("model-lost Keys/")!=std::string::npos&&log().find("Restoration mesh snapshot unavailable")==std::string::npos);
+   Ptr rebuilt=meshOf(w2);assert(rebuilt&&rebuilt!=built&&load<Ptr>(rebuilt+0x10)&&rebuilt!=full&&log().find("model-lost Keys/")!=std::string::npos&&log().find("没有可用的网格还原快照")==std::string::npos);
    w=w2;}
   keys.shutdown();assert(meshOf(w)==full);}
  // A driven outfit model (the converter: its Present program follows the clock): the program picks the outfit, the
@@ -1076,13 +1076,13 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
   auto log=[&]{return text(sharedD+"/GIBox Log.txt");};
   Runtime driven(e,pkg,root+"/driven-private",mediaD,false);uint64_t now=8000000;auto run=[&](int n){for(int i=0;i<n;i++){driven.tick(now);now+=600;}};
   control();run(12);
-  assert(log().find("logic-start Driven: 1 INI")!=std::string::npos&&log().find("driven by its own program")!=std::string::npos&&log().find("first outfit $look=0")!=std::string::npos);
-  assert(log().find("variant Driven $look=1")==std::string::npos);   // the App's table says 1; the program says $sel = 0
-  press("KeySel",false);run(4);assert(log().find("logic-key Driven: KeySel (cycle) press, input")!=std::string::npos&&log().find("variant Driven $look=1")!=std::string::npos);
-  press("KeySel",true);run(4);assert(log().find("logic-key Driven: KeySel (cycle) back, input")!=std::string::npos&&log().rfind("variant Driven $look=0")>log().find("variant Driven $look=1"));
-  press("KeyQ",false);run(3);auto at=log().size();assert(log().find("variant Driven $look=2")!=std::string::npos);
-  run(8);assert(log().substr(at).find("variant Driven $look=0")!=std::string::npos);   // 3 s later: the selection again
-  press("KeyQ",true);run(2);assert(log().find("logic-key Driven: KeyQ back: not a key of this model that takes it; not pressed")!=std::string::npos);
+  assert(log().find("logic-start Driven：INI 1 个")!=std::string::npos&&log().find("由 MOD 自身程序驱动")!=std::string::npos&&log().find("初始 款式 $look=0")!=std::string::npos);
+  assert(log().find("variant Driven：$look=1")==std::string::npos);   // the App's table says 1; the program says $sel = 0
+  press("KeySel",false);run(4);assert(log().find("logic-key Driven：KeySel（cycle）按下，输入序号")!=std::string::npos&&log().find("variant Driven：$look=1")!=std::string::npos);
+  press("KeySel",true);run(4);assert(log().find("logic-key Driven：KeySel（cycle）上一项，输入序号")!=std::string::npos&&log().rfind("variant Driven：$look=0")>log().find("variant Driven：$look=1"));
+  press("KeyQ",false);run(3);auto at=log().size();assert(log().find("variant Driven：$look=2")!=std::string::npos);
+  run(8);assert(log().substr(at).find("variant Driven：$look=0")!=std::string::npos);   // 3 s later: the selection again
+  press("KeyQ",true);run(2);assert(log().find("logic-key Driven：KeyQ 上一项：不是这个模型可接受该操作的按键，未按下")!=std::string::npos);
   driven.shutdown();assert(meshOf(w)==full);}
  // Missing indexed targets stop before either playback backend. Report LOD and required palette together,
  // keep another character's active mod from masking the wait, and still reject an undersized full mesh.
@@ -1095,16 +1095,16 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
   auto log=[&]{return text(sharedA+"/GIBox Log.txt");};control(0);for(int n=0;n<8;n++){animated.tick(now);now+=600;}
   auto st=JsonParser(text(sharedA+"/status.json")).parse();auto note=log();
   assert(st.at("state").string=="waiting"&&st.at("models").array.size()==1&&st.at("models").array[0].string=="Other"&&meshOf(other)!=otherMesh&&meshOf(renderer)==low);
-  assert(st.at("detail").string.find("按索引绑定至少 2 根骨骼")!=std::string::npos&&st.at("detail").string.find("不能据此认定游戏必须有同样多的骨骼")!=std::string::npos&&note.find("animation-wait Animated mode=cached stage=target-not-learned playback=not-started")!=std::string::npos&&note.find("Body_LOD1（顶点 2，子网格 1，骨骼 1）")!=std::string::npos&&note.find("animation-ready Animated")==std::string::npos);
+  assert(st.at("detail").string.find("按索引绑定至少 2 根骨骼")!=std::string::npos&&st.at("detail").string.find("不能据此认定游戏必须有同样多的骨骼")!=std::string::npos&&note.find("animation-wait Animated：模式 缓存帧，目标尚未识别，未开始播放")!=std::string::npos&&note.find("Body_LOD1（顶点 2，子网格 1，骨骼 1）")!=std::string::npos&&note.find("animation-ready Animated")==std::string::npos);
   auto once=note.find("animation-wait Animated");assert(note.find("animation-wait Animated",once+1)==std::string::npos);unsigned clones=f->meshClones;
-  control(1);animated.tick(now);now+=600;assert(log().find("animation-wait Animated mode=dynamic")!=std::string::npos&&f->meshClones==clones);
-  control(2);animated.tick(now);now+=600;assert(log().find("animation-wait Animated mode=paused")!=std::string::npos&&f->meshClones==clones);
+  control(1);animated.tick(now);now+=600;assert(log().find("animation-wait Animated：模式 动态")!=std::string::npos&&f->meshClones==clones);
+  control(2);animated.tick(now);now+=600;assert(log().find("animation-wait Animated：模式 暂停")!=std::string::npos&&f->meshClones==clones);
   Ptr full=f->mesh();f->obj[renderer].mesh=full;control(0);for(int n=0;n<3;n++){animated.tick(now);now+=600;}
   st=JsonParser(text(sharedA+"/status.json")).parse();assert(meshOf(renderer)==full&&st.at("detail").string.find("当前完整网格只有 1 根")!=std::string::npos&&f->meshClones==clones&&log().find("animation-ready Animated")==std::string::npos);
   auto addBone=[&](Ptr r,Ptr mesh){Ptr b1=load<Ptr>(f->obj[r].bones+0x20),b2=f->object("bone","BoneB");f->obj[b2].parent=b1;Ptr bs[]={b1,b2};f->obj[r].bones=f->array(8,2,bs);Bytes binds(128);for(int n=0;n<2;n++)for(int j=0;j<4;j++)store<float>(reinterpret_cast<Ptr>(binds.data())+n*64+j*20,1);f->obj[mesh].arrays[abi::getBindposes]=f->array(64,2,binds.data());store<uint64_t>(f->obj[mesh].shared+0xe0,2);};
   f->obj[renderer].mesh=low;Ptr previewMesh=f->mesh(),preview=f->renderer(previewMesh);addBone(preview,previewMesh);f->scene.push_back(preview);
   // The world mesh has an incompatible one-bone palette; the same avatar's full preview can establish the target.
-  for(int n=0;n<25;n++){animated.tick(now);now+=120;}assert(meshOf(renderer)==low&&meshOf(preview)!=previewMesh&&log().find("target-learned Animated/Part0 by name citlali")!=std::string::npos&&log().find("animation-ready Animated mode=cached")!=std::string::npos);
+  for(int n=0;n<25;n++){animated.tick(now);now+=120;}assert(meshOf(renderer)==low&&meshOf(preview)!=previewMesh&&log().find("target-learned Animated/Part0：按角色名 citlali 识别")!=std::string::npos&&log().find("animation-ready Animated：模式 缓存帧")!=std::string::npos);
   f->obj[renderer].mesh=full;addBone(renderer,full);for(int n=0;n<8;n++){animated.tick(now);now+=120;}assert(meshOf(renderer)==meshOf(preview));
   animated.shutdown();assert(meshOf(renderer)==full&&meshOf(preview)==previewMesh&&meshOf(other)==otherMesh&&f->handles.empty());}
  // 52. Texture swaps (model.json "textures"): the game's Face renderer under the attached Body's character root keeps its
@@ -1124,20 +1124,20 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
   control(true);
   {Runtime fr(e,pkg,root+"/privateFace",mediaFace,false);fr.tick(4800000);fr.tick(4800600);Ptr ours=f->diffuse[faceMat];
    assert(meshOf(body)!=original&&meshOf(face)==faceMesh&&f->obj[face].materials==faceArray&&alive(ours)&&ours!=gameTex&&f->diffuse[otherMat]==gameTex);   // written, mesh kept
-   assert(has("texture-swap FaceMod/Face on Face: slot 0 Material: written (instance id -7)"));
-   assert(f->diffuse[browMat]==ours&&f->diffuse[otherBrowMat]==gameTex&&has("texture-swap FaceMod/Face: Brow shows the game's face texture too; it takes ours, as on PC"));   // as on PC; not under another character
+   assert(has("texture-swap FaceMod/Face，Face：槽 0 Material：已写入（instance id -7）"));
+   assert(f->diffuse[browMat]==ours&&f->diffuse[otherBrowMat]==gameTex&&has("texture-swap FaceMod/Face：Brow 也显示游戏的脸部贴图，与 PC 一样换成 GIBox 的贴图"));   // as on PC; not under another character
    Ptr copy=clone(faceMat,0);f->obj[copy].name="Material (Instance)";f->obj[face].materials=f->typed("material",copy);fr.tick(4801200);fr.tick(4801800);   // the game's copy of ours
-   assert(f->diffuse[copy]==ours&&has("texture-swap FaceMod/Face: the game's copy Material (Instance) carries our texture"));
+   assert(f->diffuse[copy]==ours&&has("texture-swap FaceMod/Face：游戏复制出的 Material (Instance) 带有 GIBox 的贴图"));
    Ptr fresh=f->object("material","Material");f->diffuse[fresh]=gameTex;runtimeMade(fresh);f->obj[face].materials=f->typed("material",fresh);fr.tick(4802400);fr.tick(4803000);   // a fresh one
    assert(f->diffuse[fresh]==ours);
    control(false);fr.tick(4803600);fr.tick(4804200);                                                             // the model no longer selected
    assert(meshOf(body)==original&&f->diffuse[faceMat]==gameTex&&f->diffuse[copy]==gameTex&&f->diffuse[fresh]==gameTex&&f->diffuse[otherMat]==gameTex&&f->diffuse[browMat]==gameTex);
-   assert(has("texture-swap FaceMod/Face (model off): original texture back in 3 game materials, 0 copies taken off"));fr.shutdown();assert(f->handles.empty());}
+   assert(has("texture-swap FaceMod/Face（模型关闭）：已在 3 个游戏材质中写回原贴图，撤下副本 0 个"));fr.shutdown();assert(f->handles.empty());}
   Ptr body2=f->renderer(original),face2=f->renderer(f->mesh("Face"),"BoneA","Face"),asset=load<Ptr>(f->obj[face2].materials+0x20);f->diffuse[asset]=gameTex;f->world(body2);f->scene={body2,face2};
   control(true);
   {Runtime f2(e,pkg,root+"/privateFace2",mediaFace,false);f2.tick(4900000);f2.tick(4900600);Ptr on=load<Ptr>(f->obj[face2].materials+0x20);
-   assert(meshOf(body2)!=original&&on!=asset&&alive(f->diffuse[on])&&f->diffuse[on]!=gameTex&&f->diffuse[asset]==gameTex&&has("slot 0 Material: copied (a loaded asset (instance id "));
-   f2.shutdown();assert(load<Ptr>(f->obj[face2].materials+0x20)==asset&&!alive(on)&&f->diffuse[asset]==gameTex&&has("original texture back in 0 game materials, 1 copies taken off")&&f->handles.empty());}}
+   assert(meshOf(body2)!=original&&on!=asset&&alive(f->diffuse[on])&&f->diffuse[on]!=gameTex&&f->diffuse[asset]==gameTex&&has("槽 0 Material：已复制（资源材质（instance id "));
+   f2.shutdown();assert(load<Ptr>(f->obj[face2].materials+0x20)==asset&&!alive(on)&&f->diffuse[asset]==gameTex&&has("已在 0 个游戏材质中写回原贴图，撤下副本 1 个")&&f->handles.empty());}}
  // 40. Texture-only mods, phase 1: a texture-diag file for the controlled character gives one renderer / material /
  //     match line each (here without IL2CPP exports: the per-submesh layout is reported unavailable and the rule is
  //     matched by name and counts, never confirmed), nothing is written to the game, and nothing repeats while nothing
@@ -1155,29 +1155,29 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
   Runtime td(e,pkg,root+"/privateDiag",mediaDiag,false);for(uint64_t now=5000000;now<=5004000;now+=500)td.tick(now);auto log=text(logFile);
   auto count=[&](const std::string& x){size_t n=0;for(size_t p=log.find(x);p!=std::string::npos;p=log.find(x,p+1))n++;return n;};
   assert(gameWrites==writes&&f->clones==clones&&f->diffuse[mat]==tex&&load<Ptr>(f->obj[body].materials+0x20)==mat);
-  assert(count("texture-diag-ini Mod: TextureOverrideModBodyA hash=d5ae71a3 match_first_index=0 priority=0 kind=segment part=body letter=A")==1);
+  assert(count("texture-diag-ini Mod：TextureOverrideModBodyA，hash d5ae71a3，match_first_index 0，优先级 0，类型 segment，部件 body，槽字母 A")==1);
   // No IL2CPP exports here, as in the game: the engine's own Mesh / Texture getters give the layout and the sizes.
-  assert(count("texture-diag-renderer character=10000107 renderer=Body#")==1&&count("lod=full (by name) vertices=3 submeshes(native)=1 subMeshCount=1 vertexCount=3 bones=1 readable=false materials=")==1);
-  assert(count(" layout=")==0&&count("texture-diag-unsupported Body#")==0);
-  assert(count("texture-diag-submesh Body#")==1&&count("submesh=0 indexStart=0 indexCount=3 material-slot-by-position=0 (Material)")==1);
-  assert(count("texture-diag-material Body#")==1&&count("shader=miHoYo/Character/Body textures=[_MainTex=Avatar_Tex_Body_Diffuse 4x4 4 (RGBA32) mips 1]")==1);
-  assert(count("texture-diag-match Mod: TextureOverrideModBodyA hash=d5ae71a3 match_first_index=0 -> 确定匹配 renderer=Body#")==1&&count("-> _MainTex (material has it; current Avatar_Tex_Body_Diffuse 4x4 4 (RGBA32))")==1);
-  assert(count("texture-diag-match Mod: 1 renderers of 10000107: 1 确定匹配, 0 高可信候选, 0 存在歧义, 0 无法匹配, 1 without textures; nothing was replaced (phase 1)")==1&&count("TextureOverrideModPos ->")==0);
-  assert(count("texture-diag-unsupported "+sharedDiag+"/texture-diag/Broken.json: ")==1&&count("texture-diag-match Other")==0);
+  assert(count("texture-diag-renderer 角色 10000107，渲染器 Body#")==1&&count("精度 完整（按名称），顶点 3，子网格（原生）1，subMeshCount 1，vertexCount 3，骨骼 1，可读 false，材质 ")==1);
+  assert(count("，布局 ")==0&&count("texture-diag-unsupported Body#")==0);
+  assert(count("texture-diag-submesh Body#")==1&&count("子网格 0，indexStart 0，indexCount 3，按位置对应材质槽 0（Material）")==1);
+  assert(count("texture-diag-material Body#")==1&&count("着色器 miHoYo/Character/Body，贴图 [_MainTex=Avatar_Tex_Body_Diffuse 4x4 4 (RGBA32)，mip 1]")==1);
+  assert(count("texture-diag-match Mod：TextureOverrideModBodyA，hash d5ae71a3，match_first_index 0 → 确定匹配，渲染器 Body#")==1&&count("→ _MainTex（材质有此属性，当前为 Avatar_Tex_Body_Diffuse 4x4 4 (RGBA32)）")==1);
+  assert(count("texture-diag-match Mod：角色 10000107 的渲染器 1 个，确定匹配 1，高可信候选 0，存在歧义 0，无法匹配 0，无贴图 1；未替换任何内容（只读诊断）")==1&&count("texture-diag-match Mod：TextureOverrideModPos")==0);
+  assert(count("texture-diag-unsupported "+sharedDiag+"/texture-diag/Broken.json：")==1&&count("texture-diag-match Other")==0);
   // The game gives the renderer other materials: read and matched again, still nothing written.
   Ptr mat2=f->object("material","Material2");f->diffuse[mat2]=tex;f->obj[body].materials=f->typed("material",mat2);td.tick(5005000);td.tick(5006000);log=text(logFile);
-  assert(count("texture-diag-material Body#")==2&&count("material=Material2#")==1&&gameWrites==writes);
+  assert(count("texture-diag-material Body#")==2&&count("材质 Material2#")==1&&gameWrites==writes);
   // Another character controlled: only the file for it is considered.
   // The field shows a lower LOD (Body_LOD1, as on the device); the party page has the full mesh of the same avatar:
   // that twin is read and matched in its place, the LOD one only logged. No game writes either way.
   Ptr lodBody=f->renderer(f->mesh("Body_LOD1",2)),fullBody=f->renderer(f->mesh("Body",3));
   for(Ptr r:{lodBody,fullBody}){Ptr m=load<Ptr>(f->obj[r].materials+0x20);f->diffuse[m]=tex;}
   f->world(lodBody);f->scene={lodBody,fullBody};for(uint64_t now=5006500;now<=5009000;now+=500)td.tick(now);log=text(logFile);
-  assert(count("mesh=Body_LOD1#")==1&&count("lod=lower (by name) vertices=2")==1&&count("full-LOD twin of Body#"+texdiag::hexOf(load<Ptr>(lodBody+0x10))+" (elsewhere in the scene), matched in its place")==1);
-  assert(count("texture-diag-match Mod: TextureOverrideModBodyA hash=d5ae71a3 match_first_index=0 -> 确定匹配 renderer=Body#"+texdiag::hexOf(load<Ptr>(fullBody+0x10))+" mesh=Body ")==1&&gameWrites==writes);
+  assert(count("网格 Body_LOD1#")==1&&count("精度 低精度（按名称），顶点 2")==1&&count("场景中另有完整精度的同一网格 Body#"+texdiag::hexOf(load<Ptr>(lodBody+0x10))+"，按它匹配")==1);
+  assert(count("texture-diag-match Mod：TextureOverrideModBodyA，hash d5ae71a3，match_first_index 0 → 确定匹配，渲染器 Body#"+texdiag::hexOf(load<Ptr>(fullBody+0x10))+"，网格 Body，")==1&&gameWrites==writes);
   f->scene.clear();f->world(body);
   store<uint32_t>(diagEntity+kConfig,10000200);td.tick(5017000);td.tick(5018000);log=text(logFile);
-  assert(count("texture-diag-match Other: 1 renderers of 10000200: 0 确定匹配")==1&&count("texture-diag-match Mod: TextureOverrideModBodyA")==3&&count("mesh=Body_LOD1 submesh")==0);
+  assert(count("texture-diag-match Other：角色 10000200 的渲染器 1 个，确定匹配 0")==1&&count("texture-diag-match Mod：TextureOverrideModBodyA")==3&&count("网格 Body_LOD1，子网格")==0);
   store<uint32_t>(diagEntity+kConfig,10000107);td.shutdown();assert(f->handles.empty());f->world(0);}
  // 41. Texture-only mods (texture.json): with the strategy "direct" the confirmed slot's game material gets our texture,
  //     read back; the game overwriting it is logged and written again; a variant change writes the other texture; the
@@ -1201,15 +1201,15 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
   auto count=[&](const std::string& x){auto l=log();size_t n=0;for(size_t p=l.find(x);p!=std::string::npos;p=l.find(x,p+1))n++;return n;};
   run(3000);Ptr ours=f->diffuse[mat];
   if(std::getenv("TEXMOD_PRINT")){auto l=log();size_t p=0;while((p=l.find("texture-",p))!=std::string::npos){auto e2=l.find('\n',p);std::cerr<<l.substr(p,std::min<size_t>(e2-p,330))<<"\n";p=e2;}}
-  assert(ours&&ours!=gameTex&&count("texture-apply -/direct TexMod: TextureOverrideModBodyA -> character=10000107 Body#")==1&&count("evidence=完整 Mesh 特征与 Body#")==1&&count("texture-map TexMod: 1 confirmed mesh(es) saved to")==1&&count("texture-ready TexMod: 2 Texture2D made on the game thread")==1&&count("texture-timing -/direct TexMod: Body#")==1&&count("_MainTex (resource\\gimi\\diffuse rbody, sRGB): Avatar_Tex_Body_Diffuse#")==1&&count("readback=ok")==1);
-  assert(count("skipped ps-t3 rramp [ramp]: no confirmed game property (待诊断)")==1&&count("texture-load -/direct TexMod: 2 textures")==1&&JsonParser(text(sharedTex+"/status.json")).parse().at("detail").string=="TexMod：直接改材质，1 / 1 个槽位已写入");
-  f->diffuse[mat]=gameTex;run(1000);assert(f->diffuse[mat]==ours&&count("_MainTex overwritten by the game (now Avatar_Tex_Body_Diffuse#")==1&&count("noticed by the per-tick check")==1&&count("ms (1)")==1);
+  assert(ours&&ours!=gameTex&&count("texture-apply -/direct TexMod：规则 TextureOverrideModBodyA → 角色 10000107，Body#")==1&&count("依据 完整 Mesh 特征与 Body#")==1&&count("texture-map TexMod：已保存确定的网格 1 个，文件")==1&&count("texture-ready TexMod：在游戏线程逐帧创建 Texture2D 2 个")==1&&count("texture-timing -/direct TexMod：Body#")==1&&count("_MainTex（resource\\gimi\\diffuse rbody，sRGB）：Avatar_Tex_Body_Diffuse#")==1&&count("回读一致")==1);
+  assert(count("跳过 ps-t3 rramp [ramp]：没有确认的游戏属性（待诊断）")==1&&count("texture-load -/direct TexMod：已读取贴图 2 张")==1&&JsonParser(text(sharedTex+"/status.json")).parse().at("detail").string=="TexMod：直接改材质，1 / 1 个槽位已写入");
+  f->diffuse[mat]=gameTex;run(1000);assert(f->diffuse[mat]==ours&&count("_MainTex 被游戏改写，当前为 Avatar_Tex_Body_Diffuse#")==1&&count("发现途径 逐帧检查")==1&&count("内重新写入，第 1 次")==1);
   // Our textures carry DontUnloadUnusedAsset; one destroyed anyway (co-op before 0.7.74: the scene change's unload took the
   // ones made ahead) is said so, made again and written, never left as a null texture on the slot.
-  assert(hideFlags[ours]==32&&count("kept from the game's unused-asset unload: 2 of 2 made so far (HideFlags read back)")==1);
+  assert(hideFlags[ours]==32&&count("已防止游戏卸载未用资源 2/2 个（HideFlags 已回读）")==1);
   destroy(ours,0);run(1000);Ptr again=f->diffuse[mat];
-  assert(again&&again!=ours&&load<Ptr>(again+0x10)&&hideFlags[again]==32&&count("our texture for _MainTex was destroyed by the game (not by GIBox")==1&&count("readback=ok")==3);
-  assert(count("texture-lost TexMod: ")<=1&&count("(destroyed)")==0);
+  assert(again&&again!=ours&&load<Ptr>(again+0x10)&&hideFlags[again]==32&&count("GIBox 用于 _MainTex 的贴图被游戏销毁")==1&&count("回读一致")==3);
+  assert(count("texture-lost TexMod：")<=1&&count("（已销毁）")==0);
   ours=again;
   // Another character in control: the slot stays (this character's own renderer, hidden meanwhile); back again, the
   // texture is already there and nothing is written again.
@@ -1217,48 +1217,48 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
   store<uint32_t>(entity+kConfig,10000107);run(1000);assert(f->diffuse[mat]==ours&&count("texture-apply")==applies&&count("texture-restore")==restores);
   // $colour = 1: the other texture on the same slot.
   write(sharedTex+"/control.json","{\"enabled\":true,\"selected\":[\"TexMod\"],\"variables\":{\"TexMod\":{\"$colour\":1}},\"textureMods\":{\"strategy\":\"direct\"}}");run(1500);
-  Ptr ours2=f->diffuse[mat];assert(ours2&&ours2!=ours&&ours2!=gameTex&&count("(variant changed)")==1&&count("_MainTex (resource\\gimi\\diffuse rbody2, sRGB)")>=1);
+  Ptr ours2=f->diffuse[mat];assert(ours2&&ours2!=ours&&ours2!=gameTex&&count("，原因 款式已切换")==1&&count("_MainTex（resource\\gimi\\diffuse rbody2，sRGB）")>=1);
   // clone: the original back (verified), then our copy on the slot; the game's material untouched.
   control("clone",true);run(1500);Ptr slot=load<Ptr>(f->obj[body].materials+0x20);if(false){auto l=log();size_t p=0;while((p=l.find("texture-",p))!=std::string::npos){auto e2=l.find('\n',p);std::cerr<<l.substr(p,std::min<size_t>(e2-p,400))<<"\n";p=e2;}}
-  assert(f->diffuse[mat]==gameTex&&count("(strategy clone) | _MainTex: back to Avatar_Tex_Body_Diffuse#")==1&&count("(verified)")>=1&&slot!=mat&&alive(slot)&&f->diffuse[slot]&&f->diffuse[slot]!=gameTex&&count("texture-apply -/clone TexMod")==1&&count("slot readback=ok (our copy)")==1);
+  assert(f->diffuse[mat]==gameTex&&count("，原因 替换方式改为 clone；_MainTex：还原为 Avatar_Tex_Body_Diffuse#")==1&&count("（已核对）")>=1&&slot!=mat&&alive(slot)&&f->diffuse[slot]&&f->diffuse[slot]!=gameTex&&count("texture-apply -/clone TexMod")==1&&count("槽位回读一致（GIBox 的副本）")==1);
   // Off: the material back, our copy destroyed.
-  control("clone",false);run(1000);assert(load<Ptr>(f->obj[body].materials+0x20)==mat&&!alive(slot)&&f->diffuse[mat]==gameTex&&count("(mod switched off): source material back (verified); copy destroyed")==1);
+  control("clone",false);run(1000);assert(load<Ptr>(f->obj[body].materials+0x20)==mat&&!alive(slot)&&f->diffuse[mat]==gameTex&&count("，原因 MOD 已关闭；原材质已放回（已核对）；副本已销毁")==1);
   // The game makes its own instance from our copy (as the details page's entrance does): it carries our texture, so it
   // stays on the slot and is not copied again (the game goes on driving it). Off: its texture back, the slot left to
   // the game, our copy kept alive while the renderer lives.
   control("clone",true);run(1500);slot=load<Ptr>(f->obj[body].materials+0x20);assert(slot!=mat&&f->diffuse[slot]!=gameTex);
   unsigned made=f->clones;Ptr inst=clone(slot,0);f->obj[inst].name="Material(Clone) (Instance)";store<uint32_t>(load<Ptr>(inst+0x10)+8,uint32_t(-9));f->obj[body].materials=f->typed("material",inst);run(1000);
-  assert(load<Ptr>(f->obj[body].materials+0x20)==inst&&f->diffuse[inst]==f->diffuse[slot]&&f->clones==made+1&&count("; it was made from our copy ")==1&&alive(slot));
-  f->diffuse[inst]=gameTex;run(500);assert(f->diffuse[inst]!=gameTex&&f->clones==made+1&&count("written again in the game's instance made from ours (not copied)")==1);
+  assert(load<Ptr>(f->obj[body].materials+0x20)==inst&&f->diffuse[inst]==f->diffuse[slot]&&f->clones==made+1&&count("（由 GIBox 的副本 ")==1&&alive(slot));
+  f->diffuse[inst]=gameTex;run(500);assert(f->diffuse[inst]!=gameTex&&f->clones==made+1&&count("已在游戏由 GIBox 材质复制出的实例中重新写入（不复制）")==1);
   control("clone",false);run(1000);
-  assert(load<Ptr>(f->obj[body].materials+0x20)==inst&&f->diffuse[inst]==gameTex&&f->diffuse[slot]==gameTex&&alive(slot)&&count("our earlier copy kept alive")==1&&count("RESTORE FAILED")==0);
+  assert(load<Ptr>(f->obj[body].materials+0x20)==inst&&f->diffuse[inst]==gameTex&&f->diffuse[slot]==gameTex&&alive(slot)&&count("保留 GIBox 之前的副本")==1&&count("还原失败")==0);
   f->obj[body].materials=f->typed("material",mat);
   // LOD migration: the field shows Body_LOD1, the party page the full Body. The slot confirmed on the full mesh is also
   // written on the checked LOD; once the full one is gone it goes back and the LOD keeps the confirmed mapping.
   Ptr lodBody=f->renderer(f->mesh("Body_LOD1",2)),lodMat=load<Ptr>(f->obj[lodBody].materials+0x20);f->diffuse[lodMat]=gameTex;store<uint32_t>(load<Ptr>(lodMat+0x10)+8,uint32_t(-4));f->world(lodBody);f->scene={lodBody,body};
   control("direct",true,",\"lod\":\"migrate\"");run(4000);
-  assert(f->diffuse[lodMat]!=gameTex&&f->diffuse[mat]!=gameTex&&count("evidence=迁移自 Body#")==1&&count("（核对：渲染器名、网格 body、avatar、1 子网格 / 1 材质、各槽位材质名）")==1);
+  assert(f->diffuse[lodMat]!=gameTex&&f->diffuse[mat]!=gameTex&&count("依据 迁移自 Body#")==1&&count("（核对：渲染器名、网格 body、avatar、1 子网格 / 1 材质、各槽位材质名）")==1);
   // The full one gets another mesh (a page closed, the renderer reused): no longer a target, it goes back; the LOD keeps it.
   Ptr fullMesh=f->obj[body].mesh;f->obj[body].mesh=f->mesh("Other",3);texRanges[f->obj[body].mesh]={{5,3}};f->scene={lodBody};run(3000);
-  assert(f->diffuse[mat]==gameTex&&f->diffuse[lodMat]!=gameTex&&count("(no longer a target) | _MainTex: back to")==1);f->obj[body].mesh=fullMesh;
+  assert(f->diffuse[mat]==gameTex&&f->diffuse[lodMat]!=gameTex&&count("，原因 不再是替换目标；_MainTex：还原为")==1);f->obj[body].mesh=fullMesh;
   control("direct",false,",\"lod\":\"migrate\"");run(1000);assert(f->diffuse[lodMat]==gameTex);f->world(body);f->scene={};run(1000);
   // diagnose: no game writes at all.
   // auto: the game's own instance (instance id < 0) is written in place; a loaded asset is copied first.
-  control("auto",true);run(1500);assert(load<Ptr>(f->obj[body].materials+0x20)==mat&&f->diffuse[mat]!=gameTex&&count("auto: the game's own instance, written in place")==1);
+  control("auto",true);run(1500);assert(load<Ptr>(f->obj[body].materials+0x20)==mat&&f->diffuse[mat]!=gameTex&&count("自动方式：游戏自己的实例，原位写入")==1);
   assert(JsonParser(text(sharedTex+"/status.json")).parse().at("detail").string=="TexMod：自动，1 / 1 个槽位已写入");
   control("auto",false);run(1000);assert(f->diffuse[mat]==gameTex);
   store<uint32_t>(load<Ptr>(mat+0x10)+8,7);control("auto",true);run(1500);Ptr acopy=load<Ptr>(f->obj[body].materials+0x20);
-  assert(acopy!=mat&&f->diffuse[acopy]!=gameTex&&f->diffuse[mat]==gameTex&&count("auto: a loaded asset, copied")==1);
+  assert(acopy!=mat&&f->diffuse[acopy]!=gameTex&&f->diffuse[mat]==gameTex&&count("自动方式：资源材质，复制后写入")==1);
   control("auto",false);run(1000);assert(load<Ptr>(f->obj[body].materials+0x20)==mat&&f->diffuse[mat]==gameTex);store<uint32_t>(load<Ptr>(mat+0x10)+8,uint32_t(-3));
   control("diagnose",true);unsigned writes=gameWrites;run(2000);assert(gameWrites==writes&&f->diffuse[mat]==gameTex&&JsonParser(text(sharedTex+"/status.json")).parse().at("detail").string=="TexMod：只诊断，不写入（调试页里可换替换方式）");
   // Test rounds: direct, then clone; each restore verified against the saved slot.
   control("diagnose",true,",\"testRequest\":1,\"testStrategies\":[\"direct\",\"clone\"],\"observeMs\":1000");run(6000);
-  assert(count("texture-test T1 start: direct -> clone")==1&&count("texture-test T1-1 direct baseline: Body#")==1&&count("texture-apply T1-1/direct TexMod")==1&&count("texture-apply T1-2/clone TexMod")==1);
-  assert(count("T1-1 direct restore: ok")==1&&count("T1-2 clone restore: ok")==1&&count("texture-test T1 done: 2 rounds, every restore verified")==1&&f->diffuse[mat]==gameTex&&load<Ptr>(f->obj[body].materials+0x20)==mat&&gameWrites>writes);
+  assert(count("texture-test T1 开始：顺序 direct → clone")==1&&count("texture-test T1-1 direct 基准：Body#")==1&&count("texture-apply T1-1/direct TexMod")==1&&count("texture-apply T1-2/clone TexMod")==1);
+  assert(count("T1-1 direct 还原：成功")==1&&count("T1-2 clone 还原：成功")==1&&count("texture-test T1 完成：共 2 轮，每轮还原均已核对")==1&&f->diffuse[mat]==gameTex&&load<Ptr>(f->obj[body].materials+0x20)==mat&&gameWrites>writes);
   // A restore that cannot be done (the source material destroyed under our copy): the run stops, our copy stays alive.
   control("diagnose",true,",\"testRequest\":2,\"testStrategies\":[\"clone\",\"direct\"],\"observeMs\":1000");run(600);Ptr copy=load<Ptr>(f->obj[body].materials+0x20);assert(copy!=mat&&count("texture-apply T2-1/clone")==1);
   Ptr nat=load<Ptr>(mat+0x10);store<Ptr>(mat+0x10,0);run(3000);
-  assert(count("the source material is destroyed; our copy stays on the slot")==1&&count("T2-1 clone restore: FAILED")==1&&count("texture-test T2 stopped: a restore failed (rounds left: 1)")==1&&alive(copy)&&count("texture-apply T2-2")==0);
+  assert(count("原材质已销毁，GIBox 的副本留在槽上")==1&&count("T2-1 clone 还原：失败")==1&&count("texture-test T2 停止：还原失败，剩余 1 轮未进行")==1&&alive(copy)&&count("texture-apply T2-2")==0);
   if(std::getenv("TEXMOD_PRINT")){auto l=log();size_t p=0;while((p=l.find("texture-test",p))!=std::string::npos){auto e2=l.find('\n',p);std::cerr<<l.substr(p,std::min<size_t>(e2-p,600))<<"\n";p=e2;}}
   store<Ptr>(mat+0x10,nat);
   // Index-buffer hashes (vk_capture.hpp): an upload whose hash a rule names is logged with the meshes of its index count;
@@ -1270,8 +1270,8 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
     "diag":{"format":"gibox-texture-diag","version":1,"name":"IbMod","character":10000107,"rules":[{"section":"TextureOverrideIb","part":"Ib","hint":"ib","hash":")J")+hx+R"J(","first":0,"kind":"segment","textures":[]}],"resources":[]}})J");
    run(3000);
    if(std::getenv("TEXMOD_PRINT")){auto l=log();size_t p=0;while((p=l.find("ib-",p))!=std::string::npos){auto e2=l.find('\n',p);std::cerr<<l.substr(p,std::min<size_t>(e2-p,500))<<"\n";p=e2;}}
-   assert(count(std::string("ib-hash ")+hx+" (IbMod/TextureOverrideIb) equals upload #1 (staging copy, 6 bytes = 3 16-bit / - 32-bit indices, largest 16-bit value 2, first 16-bit values 0 1 2) read as uploaded, desc DEFAULT, Bind=IB; meshes with this index count: Body#")==1);
-   assert(count(") mesh Body (3 indices, confirmed by submesh starts; its rules' hash d5ae71a3) and upload #1 (staging copy")==1&&count("ib-candidate TexMod: Body#")==1&&count("no hash equal")==1&&count("ib-capture 1 index uploads read (0 MiB): copy regions into index buffers 1")==1);
+   assert(count(std::string("ib-hash ")+hx+"（IbMod/TextureOverrideIb）等于上传 #1（staging copy，6 字节，即 16 位索引 3 个或 32 位索引 - 个，16 位最大值 2，前几个 16 位值 0 1 2），读取方式 as uploaded, desc DEFAULT, Bind=IB；索引数相同的网格：Body#")==1);
+   assert(count(") 网格 Body（3 个索引，已按子网格起点确认；规则 hash d5ae71a3）与上传 #1（staging copy")==1&&count("ib-candidate TexMod：Body#")==1&&count("没有相同的 hash")==1&&count("ib-capture 已读取索引上传 1 次（0 MiB）：复制到索引缓冲 1")==1);
    assert(text(sharedTex+"/ib-hashes.txt").find(std::string("#1 6 bytes via staging copy buffer 0x100+0 max16 2 | 0=")) !=std::string::npos);
    T.installed(false,"");std::filesystem::remove_all(sharedTex+"/models/IbMod");}
   tm.shutdown();f->world(0);}
@@ -1293,18 +1293,18 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
   // The same Mesh object on another renderer in the scene: written by the per-tick scan, the diagnostics not involved.
   Ptr twin=f->renderer(f->obj[body].mesh),tmat=load<Ptr>(f->obj[twin].materials+0x20);f->diffuse[tmat]=gameTex;store<uint32_t>(load<Ptr>(tmat+0x10)+8,uint32_t(-6));f->scene={body,twin};run(700);
   if(std::getenv("TEXMOD_PRINT")){auto l=text(logQ);size_t p=0;while((p=l.find("texture-",p))!=std::string::npos){auto e2=l.find('\n',p);std::cerr<<l.substr(p,std::min<size_t>(e2-p,300))<<"\n";p=e2;}}
-  assert(f->diffuse[tmat]==ours&&count("evidence=完整 Mesh 特征与 Body#")>=1);
+  assert(f->diffuse[tmat]==ours&&count("依据 完整 Mesh 特征与 Body#")>=1);
   // The hand-off: a runtime instance material is written before the game shows the model; a loaded asset is left to the game.
   Ptr handed=f->renderer(f->obj[body].mesh),hmat=load<Ptr>(f->obj[handed].materials+0x20);f->diffuse[hmat]=gameTex;store<uint32_t>(load<Ptr>(hmat+0x10)+8,uint32_t(-7));
-  Ptr go=f->gameObjectOf({handed});q.spawned(go);q.spawnedAfter();assert(f->diffuse[hmat]==ours&&count("seen by hand-off")==1&&count("texture-handoff TexMod: Avatar_Girl_Catalyst_Citlali_Manekin handed over: 1 renderers read and matched in")>=1);
+  Ptr go=f->gameObjectOf({handed});q.spawned(go);q.spawnedAfter();assert(f->diffuse[hmat]==ours&&count("发现途径 交接")==1&&count("texture-handoff TexMod：交接 Avatar_Girl_Catalyst_Citlali_Manekin，读取并匹配渲染器 1 个，用时")>=1);
   Ptr asset=f->renderer(f->obj[body].mesh),amat=load<Ptr>(f->obj[asset].materials+0x20);f->diffuse[amat]=gameTex;Ptr go2=f->gameObjectOf({asset});q.spawned(go2);q.spawnedAfter();
-  assert(f->diffuse[amat]==gameTex&&count("still holds the loaded asset material; direct waits for the game's instance")==1);
+  assert(f->diffuse[amat]==gameTex&&count("上仍是资源材质；直接写入方式等待游戏的实例")==1);
   run(500);assert(f->diffuse[amat]==gameTex);   // the per-tick scan waits too
   Ptr ainst=clone(amat,0);store<uint32_t>(load<Ptr>(ainst+0x10)+8,uint32_t(-11));f->obj[asset].materials=f->typed("material",ainst);run(300);assert(f->diffuse[ainst]==ours&&f->diffuse[amat]==gameTex);
   // The game makes its instance from a material we wrote: the instance carries ours and is followed, the material off
   // the slot gets its texture back, and switching off restores the instance to the texture saved first.
   Ptr minst=clone(mat,0);store<uint32_t>(load<Ptr>(minst+0x10)+8,uint32_t(-13));f->obj[body].materials=f->typed("material",minst);run(300);
-  assert(f->diffuse[minst]==ours&&f->diffuse[mat]==gameTex&&count("; it was made from the material we wrote ")==1&&count("the material off the slot ")==1);
+  assert(f->diffuse[minst]==ours&&f->diffuse[mat]==gameTex&&count("（由 GIBox 写过的材质 ")==1&&count("离开槽位的材质 ")==1);
   // Off: every one of them goes back.
   write(sharedQ+"/control.json","{\"enabled\":true,\"selected\":[],\"textureMods\":{\"strategy\":\"direct\"}}");run(1000);
   assert(f->diffuse[mat]==gameTex&&f->diffuse[tmat]==gameTex&&f->diffuse[hmat]==gameTex&&f->diffuse[ainst]==gameTex&&f->diffuse[minst]==gameTex);
@@ -1327,28 +1327,28 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
   Ptr gameTex=f->object("texture","Avatar_Tex_Body_Diffuse");Ptr fullMesh=f->mesh("Body",3);
   {Runtime h(e,pkg,root+"/privateHand",mediaH,false);uint64_t t=8000000;auto run=[&](uint64_t ms){for(uint64_t end=t+ms;t<end;t+=100)h.tick(t);};
    run(1500);if(std::getenv("TEXMOD_PRINT")){auto l=text(logH);size_t p=0;while((p=l.find("texture-",p))!=std::string::npos){auto e2=l.find('\n',p);std::cerr<<l.substr(p,std::min<size_t>(e2-p,300))<<"\n";p=e2;}}
-   assert(count("texture-ready TexMod: 1 Texture2D made on the game thread")==1&&count("INFO texture-apply")==0);
+   assert(count("texture-ready TexMod：在游戏线程逐帧创建 Texture2D 1 个")==1&&count("INFO texture-apply")==0);
    Ptr body=f->renderer(fullMesh),mat=load<Ptr>(f->obj[body].materials+0x20);f->diffuse[mat]=gameTex;Ptr go=f->gameObjectOf({body});
    h.spawned(go);Ptr slot=load<Ptr>(f->obj[body].materials+0x20);
-   assert(slot!=mat&&f->diffuse[slot]!=gameTex&&count("texture-handoff TexMod: Avatar_Girl_Catalyst_Citlali_Manekin handed over: 1 renderers read and matched in")==1&&count("1 slot(s) confirmed by index starts")==1);
-   assert(count("texture-timing -/clone TexMod: Body#")==1&&count("seen by hand-off, matched +0 ms, textures ready ")==1&&count("texture-map TexMod: 1 confirmed mesh(es) saved to")==1&&exists(modH+"/texture-mapping.json"));
+   assert(slot!=mat&&f->diffuse[slot]!=gameTex&&count("texture-handoff TexMod：交接 Avatar_Girl_Catalyst_Citlali_Manekin，读取并匹配渲染器 1 个，用时")==1&&count("按索引起点确认槽 1 个")==1);
+   assert(count("texture-timing -/clone TexMod：Body#")==1&&count("发现途径 交接，匹配 +0 ms，贴图在发现")==1&&count("texture-map TexMod：已保存确定的网格 1 个，文件")==1&&exists(modH+"/texture-mapping.json"));
    // The game swaps the material at its own mesh binding: noticed there, not at the next poll.
    h.spawnedAfter();Ptr fresh=f->object("material","Material");f->diffuse[fresh]=gameTex;f->obj[body].materials=f->typed("material",fresh);h.meshBound(load<Ptr>(body+0x10));
-   Ptr again=load<Ptr>(f->obj[body].materials+0x20);assert(again!=fresh&&f->diffuse[again]!=gameTex&&count("noticed by the game's mesh binding")==1);
+   Ptr again=load<Ptr>(f->obj[body].materials+0x20);assert(again!=fresh&&f->diffuse[again]!=gameTex&&count("发现途径 游戏的网格绑定")==1);
    // A lower LOD handed over without migration: waits, with the reason.
    Ptr low=f->renderer(f->mesh("Body_LOD1",2)),lmat=load<Ptr>(f->obj[low].materials+0x20);f->diffuse[lmat]=gameTex;h.spawned(f->gameObjectOf({low}));
-   assert(f->diffuse[lmat]==gameTex&&count("waits: lower LOD Body_LOD1: the setting writes only what the full mesh confirmed")==1);
+   assert(f->diffuse[lmat]==gameTex&&count("等待，原因：低精度网格 Body_LOD1：当前设置只写完整网格上确认过的槽")==1);
    h.shutdown();}
   // A restart: the saved mapping is checked and used; a new hand-off is written before any diagnostics ran.
   {Runtime h(e,pkg,root+"/privateHand",mediaH,false);uint64_t t=9000000;auto run=[&](uint64_t ms){for(uint64_t end=t+ms;t<end;t+=100)h.tick(t);};run(1500);
-   assert(count("texture-map TexMod: saved mapping in use: 1 mesh(es) for build 6d85e314")==1);
+   assert(count("texture-map TexMod：使用已保存的映射，网格 1 个，游戏版本 6d85e314")==1);
    Ptr body=f->renderer(fullMesh),mat=load<Ptr>(f->obj[body].materials+0x20);f->diffuse[mat]=gameTex;h.spawned(f->gameObjectOf({body}));
    Ptr slot=load<Ptr>(f->obj[body].materials+0x20);assert(slot!=mat&&f->diffuse[slot]!=gameTex);h.shutdown();}
   // Another game build: game updates keep the character meshes, so the saved mapping is used; every record is checked
   // against the live mesh before a write (a mesh that did change is simply not written).
   {auto m=text(modH+"/texture-mapping.json");auto at=m.find(abi::buildId);assert(at!=std::string::npos);m.replace(at,8,"00000000");write(modH+"/texture-mapping.json",m);
    Runtime h(e,pkg,root+"/privateHand",mediaH,false);uint64_t t=10000000;for(uint64_t end=t+1500;t<end;t+=100)h.tick(t);
-   assert(count("saved mapping from game build 00000000: used; each record is checked against the live mesh before a write")==1);
+   assert(count("使用游戏版本 00000000 保存的映射，每条记录写入前先与当前网格核对")==1);
    Ptr body=f->renderer(fullMesh),mat=load<Ptr>(f->obj[body].materials+0x20);f->diffuse[mat]=gameTex;h.spawned(f->gameObjectOf({body}));
    Ptr slot=load<Ptr>(f->obj[body].materials+0x20);assert(slot!=mat&&f->diffuse[slot]!=gameTex);h.shutdown();}
   if(std::getenv("TEXMOD_PRINT")){auto l=text(logH);size_t p=0;while((p=l.find("texture-",p))!=std::string::npos){auto e2=l.find('\n',p);auto x=l.substr(p,std::min<size_t>(e2-p,330));if(x.find("texture-diag")!=0)std::cerr<<"H| "<<x<<"\n";p=e2;}}
@@ -1379,20 +1379,20 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
    T.installed(true,"");uint8_t host[12];std::memcpy(host,idx,12);T.created(0x500,12,0x40);T.bound(0x500,0x600,0);T.mapped(0x600,0,12,host);T.indexBound(0x500,0);
    run(3000);
    if(std::getenv("TEXMOD_PRINT")){auto l=text(logI);size_t p=0;while((p=l.find("texture-",p))!=std::string::npos){auto e2=l.find('\n',p);auto x=l.substr(p,std::min<size_t>(e2-p,400));if(x.find("texture-diag")!=0)std::cerr<<"I| "<<x<<"\n";p=e2;}}
-   assert(count(std::string("texture-hash-confirm TexMod: ")+hb+" (upload #")==1&&count("= Bang#")==1&&count("TextureOverrideLinBangs -> submesh 0 (starts at 0) = material slot 0 Material")==1);
-   assert(f->diffuse[gmat]!=gameTex&&f->diffuse[bmat]==gameTex&&count(std::string("evidence=IB hash ")+hb+" 与 PC 相同")==1);
+   assert(count(std::string("texture-hash-confirm TexMod：")+hb+"（上传 #")==1&&count("= Bang#")==1&&count("TextureOverrideLinBangs → 子网格 0（起点 0）= 材质槽 0 Material")==1);
+   assert(f->diffuse[gmat]!=gameTex&&f->diffuse[bmat]==gameTex&&count(std::string("依据 IB hash ")+hb+" 与 PC 相同")==1);
    assert(text(modI+"/texture-mapping.json").find(std::string("\"hash\":\"")+hb+"\"")!=std::string::npos);
    T.installed(false,"");q.shutdown();assert(f->diffuse[gmat]==gameTex);assert(text(sharedI+"/hash-map.json").find(std::string("\"ib\":\"")+hb+"\",")!=std::string::npos);}
   // A restart, no capture: the saved record (with its hash) is used.
   {Runtime q(e,pkg,root+"/privateIbc",mediaI,false);uint64_t t=12000000;for(uint64_t end=t+3000;t<end;t+=100)q.tick(t);
-   assert(count("saved mapping in use: 1 mesh(es)")==1&&f->diffuse[gmat]!=gameTex&&f->diffuse[bmat]==gameTex);q.shutdown();}
+   assert(count("使用已保存的映射，网格 1 个")==1&&f->diffuse[gmat]!=gameTex&&f->diffuse[bmat]==gameTex);q.shutdown();}
   // Two meshes with the upload's index and vertex counts: not tied, said why.
   // (Without this device's hash map, which names Bang's mesh since the first run.)
   std::filesystem::remove(modI+"/texture-mapping.json");std::filesystem::remove(sharedI+"/hash-map.json");Ptr twinMesh=f->mesh("Bang2",4);texRanges[twinMesh]={{0,6}};Ptr bang2=f->renderer(twinMesh,"BoneA","Hair");
   Ptr three[3]={body,bang,bang2};store<Ptr>(f->owner+0x68,f->array(8,3,three));
   {Runtime q(e,pkg,root+"/privateIbc2",mediaI,false);uint64_t t=13000000;auto run=[&](uint64_t ms){for(uint64_t end=t+ms;t<end;t+=100)q.tick(t);};
    T.installed(true,"");uint8_t host[12];std::memcpy(host,idx,12);T.created(0x700,12,0x40);T.bound(0x700,0x800,0);T.mapped(0x800,0,12,host);T.indexBound(0x700,0);run(3000);
-   assert(count("meshes Bang, Bang2 all have its index and vertex counts; not tied")==1&&f->diffuse[gmat]==gameTex);T.installed(false,"");q.shutdown();}
+   assert(count("网格 Bang，Bang2 的索引数和顶点数都相符，无法确定，不关联")==1&&f->diffuse[gmat]==gameTex);T.installed(false,"");q.shutdown();}
   // 46. Every character against the PC (0.7.82, textureMods.capture): Bang's uploaded index data is the PC database's
   //     "Lin Bangs" index buffer: tied to the one mesh with its counts, kept in hash-map.json and compared in
   //     hash-report.txt (Body, whose hash no upload had, is listed as not seen). After a restart with no capture, a
@@ -1417,10 +1417,10 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
     uint8_t host[12];std::memcpy(host,idx,12);T.created(0x900,12,0x40);T.bound(0x900,0xa00,0);T.mapped(0xa00,0,12,host);T.indexBound(0x900,0);
     uint8_t hostC[18];std::memcpy(hostC,cape,18);T.created(0xd00,18,0x40);T.bound(0xd00,0xe00,0);T.mapped(0xe00,0,18,hostC);T.indexBound(0xd00,0);run(8000);
     if(std::getenv("TEXMOD_PRINT")){auto l=text(logC);size_t p=0;while((p=l.find("hash-capture",p))!=std::string::npos){auto e2=l.find('\n',p);std::cerr<<"C| "<<l.substr(p,e2-p)<<"\n";p=e2;}std::cerr<<text(sharedC+"/hash-report.txt");}
-    assert(countC(std::string("hash-capture ")+hb+" = PC Lin Bangs (upload #")==1&&countC("submesh starts [0] = the PC draw starts")==2&&countC("pc-hashes 1 PC characters, 3 components")==1);
+    assert(countC(std::string("hash-capture ")+hb+" = PC Lin Bangs（上传 #")==1&&countC("子网格起点 [0]，与 PC 绘制起点一致")==2&&countC("pc-hashes 1 个 PC 角色，3 个部件")==1);
     auto rep=text(sharedC+"/hash-report.txt");
     assert(rep.find("Lin（AvatarId 10000107）")!=std::string::npos&&rep.find("与 PC 一致 ✓")!=std::string::npos&&rep.find("Body  ib d5ae71a3")!=std::string::npos&&rep.find("本次没见到与它 hash 相同的上传")!=std::string::npos);
-    assert(f->meshFinds>=1&&countC(std::string("hash-capture ")+hcape+" = PC Lin Cape (upload #")==1&&countC("mesh Cape (loaded, not shown)")==1);
+    assert(f->meshFinds>=1&&countC(std::string("hash-capture ")+hcape+" = PC Lin Cape（上传 #")==1&&countC("网格 Cape（已加载，未显示）")==1);
     assert(rep.find("Cape  ib "+std::string(hcape))!=std::string::npos&&rep.find("= （已加载、未显示） / 网格 Cape（4 顶点，9 索引）")!=std::string::npos);
     assert(rep.find("跳过 1 个复制出来的网格")!=std::string::npos&&rep.find("Cape(Clone)")==std::string::npos);
     assert(rep.find(std::string("Body / 网格 Body（3 顶点，3 索引，起点 [0]）：hash 数据 "))!=std::string::npos&&rep.find(std::string("IB|SRV|UAV ")+hbody)!=std::string::npos&&rep.find("（已记入 hash-map）")!=std::string::npos);
@@ -1435,11 +1435,11 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
    write(sharedC+"/control.json","{\"enabled\":true,\"selected\":[\"HashMod\"],\"textureMods\":{\"strategy\":\"direct\"}}");
    {Runtime q(e,pkg,root+"/privateCap2",mediaC,false);uint64_t t=15000000;for(uint64_t end=t+4000;t<end;t+=100)q.tick(t);
     if(std::getenv("TEXMOD_PRINT")){auto l=text(logC);size_t p=0;while((p=l.find("texture-",p))!=std::string::npos){auto e2=l.find('\n',p);auto x=l.substr(p,std::min<size_t>(e2-p,500));if(x.find("texture-diag-ini")!=0)std::cerr<<"M| "<<x<<"\n";p=e2;}}
-    assert(countC("PC: this = rx: role unknown by its name, diffuse by the PC slot")==1&&countC("HashMod: PC database 2039d16: Lin (by AvatarId 10000107)")==1);
-    assert(countC("TextureOverrideShared hash=ab64b4cc match_first_index=- -> 确定匹配 renderer=Bang#")==1&&countC("was reproduced on this device by the upload of mesh Bang")>=1);
+    assert(countC("PC：this = rx：按名称用途为 unknown，按 PC 槽位为 diffuse")==1&&countC("HashMod：PC 数据库 2039d16：Lin（依据 AvatarId 10000107）")==1);
+    assert(countC("TextureOverrideShared，hash ab64b4cc，match_first_index - → 确定匹配，渲染器 Bang#")==1&&countC("本机的网格 Bang 上传")>=1);
     // A character the PC database lacks: its mod's hash is found through this device's upload of Body (one submesh at
     // 0 like Bang, and a part name that names nothing: without the map nothing would decide).
-    assert(countC(std::string("TextureOverrideNewBody hash=")+hbody+" match_first_index=0 -> 确定匹配 renderer=Body#")==1);
+    assert(countC(std::string("TextureOverrideNewBody，hash ")+hbody+"，match_first_index 0 → 确定匹配，渲染器 Body#")==1);
     assert(f->diffuse[gmat]!=gameTex&&f->diffuse[bmat]!=gameTex);
     // A renderer discovery saw, then destroyed and its wrapper's memory reused by a string before the next discovery
     // (the archive's character switch): the next tick's users of the discovered list leave it alone.
@@ -1451,8 +1451,8 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
    // it): the mod is matched all the same.
    {std::filesystem::rename(sharedC+"/hash-map.json",sharedC+"/device-hashes.json");std::filesystem::remove_all(modC+"/texture-mapping.json");
     Runtime q(e,pkg,root+"/privateCap3",mediaC,false);uint64_t t=17000000;for(uint64_t end=t+4000;t<end;t+=100)q.tick(t);
-    assert(countC(": 9 index-buffer hash(es) shipped with the App (device-hashes.json), 0 captured on this device (hash-map.json)")==1&&!exists(sharedC+"/hash-map.json"));
-    assert(countC(std::string("TextureOverrideNewBody hash=")+hbody+" match_first_index=0 -> 确定匹配 renderer=Body#")==2&&f->diffuse[bmat]!=gameTex);
+    assert(countC("；设备 hash 表：随 App 提供 9 个（device-hashes.json），本机采集 0 个（hash-map.json）")==1&&!exists(sharedC+"/hash-map.json"));
+    assert(countC(std::string("TextureOverrideNewBody，hash ")+hbody+"，match_first_index 0 → 确定匹配，渲染器 Body#")==2&&f->diffuse[bmat]!=gameTex);
     q.shutdown();assert(f->diffuse[bmat]==gameTex);}}
   f->world(0);}
  // Game 7.2: the manager's and the entity's ID fields are found by what they hold (offsets.hpp candidates). Two entity
@@ -1462,15 +1462,15 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
   std::string lm=root+"/layout-media",ll=lm+"/"+pkg+"/GIBox/GIBox Log.txt";Runtime lr(e,pkg,root+"/layout-private",lm,false);
   for(uint64_t now=9000000;now<9001000;now+=200){lr.tick(now);}
   auto l=text(ll);
-  assert(l.find("layout-wait 2 field combinations still fit, waiting for one: ")!=std::string::npos&&l.find("config id 0x3cc (list 0x160, config 10000002)")!=std::string::npos&&l.find("layout entity fields")==std::string::npos);
+  assert(l.find("layout-wait 仍有 2 种字段组合符合，等待只剩一种：")!=std::string::npos&&l.find("config id 0x3cc（list 0x160，config 10000002）")!=std::string::npos&&l.find("layout 已按字段内容确定本版本的实体字段")==std::string::npos);
   store<uint32_t>(ent+0x3cc,0);for(uint64_t now=9001000;now<9002000;now+=200){lr.tick(now);}
   l=text(ll);
-  assert(l.find("layout entity fields of this build found by what they hold: manager id 0x2a8, runtime id 0x464, config id 0x45c (list 0x160, config 10000107)")!=std::string::npos);
+  assert(l.find("layout 已按字段内容确定本版本的实体字段：manager id 0x2a8，runtime id 0x464，config id 0x45c（list 0x160，config 10000107）")!=std::string::npos);
   lr.shutdown();
   // Two runtime-ID fields that always hold the same value (7.2's device log: 0x330 and 0x3f4): taken as one after 30.
   store<uint32_t>(ent+0x3f4,load<uint32_t>(ent+kRuntime));std::string lm2=root+"/layout-media2",ll2=lm2+"/"+pkg+"/GIBox/GIBox Log.txt";Runtime lr2(e,pkg,root+"/layout-private2",lm2,false);
   for(uint64_t now=9100000;now<9110000;now+=200){lr2.tick(now);}
-  l=text(ll2);assert(l.find("layout-wait 2 field combinations still fit")!=std::string::npos&&l.find("runtime ID fields 0x3f4, 0x464 held the same values on every entity 30 times in a row: taken as one (0x3f4)")!=std::string::npos);
+  l=text(ll2);assert(l.find("layout-wait 仍有 2 种字段组合符合")!=std::string::npos&&l.find("runtime ID 字段 0x3f4、0x464 在每个实体上连续 30 次取值相同，按同一字段处理（0x3f4）")!=std::string::npos);
   lr2.shutdown();store<uint32_t>(ent+0x3f4,0);store<uint32_t>(ent+kConfig,was);}
  std::cout<<"Native runtime: PASS (outfits: a bone library folder per outfit, a skin never written over the original (also next session), an old skin record moved out, previews recorded, models only on their outfit; 7.2 entity fields found by what they hold, waiting while two fit; texture-only diagnostics read-only and cached; logic core: outfits by what the logic selects, App value as input, off, not finite and missing variable refused; App key presses as core key events (cycle, toggle, back, taken once, not replayed at start, refused when not a cycle/toggle key or the core is off), persist saved atomically per model and restored over the App table, not for another INI; driven outfit models (the program picks by clock and keys, the App table not pushed); frames by what the draws select, as FrameLoop, a selection no frame has keeps the frame, no match at the start keeps FrameLoop, switch off; face texture swaps: written, copies tracked, fresh materials, restored, assets copied; direct textures: written, put back, game copies tracked, assets and shared materials copied; merged draws: hidden and non-contiguous ranges, variant switches, separateDraws rebuild; structural capture exit after 30 s preserved, replacement-off restores originals and says so, missing renderer logged once, preload and per-variant textures, material experiments, appearance timeline, hidden party members by library identity, model.bin checked once per file, extra material slots borrow a shader, paired restoration after game material copies, clean palette backups, inherited refresh schedule, temporary material readiness, clones retaken after switch-in, lower-LOD world mesh with the same bones (attach, and build checked against the bone library), indexed skeleton bounds and retry, idle sets released after a minute, version 2 conditional draws switched in place, unverified lower LODs never recorded or built against, bone export only on request, wait reasons in status and log, GIBox model folders and learned.json, skeleton.json library (quiet while loading, reasons once), first-switched-on precedence for two mods of one character, manual import by ID + model name, re-import for another character, XXMI log lines and levels,fingerprint matching, detail-page/asset-reload followers, NPC/skeleton guards, multi-model, idle cache, hot reload, broken-edit fallback, variants, name-matched models, async hand-off attach/build, game mesh put back (hand-off, LOD), game rebinding answered with ours, no magenta after drops, adoption, clone hand-over, update retargeting, bone library, Type from this_arg pairs or array classes, scan-off fallback, failure latch, rollback, GC release, threaded worker)\n";
 }

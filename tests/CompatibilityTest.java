@@ -110,17 +110,17 @@ public final class CompatibilityTest {
         String program="[Present]\n$frame = $frame + $dir\nif $frame >= 2\n$dir = -1\nendif\nif $frame <= 0\n$dir = 1\nendif\n";
         String text=GimiPatternsTest.ini("global $frame = 0\nglobal $dir = 1\n","if $frame == 1\nvb0 = ResourceNextPosition\nendif\n","","")+"[ResourceNextPosition]\nstride = 40\nfilename = Next.buf\n"+program;
         File src=GimiPatternsTest.mod(base,"rehearsed",text),out=new File(base,"rehearsed-out");byte[] next=Files.readAllBytes(new File(src,"CitlaliPosition.buf").toPath());ByteBuffer.wrap(next).order(ByteOrder.LITTLE_ENDIAN).putFloat(0,99);GimiPatternsTest.put(src,"Next.buf",next);
-        boolean refused=false;try{ModelConverter.convert(src,null,new File(base,"rehearsed-none"),10000107,new ModelConverter.Options().variants(true),DECODE,new StringBuilder());}catch(IllegalArgumentException e){refused=e.getMessage().contains("暂不支持这个 Present 动画程序");}
+        boolean refused=false;try{ModelConverter.convert(src,null,new File(base,"rehearsed-none"),10000107,new ModelConverter.Options().variants(true),DECODE,new StringBuilder());}catch(IllegalArgumentException e){refused=e.getMessage().contains("暂不支持此 Present 动画程序");}
         ok(refused,"without the rehearsal the program is refused as before");
         StringBuilder log=new StringBuilder();ModelConverter.convert(src,null,out,10000107,new ModelConverter.Options().variants(true).rehearsal(native_),DECODE,log);
         Map<String,Object> anim=Json.obj(Json.obj(Json.read(new File(out,"model.json"),4L<<20),"model").get("animation"),"animation");
         List<Integer> sequence=new ArrayList<>();for(Object x:Json.arr(anim.get("sequence"),"sequence",1,16))sequence.add(((Number)x).intValue());
         ok("present-sequence".equals(anim.get("kind"))&&sequence.equals(Arrays.asList(0,1,2,1))&&((Number)anim.get("loop")).intValue()==0&&Json.arr(anim.get("frames"),"frames",3,3).size()==3,"rehearsed frames and order: "+anim.get("kind")+" "+sequence+" loop "+anim.get("loop"));
-        ok(log.toString().contains("由逻辑核心预演 Present 程序得出")&&log.toString().contains("为什么不走取余循环"),"the conversion log says where the frames come from: "+log);
+        ok(log.toString().contains("由逻辑核心预演 Present 程序得出")&&log.toString().contains("未采用取余循环的原因"),"the conversion log says where the frames come from: "+log);
         ok(Json.arr(Json.obj(Json.obj(Json.read(new File(out,"model.json"),4L<<20),"model").get("logic"),"logic").get("frames"),"logic frames",3,3).size()==3,"logic data for every rehearsed frame");
         Process check=new ProcessBuilder(nativeChecker,out.getAbsolutePath()).inheritIO().start();ok(check.waitFor()==0,"the native loader reads the sequence and the logic driver follows it");
         GimiPatternsTest.put(src,"Citlali.ini",text.replace(program,"[Present]\n$t = $t + 1\nif $t > 100\n$frame = 1\nendif\n").replace("global $dir = 1\n","global $dir = 1\nglobal $t = 0\n"));refused=false;
-        try{ModelConverter.convert(src,null,new File(base,"rehearsed-counter"),10000107,new ModelConverter.Options().variants(true).rehearsal(native_),DECODE,new StringBuilder());}catch(IllegalArgumentException e){refused=e.getMessage().contains("逻辑核心预演也不能确定")&&e.getMessage().contains("does not repeat");}
+        try{ModelConverter.convert(src,null,new File(base,"rehearsed-counter"),10000107,new ModelConverter.Options().variants(true).rehearsal(native_),DECODE,new StringBuilder());}catch(IllegalArgumentException e){refused=e.getMessage().contains("逻辑核心预演也无法确定")&&e.getMessage().contains("没有重复");}
         ok(refused,"a counter that opens a branch later is refused, with the rehearsal's reason");
     }
     static String runNative(String flag,String request,File base)throws Exception{File req=File.createTempFile("native-",".json",base);Files.write(req.toPath(),request.getBytes("UTF-8"));
@@ -187,7 +187,7 @@ public final class CompatibilityTest {
         String noUse="";try{ModelConverter.convert(GimiPatternsTest.mod(base,"texture-ramp","[TextureOverrideX]\nhash = 1\nps-t3 = ResourceRamp\n[ResourceRamp]\nfilename = Ramp.dds\n"),null,new File(base,"texture-ramp-out"),10000107,new ModelConverter.Options().textureMods(true),DECODE,new StringBuilder());}catch(IllegalArgumentException e){noUse=e.getMessage();}
         ok(noUse.contains("没有能写入的贴图")&&!new File(base,"texture-ramp-out").exists(),"nothing writable: refused, no folder: "+noUse);
         StringBuilder failed=new StringBuilder();ModelConverter.convert(src,null,new File(base,"backend-failed"),10000107,new ModelConverter.Options().core(r->"{\"ok\":false,\"reason\":\"no core\"}"),DECODE,failed);
-        ok(failed.toString().contains("3dm 后端未用于本次转换：逻辑核心不能运行这个 INI：no core；按转换器自己的求值"),"a core that cannot run leaves the converter's own evaluation: "+failed);
+        ok(failed.toString().contains("3dm 后端未用于本次转换：逻辑核心无法运行此 INI：no core；按转换器自己的求值"),"a core that cannot run leaves the converter's own evaluation: "+failed);
     }
     // A program that follows the clock (NahidaPoS's Qswap: Q shows the locked outfit for a while, ] / [ select):
     // no order to rehearse, so every outfit its draws can show is converted and the logic data is "driven"; without
@@ -203,13 +203,13 @@ public final class CompatibilityTest {
         String program="[Present]\nif $press == 1\n$start = time\n$press = 0\nendif\nif time - $start < 3\n$look = 1\nelse\n$look = $sel\nendif\n";
         String text=GimiPatternsTest.ini("global $look = 0\nglobal persist $sel = 0\nglobal $press = 0\nglobal $start = -100\n","if $look == 1\nvb0 = ResourceNextPosition\nendif\n","","")+"[ResourceNextPosition]\nstride = 40\nfilename = Next.buf\n"+keys+program;
         File src=GimiPatternsTest.mod(base,"driven",text);byte[] next=Files.readAllBytes(new File(src,"CitlaliPosition.buf").toPath());ByteBuffer.wrap(next).order(ByteOrder.LITTLE_ENDIAN).putFloat(0,99);GimiPatternsTest.put(src,"Next.buf",next);
-        boolean refused=false;try{ModelConverter.convert(src,null,new File(base,"driven-none"),10000107,new ModelConverter.Options().variants(true),DECODE,new StringBuilder());}catch(IllegalArgumentException e){refused=e.getMessage().contains("暂不支持这个 Present 动画程序");}
+        boolean refused=false;try{ModelConverter.convert(src,null,new File(base,"driven-none"),10000107,new ModelConverter.Options().variants(true),DECODE,new StringBuilder());}catch(IllegalArgumentException e){refused=e.getMessage().contains("暂不支持此 Present 动画程序");}
         ok(refused,"without the rehearsal a program that follows the clock is refused as before");
         StringBuilder log=new StringBuilder();File out=new File(base,"driven-out");ModelConverter.convert(src,null,out,10000107,new ModelConverter.Options().variants(true).rehearsal(native_),DECODE,log);
         Map<String,Object> manifest=Json.obj(Json.read(new File(out,"model.json"),4L<<20),"model"),logic=Json.obj(manifest.get("logic"),"logic");ModelManifest read=ModelManifest.read(out);
         ok(read.vars.get("$look").equals(Arrays.asList(0,1))&&Boolean.TRUE.equals(logic.get("driven"))&&read.driven&&Json.arr(logic.get("variants"),"variants",2,2).size()==2,"every outfit the draws can show, driven: "+read.vars+" "+logic.get("driven"));
         boolean back=false;for(ModelManifest.Key k:read.keys)back|=k.section.equals("KeySel")&&k.back;ok(back,"the cycle key with back = is listed with back");
-        ok(log.toString().contains("Present 程序跟随游戏")&&log.toString().contains("reads time"),"the conversion log says why and what the core does: "+log);
+        ok(log.toString().contains("Present 程序跟随游戏")&&log.toString().contains("读取了 time"),"the conversion log says why and what the core does: "+log);
         Process check=new ProcessBuilder(nativeChecker,out.getAbsolutePath()).inheritIO().start();ok(check.waitFor()==0,"the native driver picks every converted outfit of a driven model");
         // Switched-off scheme.
         File off=new File(src,"disabled");off.mkdirs();GimiPatternsTest.put(off,"Q.ini",text.replace("global $start = -100\n","global $start = -100\nglobal $only_q = 1\n"));
@@ -278,7 +278,7 @@ public final class CompatibilityTest {
         ok(rejected&&generation.equals(ModelManifest.read(out).generation),"fallback cannot guess a palette's valid boundary");
         byte[] originalBlend=skin.array().clone();StringBuilder fallbackLog=new StringBuilder();ModelConverter.convert(src,library,out,10000107,new ModelConverter.Options().replace(true).animationBoneFallback(true),DECODE,fallbackLog);
         Map<String,Object> fallbackManifest=Json.obj(Json.read(new File(out,"model.json"),4L<<20),"model"),fallbackAnimation=Json.obj(fallbackManifest.get("animation"),"animation");
-        ok("retain-valid-experimental".equals(fallbackAnimation.get("bonePolicy"))&&fallbackLog.toString().contains("rawWeights=[1.0, 1.0")&&fallbackLog.toString().contains("animation-bone-fallback frame=2"),"lossy policy and original associations must be disclosed");
+        ok("retain-valid-experimental".equals(fallbackAnimation.get("bonePolicy"))&&fallbackLog.toString().contains("rawWeights=[1.0, 1.0")&&fallbackLog.toString().contains("animation-bone-fallback 帧 2，部件 "),"lossy policy and original associations must be disclosed");
         for(Object fr:Json.arr(fallbackAnimation.get("frames"),"frames",3,3)){Map<String,Object> p=Json.obj(Json.arr(Json.obj(fr,"frame").get("parts"),"parts",1,1).get(0),"part");ByteBuffer w=Fixtures.view(out,Json.obj(p.get("data"),"data").get("weights"));
             ok(Fixtures.number(p,"vertices")==6&&Fixtures.number(p,"indices")==6,"fallback never removes new geometry");for(int i=0;i<6;i++)ok(w.getFloat(32*i)==1&&w.getInt(32*i+16)<2&&w.getFloat(32*i+4)==0,"each vertex keeps its own supported bone");}
         ok(Arrays.equals(originalBlend,Files.readAllBytes(new File(src,"CitlaliBlend.buf").toPath())),"source blend data remains untouched");

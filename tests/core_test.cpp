@@ -65,29 +65,29 @@ int main(int argc,char**argv){
   assert(!clock.tick(1000)&&clock.gaps==1);rejects([&]{loadModelFile(dir,false,false,3,m->generation);});rejects([&]{loadModelFile(dir,false,false,1,"old-generation");});}
  // ---- the checks: every one names what is wrong
  auto bad=root+"/bad";
- refused(bad,[](Spec& s){s.edit=[](std::string& j){replaceIn(j,"gibox-model","other-model");};},"not a GIBox model");
- refused(bad,[](Spec& s){s.edit=[](std::string& j){replaceIn(j,"\"version\":1","\"version\":5");};},"unsupported version");
- refused(bad,[](Spec& s){s.character(9999);},"Character ID out of range");
- refused(bad,[](Spec& s){s.character(0);},"needs a character ID or names");
- refused(bad,[](Spec& s){s.character(0,{"Citlali"});},"Character name");
- refused(bad,[](Spec& s){s.edit=[](std::string& j){auto p=j.find("\"crc32\":")+8;auto e=j.find('}',p);auto crc=std::stoull(j.substr(p,e-p));j.replace(p,e-p,std::to_string(crc^1));};},"checksum mismatch");
- refused(bad,[](Spec& s){s.edit=[](std::string& j){replaceIn(j,"\"size\":304","\"size\":320");};},"size differs");
- refused(bad,[](Spec& s){s.edit=[](std::string& j){replaceIn(j,"\"uv\":[96,24]","\"uv\":[100,24]");};},"misaligned");
- refused(bad,[](Spec& s){s.edit=[](std::string& j){replaceIn(j,"\"uv\":[96,24]","\"uv\":[96,16]");};},"wrong length");
- refused(bad,[](Spec& s){s.edit=[](std::string& j){replaceIn(j,"\"bindposes\":[240,64]","\"bindposes\":[288,64]");};},"outside model.bin");
- refused(bad,[](Spec& s){s.indices={0,1,3};},"vertex index out of range");
- refused(bad,[](Spec& s){s.indices={0,1,2,0};},"multiple of 3");
- refused(bad,[](Spec& s){s.positions[4]=std::numeric_limits<float>::quiet_NaN();},"not a finite number");
- refused(bad,[](Spec& s){floatAt(s.weights,0,.5f);},"do not sum to 1");
- refused(bad,[](Spec& s){floatAt(s.weights,0,-1);floatAt(s.weights,4,2);},"invalid weight");
- refused(bad,[](Spec& s){put32(s.weights.data()+16,1);},"bone index out of range");
- refused(bad,[](Spec& s){s.draws={"[{\"start\":0,\"count\":6,\"material\":\"Material0\",\"slot\":0}]"};},"out of range");
- refused(bad,[](Spec& s){s.draws={"[{\"start\":0,\"count\":3,\"material\":\"Nope\",\"slot\":0}]"};},"unknown material Nope");
- refused(bad,[](Spec& s){s.draws={"[{\"start\":0,\"count\":3,\"material\":\"Material0\",\"slot\":64}]"};},"\"slot\" out of range");
- refused(bad,[](Spec& s){s.draws.push_back(s.draws[0]);},"Invalid \"draws\" list");
- refused(bad,[](Spec& s){s.variants="{\"vars\":[{\"name\":\"$a\",\"values\":[0,1]}],\"combos\":[{}],\"default\":0}";},"must set every variable");
- refused(bad,[](Spec& s){s.variants="{\"vars\":[],\"combos\":[{\"$b\":1}],\"default\":0}";},"Variant undeclared: $b");
- refused(bad,[](Spec& s){s.variants="{\"vars\":[],\"combos\":[{}],\"default\":3}";},"\"default\" out of range");
+ refused(bad,[](Spec& s){s.edit=[](std::string& j){replaceIn(j,"gibox-model","other-model");};},"不是 GIBox 模型");
+ refused(bad,[](Spec& s){s.edit=[](std::string& j){replaceIn(j,"\"version\":1","\"version\":5");};},"不支持的版本");
+ refused(bad,[](Spec& s){s.character(9999);},"角色 ID 超出范围");
+ refused(bad,[](Spec& s){s.character(0);},"须指定角色 ID 或角色名称");
+ refused(bad,[](Spec& s){s.character(0,{"Citlali"});},"角色名称无效");
+ refused(bad,[](Spec& s){s.edit=[](std::string& j){auto p=j.find("\"crc32\":")+8;auto e=j.find('}',p);auto crc=std::stoull(j.substr(p,e-p));j.replace(p,e-p,std::to_string(crc^1));};},"校验和不符");
+ refused(bad,[](Spec& s){s.edit=[](std::string& j){replaceIn(j,"\"size\":304","\"size\":320");};},"大小与 model.json 记录不符");
+ refused(bad,[](Spec& s){s.edit=[](std::string& j){replaceIn(j,"\"uv\":[96,24]","\"uv\":[100,24]");};},"未按 16 字节对齐");
+ refused(bad,[](Spec& s){s.edit=[](std::string& j){replaceIn(j,"\"uv\":[96,24]","\"uv\":[96,16]");};},"长度不符");
+ refused(bad,[](Spec& s){s.edit=[](std::string& j){replaceIn(j,"\"bindposes\":[240,64]","\"bindposes\":[288,64]");};},"超出 model.bin 范围");
+ refused(bad,[](Spec& s){s.indices={0,1,3};},"顶点编号超出范围");
+ refused(bad,[](Spec& s){s.indices={0,1,2,0};},"3 的倍数");
+ refused(bad,[](Spec& s){s.positions[4]=std::numeric_limits<float>::quiet_NaN();},"含非有限数值");
+ refused(bad,[](Spec& s){floatAt(s.weights,0,.5f);},"权重之和不为 1");
+ refused(bad,[](Spec& s){floatAt(s.weights,0,-1);floatAt(s.weights,4,2);},"权重无效");
+ refused(bad,[](Spec& s){put32(s.weights.data()+16,1);},"骨骼编号超出范围");
+ refused(bad,[](Spec& s){s.draws={"[{\"start\":0,\"count\":6,\"material\":\"Material0\",\"slot\":0}]"};},"超出范围");
+ refused(bad,[](Spec& s){s.draws={"[{\"start\":0,\"count\":3,\"material\":\"Nope\",\"slot\":0}]"};},"未知材质 Nope");
+ refused(bad,[](Spec& s){s.draws={"[{\"start\":0,\"count\":3,\"material\":\"Material0\",\"slot\":64}]"};},"超出范围：\"slot\"");
+ refused(bad,[](Spec& s){s.draws.push_back(s.draws[0]);},"列表无效：\"draws\"");
+ refused(bad,[](Spec& s){s.variants="{\"vars\":[{\"name\":\"$a\",\"values\":[0,1]}],\"combos\":[{}],\"default\":0}";},"须为每个变量赋值");
+ refused(bad,[](Spec& s){s.variants="{\"vars\":[],\"combos\":[{\"$b\":1}],\"default\":0}";},"款式变量未声明：$b");
+ refused(bad,[](Spec& s){s.variants="{\"vars\":[],\"combos\":[{}],\"default\":3}";},"超出范围：\"default\"");
  // ---- version 2: each draw says when it is drawn; no combination list, no limit of 32
  {Spec s=v2();fixture::writeModel(root+"/v2",s);auto m=loadModelFile(root+"/v2");auto& p=m->parts.at(0);std::vector<Submesh> subs;std::vector<Material> rows;
   assert(m->variants.combos.empty()&&m->variants.defaults==(Assignment{{"$halo",0},{"$legs",1}})&&p.draws.size()==2&&p.draws[0].when.vars.empty()&&p.sourceParents==std::vector<int>{-1});
@@ -99,18 +99,18 @@ int main(int argc,char**argv){
  {Spec s=v2();s.version=3;s.edit=[](std::string& j){replaceIn(j,"\"blob\"","\"replaceWhen\":{\"vars\":[\"$halo\"],\"allow\":[[3]]},\"blob\"");};fixture::writeModel(root+"/v3",s);
   auto summary=readSummary(root+"/v3");assert(!drawn(summary.replaceWhen,pick(summary.variants,{}))&&drawn(summary.replaceWhen,pick(summary.variants,Assignment{{"$halo",3}}))&&!summary.parts[0].indexedBones);loadModelFile(root+"/v3");
   s.noSkeleton();fixture::writeModel(root+"/v3-indexed",s);assert(readSummary(root+"/v3-indexed").parts[0].indexedBones);}
- refused(bad,[](Spec& s){s=v2();s.version=3;s.edit=[](std::string& j){replaceIn(j,"\"blob\"","\"replaceWhen\":{\"vars\":[\"$unknown\"],\"allow\":[[0]]},\"blob\"");};},"undeclared variable");
- refused(bad,[](Spec& s){s=v2();s.version=3;s.edit=[](std::string& j){replaceIn(j,"\"blob\"","\"replaceWhen\":{\"vars\":[\"$halo\"],\"allow\":[[9]]},\"blob\"");};},"when value not listed");
- refused(bad,[](Spec& s){s=v2();s.edit=[](std::string& j){replaceIn(j,"\"blob\"","\"replaceWhen\":{\"vars\":[\"$halo\"],\"allow\":[[3]]},\"blob\"");};},"requires model version 3");
- refused(bad,[](Spec& s){s=v2();replaceIn(s.draws[0],"[\"$halo\",\"$legs\"]","[\"$halo\",\"$wings\"]");},"undeclared variable");
- refused(bad,[](Spec& s){s=v2();replaceIn(s.draws[0],"[[3,1]]","[[4,1]]");},"when value not listed for $halo");
- refused(bad,[](Spec& s){s=v2();replaceIn(s.draws[0],"[[3,1]]","[[3]]");},"when tuple size");
- refused(bad,[](Spec& s){s=v2();replaceIn(s.variants,",\"$legs\":1}","}");},"Variant default must set every variable");
- refused(bad,[](Spec& s){s=v2();s.draws[0]="[]";},"Invalid \"draws\" list");
- refused(bad,[](Spec& s){s=v2();s.edit=[](std::string& j){replaceIn(j,"\"bones\":[\"BoneA\"]","\"bones\":[\"BoneA\"],\"parents\":[0]");};},"bone parent out of range");
- refused(bad,[](Spec& s){s.edit=[](std::string& j){replaceIn(j,"\"name\":\"Part0\"","\"name\":\"../x\"");};},"Part name");
- refused(bad,[](Spec& s){s.edit=[](std::string& j){replaceIn(j,"\"bones\":[\"BoneA\"]","\"bones\":[\"BoneA\",\"BoneB\"]");};},"Invalid \"bones\" list");
- refused(bad,[](Spec& s){s.withTarget("{\"renderer\":\"Body\",\"vertices\":0,\"submeshes\":1,\"bones\":1}");},"\"vertices\" out of range");
+ refused(bad,[](Spec& s){s=v2();s.version=3;s.edit=[](std::string& j){replaceIn(j,"\"blob\"","\"replaceWhen\":{\"vars\":[\"$unknown\"],\"allow\":[[0]]},\"blob\"");};},"引用了未声明的变量");
+ refused(bad,[](Spec& s){s=v2();s.version=3;s.edit=[](std::string& j){replaceIn(j,"\"blob\"","\"replaceWhen\":{\"vars\":[\"$halo\"],\"allow\":[[9]]},\"blob\"");};},"when 中的取值未在变量中列出");
+ refused(bad,[](Spec& s){s=v2();s.edit=[](std::string& j){replaceIn(j,"\"blob\"","\"replaceWhen\":{\"vars\":[\"$halo\"],\"allow\":[[3]]},\"blob\"");};},"需要模型格式版本 3");
+ refused(bad,[](Spec& s){s=v2();replaceIn(s.draws[0],"[\"$halo\",\"$legs\"]","[\"$halo\",\"$wings\"]");},"引用了未声明的变量");
+ refused(bad,[](Spec& s){s=v2();replaceIn(s.draws[0],"[[3,1]]","[[4,1]]");},"when 中的取值未在变量中列出：$halo");
+ refused(bad,[](Spec& s){s=v2();replaceIn(s.draws[0],"[[3,1]]","[[3]]");},"when 的取值个数与变量数不符");
+ refused(bad,[](Spec& s){s=v2();replaceIn(s.variants,",\"$legs\":1}","}");},"默认款式须为每个变量赋值");
+ refused(bad,[](Spec& s){s=v2();s.draws[0]="[]";},"列表无效：\"draws\"");
+ refused(bad,[](Spec& s){s=v2();s.edit=[](std::string& j){replaceIn(j,"\"bones\":[\"BoneA\"]","\"bones\":[\"BoneA\"],\"parents\":[0]");};},"父骨骼编号超出范围");
+ refused(bad,[](Spec& s){s.edit=[](std::string& j){replaceIn(j,"\"name\":\"Part0\"","\"name\":\"../x\"");};},"部件名称无效");
+ refused(bad,[](Spec& s){s.edit=[](std::string& j){replaceIn(j,"\"bones\":[\"BoneA\"]","\"bones\":[\"BoneA\",\"BoneB\"]");};},"列表无效：\"bones\"");
+ refused(bad,[](Spec& s){s.withTarget("{\"renderer\":\"Body\",\"vertices\":0,\"submeshes\":1,\"bones\":1}");},"超出范围：\"vertices\"");
  {Spec s;fixture::writeModel(bad,s);write(bad+"/model.bin","short");rejects([&]{loadModelFile(bad);});std::filesystem::remove(bad+"/model.bin");rejects([&]{loadModelFile(bad);});}
  // ---- learned.json and the skeleton library round-trip through the native writers
  {Learned l;l.id=10000107;Fingerprint fp{"Body","Avatar_Body",23521,3,142};l.targets["Part0"]=fp;auto back=learnedOf(JsonParser(learnedJson(l)).parse());
@@ -136,11 +136,11 @@ int main(int argc,char**argv){
   assert(mapBones({"Bone A"},{"bone_a","Bone A"},bind,binds(2),{0}).target[0]==1);
   std::vector<std::string> src{"Root","L","Tip","R","Tip"},dst{"Root","R","Tip","L","Tip"};std::vector<int> sp{-1,0,1,0,3},dp{-1,0,1,0,3};
   auto m=mapBones(src,dst,binds(5),binds(5),{2,4},sp,dp);assert(m.target[2]==4&&m.target[4]==2&&m.moved.empty());
-  assert(why([&]{mapBones(src,dst,binds(5),binds(5),{2});}).find("Bone name ambiguous: Tip")==0);
+  assert(why([&]{mapBones(src,dst,binds(5),binds(5),{2});}).find("骨骼名称有歧义：Tip")==0);
   std::vector<std::string> hs{"Bip001 Head","+HairBack01","+HairBack02"};std::vector<int> hp{-1,0,1};
   auto h=mapBones(hs,{"Bip001 Head"},binds(3),bind,{0,2},hp,{-1});assert(h.target[2]==0&&h.moved.size()==1&&h.moved[0].first==2);
-  assert(why([&]{mapBones({"Bip001 Head","Bip001 L Hand"},{"Bip001 Head"},binds(2),bind,{1},{-1,0},{-1});}).find("Bone name missing: Bip001 L Hand")==0);
-  assert(why([&]{mapBones(hs,{"Bip001 Head"},binds(3),bind,{2});}).find("Bone name missing: +HairBack02")==0);}
+  assert(why([&]{mapBones({"Bip001 Head","Bip001 L Hand"},{"Bip001 Head"},binds(2),bind,{1},{-1,0},{-1});}).find("找不到骨骼：Bip001 L Hand")==0);
+  assert(why([&]{mapBones(hs,{"Bip001 Head"},binds(3),bind,{2});}).find("找不到骨骼：+HairBack02")==0);}
  // Weights after mapping: two source bones that became one target bone are added together; largest first; sum 1.
  {Skin s{Bytes(32),{0,1,2}};floatAt(s.data,0,.2f);floatAt(s.data,4,.5f);floatAt(s.data,8,.3f);put32(s.data.data()+16,0);put32(s.data.data()+20,1);put32(s.data.data()+24,2);
   remap(s,{3,5,3});assert(f32(s.data.data())==.5f&&u32(s.data.data()+16)==3&&f32(s.data.data()+4)==.5f&&u32(s.data.data()+20)==5&&f32(s.data.data()+8)==0&&f32(s.data.data()+12)==0);}
@@ -159,7 +159,7 @@ int main(int argc,char**argv){
   readTextures(root+"/lazy",m->generation,m->blobSize,m->materials,{"Material0"});assert(m->materials.at("Material0").main->pixels==Bytes(4,255)&&m->materials.at("Material0").light);
   auto full=loadModelFile(root+"/lazy");assert(full->materials.at("Material1").main->pixels==Bytes(4,1));
   auto again=loadModelFile(root+"/lazy",false);fixture::writeModel(root+"/lazy",lz.gen("2"));bool refused=false;
-  try{readTextures(root+"/lazy",again->generation,again->blobSize,again->materials,{"Material1"});}catch(const std::exception& ex){refused=std::string(ex.what()).find("model.json changed")!=std::string::npos;}assert(refused);
+  try{readTextures(root+"/lazy",again->generation,again->blobSize,again->materials,{"Material1"});}catch(const std::exception& ex){refused=std::string(ex.what()).find("model.json 已变化")!=std::string::npos;}assert(refused);
   Assignment a;std::vector<PartFile> none;assert(materialsDrawn(m->parts,a)==std::set<std::string>{"Material0"}&&materialsDrawn(none,a).empty());}
  // Submeshes from the draws in effect (mergeDraws): neighbours with the same row share one, their ranges joined in draw
  // order; a draw the assignment hides between them is not drawn; ranges continuing each other become one range.
@@ -180,19 +180,19 @@ int main(int argc,char**argv){
  {auto swaps=[](const std::string& list){return [list](Spec& x){x.textures=true;x.extraMaterials=1;x.edit=[list](std::string& j){replaceIn(j,",\"parts\":[",",\"textures\":"+list+",\"parts\":[");};};};
   Spec ok;swaps("[{\"renderer\":\"Face\",\"material\":\"Material1\"}]")(ok);fixture::writeModel(root+"/swap",ok);auto m=loadModelFile(root+"/swap",false);Assignment a;
   assert(m->swaps.size()==1&&m->swaps[0].renderer=="Face"&&m->swaps[0].material=="Material1"&&!materialsDrawn(m->parts,a).count("Material1")&&materialsNeeded(*m,a).count("Material1")&&materialsNeeded(*m,a).count("Material0"));
-  refused(root+"/swap-unknown",swaps("[{\"renderer\":\"Face\",\"material\":\"Material9\"}]"),"Texture swap material");
-  refused(root+"/swap-twice",swaps("[{\"renderer\":\"Face\",\"material\":\"Material1\"},{\"renderer\":\"Face\",\"material\":\"Material0\"}]"),"listed twice");
-  refused(root+"/swap-name",swaps("[{\"renderer\":\"Face/..\",\"material\":\"Material1\"}]"),"Texture swap renderer");
+  refused(root+"/swap-unknown",swaps("[{\"renderer\":\"Face\",\"material\":\"Material9\"}]"),"贴图替换的材质无效");
+  refused(root+"/swap-twice",swaps("[{\"renderer\":\"Face\",\"material\":\"Material1\"},{\"renderer\":\"Face\",\"material\":\"Material0\"}]"),"贴图替换的渲染器重复");
+  refused(root+"/swap-name",swaps("[{\"renderer\":\"Face/..\",\"material\":\"Material1\"}]"),"贴图替换的渲染器");
   // model.json "logic": animation models only, files inside logic/, reads of known draws, one record per frame.
   auto logicRefused=[&](const std::string& name,Spec spec,const char* why){std::filesystem::create_directories(root+"/"+name+"/logic");write(root+"/"+name+"/logic/0.ini",std::string(fixture::logicIni));
    std::string message;fixture::writeModel(root+"/"+name,spec);try{loadModelFile(root+"/"+name);}catch(const std::exception& ex){message=ex.what();}
    if(message.find(why)==std::string::npos){std::cerr<<"expected \""<<why<<"\", got \""<<message<<"\"\n";assert(false);}};
   auto ibs=std::vector<std::string>{"file:a.ib","file:b.ib","file:c.ib"};
-  logicRefused("logic-static",fixture::withLogic(Spec(),fixture::logicJson(ibs)),"logic: only for animation or outfit models");
-  logicRefused("logic-path",fixture::withLogic(fixture::animated(),fixture::logicJson(ibs,"logic/../x.ini")),"logic: file name");
-  logicRefused("logic-missing",fixture::withLogic(fixture::animated(),fixture::logicJson(ibs,"logic/7.ini")),"Cannot read");
-  logicRefused("logic-pass",fixture::withLogic(fixture::animated(),fixture::logicJson(ibs,"logic/0.ini","Skin")),"logic: Part ib");
-  logicRefused("logic-frames",fixture::withLogic(fixture::animated(),fixture::logicJson({"file:a.ib","file:b.ib"})),"Invalid \"frames\" list");
+  logicRefused("logic-static",fixture::withLogic(Spec(),fixture::logicJson(ibs)),"logic：仅用于动画或款式模型");
+  logicRefused("logic-path",fixture::withLogic(fixture::animated(),fixture::logicJson(ibs,"logic/../x.ini")),"logic：文件名无效");
+  logicRefused("logic-missing",fixture::withLogic(fixture::animated(),fixture::logicJson(ibs,"logic/7.ini")),"无法读取");
+  logicRefused("logic-pass",fixture::withLogic(fixture::animated(),fixture::logicJson(ibs,"logic/0.ini","Skin")),"logic：字段无效：Part ib");
+  logicRefused("logic-frames",fixture::withLogic(fixture::animated(),fixture::logicJson({"file:a.ib","file:b.ib"})),"列表无效：\"frames\"");
   // present-sequence (the rehearsal's order): frames by index, the sequence played one step per Present, then from loop.
   {auto sequenced=[](const std::string& tail){Spec s=fixture::animated();auto inner=s.edit;s.edit=[inner,tail](std::string& t){inner(t);
      auto m=JsonParser(t).parse();auto& an=m.object["animation"].object;for(auto k:{"variable","first","last","step","initial","counter","period","counterStep"})an.erase(k);
@@ -200,9 +200,9 @@ int main(int argc,char**argv){
    fixture::writeModel(root+"/sequence",sequenced("\"sequence\":[0,1,2,1],\"loop\":1"));auto m=loadModelFile(root+"/sequence");assert(m->animation.sequenced&&m->animation.sequence.size()==4&&m->animation.loop==1);
    FrameLoop loop(m->animation);loop.tick(0);std::vector<size_t> shown{loop.current};for(uint32_t t=1;t<=7;t++){loop.tick(t);shown.push_back(loop.current);}
    assert((shown==std::vector<size_t>{0,1,2,1,1,2,1,1}));loop.showFrom(2);assert(loop.current==2&&loop.step==2);
-   refused(root+"/sequence-range",[&](Spec& s){s=sequenced("\"sequence\":[0,3],\"loop\":0");},"animation sequence out of range");
-   refused(root+"/sequence-loop",[&](Spec& s){s=sequenced("\"sequence\":[0,1],\"loop\":2");},"\"loop\" out of range");}
-  logicRefused("logic-key",fixture::withLogic(fixture::animated(),[&]{auto j=fixture::logicJson(ibs);j.insert(j.rfind('}'),",\"keys\":[{\"file\":0,\"section\":\"KeyA\",\"type\":\"press\"}]");return j;}()),"logic: key type press");
+   refused(root+"/sequence-range",[&](Spec& s){s=sequenced("\"sequence\":[0,3],\"loop\":0");},"超出范围：动画序列");
+   refused(root+"/sequence-loop",[&](Spec& s){s=sequenced("\"sequence\":[0,1],\"loop\":2");},"超出范围：\"loop\"");}
+  logicRefused("logic-key",fixture::withLogic(fixture::animated(),[&]{auto j=fixture::logicJson(ibs);j.insert(j.rfind('}'),",\"keys\":[{\"file\":0,\"section\":\"KeyA\",\"type\":\"press\"}]");return j;}()),"logic：按键类型无效：press");
   // A drawindexed of 0 indices before the part's real draw (BarbaraCelestialRose), or draws after ib = null
   // (NahidaPoS): they draw nothing, the converter does not record them, and the driver's selection must not either.
   {LogicSpec z;z.mainNs="Mods\\Z\\a.ini";z.files.push_back({z.mainNs,"logic/0.ini","[Constants]\nglobal $look = 0\n[TextureOverridePart]\nhash = aaaa0001\nhandling = skip\nib = ResourceL0\nif $look == 2\n ib = null\nendif\ndrawindexed = 0, 0, 0\ndrawindexed = 3, 0, 0\nif $look == 1\n ib = ResourceL1\n drawindexed = 0, 0, 0\nendif\n[ResourceL0]\nfilename = l0.ib\n[ResourceL1]\nfilename = l1.ib\n"});
@@ -280,7 +280,7 @@ int main(int argc,char**argv){
    {LogicDriver d(ordered->logic);assert(follows(d,ordered->animation)&&d.stats.misses==0);}
    // Recorded as one order only: the other order is a different selection, not the same draws.
    auto unordered=model("logic-order",{{"Mods\\Logic\\a.ini",ranges}},table,"["+pass("Part","aaaa0001")+"]","{\"Part\":"+own("Part")+"}",{{{"Part",r0+r3}},{{"Part",r0+r3}},{{"Part",r6}}});
-   {LogicDriver d(unordered->logic);d.tick(0,0);d.tick(1,1/60.0);assert(d.frame()==0&&d.stats.misses==1&&d.miss.find("selected "+r3+r0)!=std::string::npos);}
+   {LogicDriver d(unordered->logic);d.tick(0,0);d.tick(1,1/60.0);assert(d.frame()==0&&d.stats.misses==1&&d.miss.find("当前选中 "+r3+r0)!=std::string::npos);}
    // Hidden (skipped, nothing drawn), the game's own draw, and a replacement are three selections.
    std::string states=cycle+"[TextureOverridePart]\nhash = aaaa0001\nif $frame == 0\n handling = skip\nelif $frame == 2\n handling = skip\n ib = ResourceA\n drawindexed = auto\nendif\n[ResourceA]\nfilename = a.ib\n";
    auto shown=model("logic-states",{{"Mods\\Logic\\a.ini",states}},table,"["+pass("Part","aaaa0001")+"]","{\"Part\":"+own("Part")+"}",{{{"Part","hidden"}},{{"Part","original"}},{{"Part",fixture::logicDraw("file:a.ib")}}});
@@ -290,14 +290,14 @@ int main(int argc,char**argv){
    std::string dressed=cycle+"[Constants]\nglobal $dress = 0\n[TextureOverridePart]\nhash = aaaa0001\nhandling = skip\nif $dress == 1\n ib = ResourceB\nelse\n ib = ResourceA\nendif\ndrawindexed = auto\n[ResourceA]\nfilename = a.ib\n[ResourceB]\nfilename = b.ib\n";
    auto both=model("logic-dress",{{"Mods\\Logic\\a.ini",dressed}},"{\"resource\\\\mods\\\\logic\\\\a.ini\\\\a\":\"file:a.ib\",\"resource\\\\mods\\\\logic\\\\a.ini\\\\b\":\"file:b.ib\"}","["+pass("Part","aaaa0001")+"]","{\"Part\":"+own("Part")+"}",
     std::vector<std::map<std::string,std::string>>(3,{{"Part",fixture::logicDraw("file:a.ib")}}));
-   {LogicDriver d(both->logic);assert(d.frame()==0&&d.set("$dress",1));d.reselect();assert(d.frame()==0&&d.stats.misses==1&&d.miss.find("selected "+fixture::logicDraw("file:b.ib"))!=std::string::npos);
+   {LogicDriver d(both->logic);assert(d.frame()==0&&d.set("$dress",1));d.reselect();assert(d.frame()==0&&d.stats.misses==1&&d.miss.find("当前选中 "+fixture::logicDraw("file:b.ib"))!=std::string::npos);
     // One engine frame is one Present however many renderers ask: the same frame number again does nothing.
     d.tick(10,0.1);d.tick(11,0.2);d.tick(11,0.2);d.tick(11,0.25);assert(d.stats.presents==1);}
    // Logic data of 0.7.34 loads (the model is fine) and is refused by the driver, with the reason.
    fixture::writeModel(root+"/logic-old",fixture::withLogic(fixture::animated(),"{\"files\":[{\"namespace\":\"Mods\\\\Logic\\\\a.ini\",\"file\":\"logic/0.ini\"}],\"passes\":[],\"reads\":{},\"frames\":[]}"));
    auto old=loadModelFile(root+"/logic-old");std::string why;try{LogicDriver d(old->logic);}catch(const std::exception& ex){why=ex.what();}
-   assert(old->logic.present()&&why.find("logic data of 0.7.34")!=std::string::npos);}
-  refused(root+"/swap-original",[](Spec& x){x.edit=[](std::string& j){replaceIn(j,",\"parts\":[",",\"textures\":[{\"renderer\":\"Face\",\"material\":\"Material0\"}],\"parts\":[");};},"Texture swap material");}
+   assert(old->logic.present()&&why.find("0.7.34 版的 logic 数据")!=std::string::npos);}
+  refused(root+"/swap-original",[](Spec& x){x.edit=[](std::string& j){replaceIn(j,",\"parts\":[",",\"textures\":[{\"renderer\":\"Face\",\"material\":\"Material0\"}],\"parts\":[");};},"贴图替换的材质无效");}
  std::filesystem::remove_all(root);
  std::cout<<"Native core: PASS (GIBox model format: manifest, model.bin views, CRC-32, value/range/reference checks, variants, on-demand textures, learned.json, skeleton.json; bones, JSON, ELF notes, DDS, targets)\n";
 }

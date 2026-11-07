@@ -60,7 +60,7 @@ bool codeMatches(uintptr_t base,const ms::abi::CodeCheck& c){auto* p=reinterpret
  return true;}
 struct Image{uintptr_t base=0;const ElfW(Phdr)* ph=nullptr;size_t count=0;};
 int findImage(dl_phdr_info* info,size_t,void* ptr){std::string name=info->dlpi_name?info->dlpi_name:"";auto p=name.find_last_of('/');name=name.substr(p==name.npos?0:p+1);if(name!="libyuanshen.so")return 0;auto& out=*static_cast<Image*>(ptr);out={info->dlpi_addr,info->dlpi_phdr,info->dlpi_phnum};return 1;}
-std::string jstringValue(JNIEnv* env,jstring s){ms::require(s!=nullptr,"Null Java string");const char* p=env->GetStringUTFChars(s,nullptr);ms::require(p!=nullptr,"Cannot decode Java string");std::string out=p;env->ReleaseStringUTFChars(s,p);return out;}
+std::string jstringValue(JNIEnv* env,jstring s){ms::require(s!=nullptr,"Java 字符串为空");const char* p=env->GetStringUTFChars(s,nullptr);ms::require(p!=nullptr,"无法解码 Java 字符串");std::string out=p;env->ReleaseStringUTFChars(s,p);return out;}
 void exception(JNIEnv* env,const std::exception& e){env->ThrowNew(env->FindClass("java/lang/IllegalArgumentException"),e.what());}
 std::string sharedDir(const std::string& pkg){return "/storage/emulated/0/Android/media/"+pkg+"/GIBox";}
 // Start-up lines go to the same "GIBox Log.txt" as the runtime (logger "bootstrap", XXMI line format).
@@ -69,14 +69,14 @@ void bootLog(const std::string& pkg,const std::string& state,const std::string& 
 void bootStatus(const std::string& pkg,const std::string& state,const std::string& detail){auto dir=sharedDir(pkg);try{std::filesystem::create_directories(dir);auto s="{\"state\":"+ms::quote(state)+",\"detail\":"+ms::quote(detail)+",\"characterId\":0,\"model\":\"\"}";ms::write(dir+"/status.json.tmp",s);std::filesystem::rename(dir+"/status.json.tmp",dir+"/status.json");}catch(const std::exception&){}bootLog(pkg,state,detail);}
 }
 extern "C" JNIEXPORT void JNICALL Java_com_gibox_tool_NativeBridge_start(JNIEnv* env,jclass,jstring jp,jstring jd){try{
- auto pkg=jstringValue(env,jp),priv=jstringValue(env,jd);ms::require(pkg=="com.miHoYo.Yuanshen"||pkg=="com.miHoYo.ys.bilibili","Unsupported package");if(started.exchange(true))return;
+ auto pkg=jstringValue(env,jp),priv=jstringValue(env,jd);ms::require(pkg=="com.miHoYo.Yuanshen"||pkg=="com.miHoYo.ys.bilibili","不支持的包名");if(started.exchange(true))return;
  // The index-buffer hash diagnostic (vk_capture.hpp) hooks the Vulkan loader now, before the game makes its device;
  // only when control.json textureMods.ibHash or capture (every character against the PC) is true at this start
  // (switching it later takes a restart).
  {bool on=false;try{auto c=ms::JsonParser(ms::text(sharedDir(pkg)+"/control.json")).parse();const auto& t=c.at("textureMods");
    for(auto* k:{"ibHash","capture"})on=on||(t.type==ms::Json::Object&&t.at(k).type==ms::Json::Bool&&t.at(k).boolean);}catch(const std::exception&){}
-  if(on){std::string detail;bool ok=false;try{ok=ms::vkhook::install(detail);}catch(const std::exception& e){detail=e.what();}bootLog(pkg,ok?"vulkan-capture":"vulkan-capture-disabled",ok?"installed: "+detail+" (read-only index-buffer hashes)":detail);}}
- std::thread([pkg,priv]{try{bootStatus(pkg,"waiting","等待 libyuanshen.so");Image image;for(unsigned n=0;n<480&&!image.base;n++){dl_iterate_phdr(findImage,&image);if(!image.base)std::this_thread::sleep_for(std::chrono::milliseconds(500));}ms::require(image.base!=0,"libyuanshen.so load timeout");
+  if(on){std::string detail;bool ok=false;try{ok=ms::vkhook::install(detail);}catch(const std::exception& e){detail=e.what();}bootLog(pkg,ok?"vulkan-capture":"vulkan-capture-disabled",ok?"已安装："+detail+"（只读索引缓冲 hash）":detail);}}
+ std::thread([pkg,priv]{try{bootStatus(pkg,"waiting","等待 libyuanshen.so");Image image;for(unsigned n=0;n<480&&!image.base;n++){dl_iterate_phdr(findImage,&image);if(!image.base)std::this_thread::sleep_for(std::chrono::milliseconds(500));}ms::require(image.base!=0,"等待 libyuanshen.so 加载超时");
  auto actual=ms::loadedBuildId(image.base,image.ph,image.count,sizeof(ElfW(Phdr)));if(actual!=ms::abi::buildId){bootStatus(pkg,"buildid-mismatch","实际 Build ID："+actual);return;}
  // Offsets of this build not found yet (offsets.hpp pendingRequired): nothing is hooked or called.
  if(*ms::abi::pendingRequired){bootStatus(pkg,"offsets-pending",std::string("此版本还缺偏移：")+ms::abi::pendingRequired);return;}
@@ -85,26 +85,26 @@ extern "C" JNIEXPORT void JNICALL Java_com_gibox_tool_NativeBridge_start(JNIEnv*
  // Publish before Dobby makes Tick executable through its trampoline.
  runtime=std::move(rt);published.store(runtime.get(),std::memory_order_release);
  int result=DobbyInstrument(reinterpret_cast<void*>(image.base+ms::abi::tick),onTick);
- if(result!=0){published.store(nullptr,std::memory_order_release);runtime.reset();throw std::runtime_error("DobbyInstrument failed: "+std::to_string(result));}bootStatus(pkg,"ready","模型运行时已就绪");
+ if(result!=0){published.store(nullptr,std::memory_order_release);runtime.reset();throw std::runtime_error("DobbyInstrument 失败："+std::to_string(result));}bootStatus(pkg,"ready","模型运行时已就绪");
  // Replacement at the hand-off; without it the scan still replaces, just not before activation.
  {std::string bad;for(auto& c:ms::abi::handoffChecks)if(!codeMatches(image.base,c)){char b[24];std::snprintf(b,sizeof(b),"0x%llx ",static_cast<unsigned long long>(c.rva));bad+=b;}
-  if(!bad.empty())bootLog(pkg,"spawn-hook-disabled","code mismatch at "+bad);
-  else if(DobbyHook(reinterpret_cast<void*>(image.base+ms::abi::receive),reinterpret_cast<dobby_dummy_func_t>(onReceive),reinterpret_cast<dobby_dummy_func_t*>(&receiveOriginal))!=0||!receiveOriginal)bootLog(pkg,"spawn-hook-disabled","DobbyHook failed");
-  else bootLog(pkg,"spawn-hook","installed");}
+  if(!bad.empty())bootLog(pkg,"spawn-hook-disabled","代码不符："+bad);
+  else if(DobbyHook(reinterpret_cast<void*>(image.base+ms::abi::receive),reinterpret_cast<dobby_dummy_func_t>(onReceive),reinterpret_cast<dobby_dummy_func_t*>(&receiveOriginal))!=0||!receiveOriginal)bootLog(pkg,"spawn-hook-disabled","DobbyHook 失败");
+  else bootLog(pkg,"spawn-hook","已安装");}
  // Mesh + bone binding: each entry is hooked only when its own code bytes match.
  for(size_t i=0;i<std::size(ms::abi::bindChecks);i++){auto& c=ms::abi::bindChecks[i];const bool lod=i==0;const char* what=lod?"lod-bind-hook":"mesh-bones-hook";
-  if(!ms::abi::found(c.rva)){bootLog(pkg,std::string(what)+"-disabled","offset not found yet for this build");continue;}
-  if(!codeMatches(image.base,c)){bootLog(pkg,std::string(what)+"-disabled","code mismatch");continue;}
+  if(!ms::abi::found(c.rva)){bootLog(pkg,std::string(what)+"-disabled","本版本尚未找到偏移");continue;}
+  if(!codeMatches(image.base,c)){bootLog(pkg,std::string(what)+"-disabled","代码不符");continue;}
   auto replacement=lod?reinterpret_cast<dobby_dummy_func_t>(onLodBind):reinterpret_cast<dobby_dummy_func_t>(onMeshBones);auto* original=reinterpret_cast<dobby_dummy_func_t*>(lod?&lodBindOriginal:&meshBonesOriginal);
-  if(DobbyHook(reinterpret_cast<void*>(image.base+c.rva),replacement,original)!=0||!*original)bootLog(pkg,std::string(what)+"-disabled","DobbyHook failed");else bootLog(pkg,what,"installed");}
+  if(DobbyHook(reinterpret_cast<void*>(image.base+c.rva),replacement,original)!=0||!*original)bootLog(pkg,std::string(what)+"-disabled","DobbyHook 失败");else bootLog(pkg,what,"已安装");}
  }catch(const std::exception& e){bootStatus(pkg,"error",e.what());}}).detach();
  }catch(const std::exception& e){exception(env,e);} }
 // The converter's 3DMigoto backend: what the INI draws (logic_import.hpp drawsJson), UTF-8 JSON in and out.
-extern "C" JNIEXPORT jbyteArray JNICALL Java_com_gibox_tool_NativeBridge_drawsUtf8(JNIEnv* env,jclass,jbyteArray input){try{ms::require(input!=nullptr,"Null draws request");auto n=env->GetArrayLength(input);ms::require(n>0&&n<=16*1024*1024,"Draws request size");
+extern "C" JNIEXPORT jbyteArray JNICALL Java_com_gibox_tool_NativeBridge_drawsUtf8(JNIEnv* env,jclass,jbyteArray input){try{ms::require(input!=nullptr,"绘制请求为空");auto n=env->GetArrayLength(input);ms::require(n>0&&n<=16*1024*1024,"绘制请求大小无效");
  std::string request(size_t(n),'\0');env->GetByteArrayRegion(input,0,n,reinterpret_cast<jbyte*>(request.data()));if(env->ExceptionCheck())return nullptr;auto out=ms::drawsJson(request);
  auto a=env->NewByteArray(jsize(out.size()));if(!a)return nullptr;env->SetByteArrayRegion(a,0,jsize(out.size()),reinterpret_cast<const jbyte*>(out.data()));return a;}catch(const std::exception& e){exception(env,e);return nullptr;}}
 // The converter's Present rehearsal (logic_import.hpp): UTF-8 JSON in, UTF-8 JSON out.
-extern "C" JNIEXPORT jbyteArray JNICALL Java_com_gibox_tool_NativeBridge_rehearseUtf8(JNIEnv* env,jclass,jbyteArray input){try{ms::require(input!=nullptr,"Null rehearsal request");auto n=env->GetArrayLength(input);ms::require(n>0&&n<=16*1024*1024,"Rehearsal request size");
+extern "C" JNIEXPORT jbyteArray JNICALL Java_com_gibox_tool_NativeBridge_rehearseUtf8(JNIEnv* env,jclass,jbyteArray input){try{ms::require(input!=nullptr,"预演请求为空");auto n=env->GetArrayLength(input);ms::require(n>0&&n<=16*1024*1024,"预演请求大小无效");
  std::string request(size_t(n),'\0');env->GetByteArrayRegion(input,0,n,reinterpret_cast<jbyte*>(request.data()));if(env->ExceptionCheck())return nullptr;auto out=ms::rehearseJson(request);
  auto a=env->NewByteArray(jsize(out.size()));if(!a)return nullptr;env->SetByteArrayRegion(a,0,jsize(out.size()),reinterpret_cast<const jbyte*>(out.data()));return a;}catch(const std::exception& e){exception(env,e);return nullptr;}}
-extern "C" JNIEXPORT jbyteArray JNICALL Java_com_gibox_tool_NativeBridge_decodeDds(JNIEnv* env,jclass,jbyteArray input){try{ms::require(input!=nullptr,"Null DDS");auto n=env->GetArrayLength(input);ms::require(n>=128&&n<=256*1024*1024,"DDS input size");ms::Bytes b(n);env->GetByteArrayRegion(input,0,n,reinterpret_cast<jbyte*>(b.data()));if(env->ExceptionCheck())return nullptr;auto t=ms::decodeDds(b);ms::Bytes out(8+t.pixels.size());ms::put32(out.data(),t.w);ms::put32(out.data()+4,t.h);std::memcpy(out.data()+8,t.pixels.data(),t.pixels.size());auto a=env->NewByteArray(out.size());if(!a)return nullptr;env->SetByteArrayRegion(a,0,out.size(),reinterpret_cast<jbyte*>(out.data()));return a;}catch(const std::exception& e){exception(env,e);return nullptr;}}
+extern "C" JNIEXPORT jbyteArray JNICALL Java_com_gibox_tool_NativeBridge_decodeDds(JNIEnv* env,jclass,jbyteArray input){try{ms::require(input!=nullptr,"DDS 数据为空");auto n=env->GetArrayLength(input);ms::require(n>=128&&n<=256*1024*1024,"DDS input size");ms::Bytes b(n);env->GetByteArrayRegion(input,0,n,reinterpret_cast<jbyte*>(b.data()));if(env->ExceptionCheck())return nullptr;auto t=ms::decodeDds(b);ms::Bytes out(8+t.pixels.size());ms::put32(out.data(),t.w);ms::put32(out.data()+4,t.h);std::memcpy(out.data()+8,t.pixels.data(),t.pixels.size());auto a=env->NewByteArray(out.size());if(!a)return nullptr;env->SetByteArrayRegion(a,0,out.size(),reinterpret_cast<jbyte*>(out.data()));return a;}catch(const std::exception& e){exception(env,e);return nullptr;}}

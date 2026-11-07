@@ -55,7 +55,7 @@ struct ImportScan {
   return false;}
  static void reads(const Node& n,std::set<Var*>& out){if(n.kind==Node::Variable)out.insert(n.var);if(n.lhs)reads(*n.lhs,out);if(n.rhs)reads(*n.rhs,out);}
  // What an expression reads that is not a variable: a keyword, an ini param, a texture filter, random().
- static std::string outside(const Node& n){if(n.kind==Node::Key)return n.key->name;if(n.kind==Node::Param)return std::string(1,n.comp)+std::to_string(n.index);if(n.kind==Node::Slot)return "texture filter "+n.slot;
+ static std::string outside(const Node& n){if(n.kind==Node::Key)return n.key->name;if(n.kind==Node::Param)return std::string(1,n.comp)+std::to_string(n.index);if(n.kind==Node::Slot)return "贴图过滤 "+n.slot;
   if(n.kind==Node::Unary&&n.op==Op::Random)return "random()";
   for(auto* c:{n.lhs.get(),n.rhs.get()})if(c){auto o=outside(*c);if(!o.empty())return o;}
   return "";}
@@ -72,7 +72,7 @@ struct ImportScan {
 
  void walk(Engine& e,CommandList& l,bool draws,std::vector<std::set<Var*>>& control,const std::string& where,int depth){
   // Each else if is one level deeper; past this, what the list does is not known, and the scan says so.
-  if(depth>1024){if(reasons.empty()||reasons.back().find("nested too deep")==std::string::npos)reasons.push_back(where+": nested too deep to analyse");return;}
+  if(depth>1024){if(reasons.empty()||reasons.back().find("嵌套过深")==std::string::npos)reasons.push_back(where+"：嵌套过深，无法分析");return;}
   std::set<Var*> ctl;for(auto& c:control)ctl.insert(c.begin(),c.end());
   bool first=true;auto v=visited.find({&l,draws});
   if(v!=visited.end()){if(std::includes(v->second.begin(),v->second.end(),ctl.begin(),ctl.end()))return;v->second.insert(ctl.begin(),ctl.end());ctl=v->second;first=false;}
@@ -80,16 +80,16 @@ struct ImportScan {
   for(auto& c:l.commands){Command* cmd=c.get();
    if(auto* a=cmd->kind()==Kind::Assign?static_cast<Assign*>(cmd):nullptr){if(a->param)continue;
     auto at=written.find(cmd);if(at!=written.end()){writes[at->second].control.insert(ctl.begin(),ctl.end());writes[at->second].inDraw|=draws;continue;}
-    Write w;w.var=a->var;w.value=&a->value;w.control=ctl;w.inDraw=draws;w.where=where+": "+a->line;written[cmd]=writes.size();writes.push_back(w);}
+    Write w;w.var=a->var;w.value=&a->value;w.control=ctl;w.inDraw=draws;w.where=where+"："+a->line;written[cmd]=writes.size();writes.push_back(w);}
    else if(auto* i=cmd->kind()==Kind::If?static_cast<If*>(cmd):nullptr){std::set<Var*> r;reads(*i->cond.root,r);auto o=outside(*i->cond.root);
-    if(draws){seeds.insert(r.begin(),r.end());if(!o.empty()&&first){reasons.push_back(where+": "+i->line+" reads "+o);inputs.push_back(reasons.back());}}
-    if(!o.empty()){r.insert(&outsideCondition);if(outsideText.empty())outsideText=where+": "+i->line+" reads "+o;}
+    if(draws){seeds.insert(r.begin(),r.end());if(!o.empty()&&first){reasons.push_back(where+"："+i->line+" 读取了 "+o);inputs.push_back(reasons.back());}}
+    if(!o.empty()){r.insert(&outsideCondition);if(outsideText.empty())outsideText=where+"："+i->line+" 读取了 "+o;}
     control.push_back(r);for(auto* sub:{&i->truePre,&i->truePost,&i->falsePre,&i->falsePost})walk(e,*sub,draws,control,where,depth+1);control.pop_back();}
    else if(auto* r=cmd->kind()==Kind::Run?static_cast<RunList*>(cmd):nullptr){walk(e,r->target->pre,draws,control,r->target->name,depth+1);walk(e,r->target->post,draws,control,r->target->name,depth+1);}
    else if(auto* d=cmd->kind()==Kind::Draw?static_cast<DrawCmd*>(cmd):nullptr){if(!draws)continue;
-    for(auto& x:d->args){reads(*x.root,seeds);auto o=outside(*x.root);if(!o.empty()&&first){reasons.push_back(where+": "+d->line+" reads "+o);inputs.push_back(reasons.back());}}}
+    for(auto& x:d->args){reads(*x.root,seeds);auto o=outside(*x.root);if(!o.empty()&&first){reasons.push_back(where+"："+d->line+" 读取了 "+o);inputs.push_back(reasons.back());}}}
    else if(auto* b=cmd->kind()==Kind::Bind?static_cast<Bind*>(cmd):nullptr){if(!first)continue;if(e.resources.count(b->src)){if(bound.insert({b->dst,b->src}).second)bindings.push_back({b->dst,b->src});resources.insert(b->src);}
-    else if(b->dstResource&&b->src!="null")external.push_back(where+": "+b->line);}
+    else if(b->dstResource&&b->src!="null")external.push_back(where+"："+b->line);}
    else if(!first)continue;
    else if(auto* s=cmd->kind()==Kind::CustomShader?static_cast<CustomShaderRun*>(cmd):nullptr)customShaders.push_back(s->where);
    else if(auto* u=cmd->kind()==Kind::Unported?static_cast<Unported*>(cmd):nullptr)unported.push_back(u->where);}}
@@ -104,7 +104,7 @@ struct ImportScan {
   // A key's writes depend on its condition, and a smart cycle picks its next preset by the current values of all
   // the variables it sets.
   for(auto& k:e.keys){std::set<Var*> keyVars;if(k.type=="cycle"&&k.smart)for(auto& p:k.presets)for(auto& v:p.vars)keyVars.insert(v.first);
-   for(auto& p:k.presets){std::set<Var*> ctl=keyVars;if(p.conditional){reads(*p.condition.root,ctl);auto o=outside(*p.condition.root);if(!o.empty()){ctl.insert(&outsideCondition);if(outsideText.empty())outsideText="["+k.name+"] condition reads "+o;}}
+   for(auto& p:k.presets){std::set<Var*> ctl=keyVars;if(p.conditional){reads(*p.condition.root,ctl);auto o=outside(*p.condition.root);if(!o.empty()){ctl.insert(&outsideCondition);if(outsideText.empty())outsideText="["+k.name+"] 的条件读取了 "+o;}}
     for(auto& v:p.vars){Write w;w.var=v.first;w.keyValue=v.second;w.transition=p.transition||p.releaseTransition;w.control=ctl;w.where="["+k.name+"]";writes.push_back(w);}
     if(p.run){control.push_back(ctl);walk(e,p.run->pre,false,control,k.name,1);walk(e,p.run->post,false,control,k.name,1);control.pop_back();}}}
   // Draw variables: the seeds, and whatever the writes of a draw variable read or sit under.
@@ -113,31 +113,31 @@ struct ImportScan {
   draw.erase(&outsideCondition);
   // Domains: initial values, then rounds of every write over the current domains.
   std::map<Var*,std::set<float>> dom;std::map<Var*,std::string> bad;std::set<Var*> fromOutside;
-  for(auto& w:writes)if(draw.count(w.var)&&w.control.count(&outsideCondition)&&!bad.count(w.var)){bad[w.var]=w.where+": under a condition that depends on more than the mod ("+outsideText+")";fromOutside.insert(w.var);}
+  for(auto& w:writes)if(draw.count(w.var)&&w.control.count(&outsideCondition)&&!bad.count(w.var)){bad[w.var]=w.where+"：所在条件依赖 MOD 自身变量以外的数据（"+outsideText+"）";fromOutside.insert(w.var);}
   for(auto* v:draw){auto it=e.initial.find(names[v]);dom[v].insert(it!=e.initial.end()?it->second:0.0f);}
   for(auto& w:writes){if(!draw.count(w.var))continue;
-   if(!w.value){if(w.transition){bad[w.var]=w.where+": a transition passes through values in between";fromOutside.insert(w.var);}else dom[w.var].insert(w.keyValue);continue;}
-   auto o=outside(*w.value->root);if(!o.empty()){bad[w.var]=w.where+" reads "+o;fromOutside.insert(w.var);}}
+   if(!w.value){if(w.transition){bad[w.var]=w.where+"：过渡（transition）会经过中间值";fromOutside.insert(w.var);}else dom[w.var].insert(w.keyValue);continue;}
+   auto o=outside(*w.value->root);if(!o.empty()){bad[w.var]=w.where+" 读取了 "+o;fromOutside.insert(w.var);}}
   for(int round=0;round<16;round++){bool grew=false;
    for(auto& w:writes){if(!w.value||!draw.count(w.var)||bad.count(w.var))continue;std::set<Var*> r;reads(*w.value->root,r);std::vector<Var*> in(r.begin(),r.end());
-    bool ok=true;uint64_t n=1;for(auto* x:in){if(bad.count(x)){bad[w.var]=w.where+" reads "+names[x]+", which is not finite";ok=false;break;}n*=dom[x].size();if(n>4096){bad[w.var]=w.where+": too many value combinations";ok=false;break;}}
+    bool ok=true;uint64_t n=1;for(auto* x:in){if(bad.count(x)){bad[w.var]=w.where+" 读取了 "+names[x]+"，其取值不是有限的";ok=false;break;}n*=dom[x].size();if(n>4096){bad[w.var]=w.where+"：取值组合过多";ok=false;break;}}
     if(!ok)continue;
     // Every combination of the read variables' values; the variables are restored afterwards.
     std::vector<float> saved;for(auto* x:in)saved.push_back(x->value);StaticContext sc;
     std::vector<std::vector<float>> lists;for(auto* x:in)lists.emplace_back(dom[x].begin(),dom[x].end());std::vector<size_t> at(in.size(),0);
-    for(uint64_t k=0;k<n;k++){for(size_t i=0;i<in.size();i++)in[i]->value=lists[i][at[i]];float v=0;staticEvaluate(*w.value,sc,v);if(std::isnan(v)){bad[w.var]=w.where+": not a number";break;}
+    for(uint64_t k=0;k<n;k++){for(size_t i=0;i<in.size();i++)in[i]->value=lists[i][at[i]];float v=0;staticEvaluate(*w.value,sc,v);if(std::isnan(v)){bad[w.var]=w.where+"：不是数值";break;}
      grew|=dom[w.var].insert(v).second;for(size_t i=0;i<at.size();i++){if(++at[i]<lists[i].size())break;at[i]=0;}}
     for(size_t i=0;i<in.size();i++)in[i]->value=saved[i];
-    if(dom[w.var].size()>256&&!bad.count(w.var))bad[w.var]=w.where+": more than 256 values (a counter?)";}
+    if(dom[w.var].size()>256&&!bad.count(w.var))bad[w.var]=w.where+"：取值超过 256 个（可能是计数器）";}
    if(!grew)break;
-   if(round==15)for(auto& w:writes)if(w.value&&draw.count(w.var)&&!bad.count(w.var)){std::set<Var*> r;reads(*w.value->root,r);if(r.count(w.var)||!r.empty())bad[w.var]=w.where+": values keep growing (a counter?)";}}
+   if(round==15)for(auto& w:writes)if(w.value&&draw.count(w.var)&&!bad.count(w.var)){std::set<Var*> r;reads(*w.value->root,r);if(r.count(w.var)||!r.empty())bad[w.var]=w.where+"：取值持续增长（可能是计数器）";}}
   for(auto& w:writes){if(!w.var)continue;auto& info=vars[names[w.var]];info.name=names[w.var];}
   drawVars=draw;
-  for(auto* v:draw){auto& info=vars[names[v]];info.name=names[v];info.readByDraws=true;info.values=dom[v];auto b=bad.find(v);if(b!=bad.end()){info.finite=false;info.why.push_back(b->second);if(fromOutside.count(v))inputs.push_back(info.name+": "+b->second);}}
+  for(auto* v:draw){auto& info=vars[names[v]];info.name=names[v];info.readByDraws=true;info.values=dom[v];auto b=bad.find(v);if(b!=bad.end()){info.finite=false;info.why.push_back(b->second);if(fromOutside.count(v))inputs.push_back(info.name+"："+b->second);}}
   finiteStates=reasons.empty();
-  for(auto* v:draw){auto& info=vars[names[v]];if(!info.finite){finiteStates=false;reasons.push_back(info.name+": "+info.why.front());continue;}
-   states*=std::max<uint64_t>(1,info.values.size());if(states>limit){finiteStates=false;reasons.push_back("more than "+std::to_string(limit)+" combinations of the draw variables");break;}}
-  for(auto& x:external){reasons.push_back("uses a game resource: "+x);inputs.push_back(reasons.back());}
+  for(auto* v:draw){auto& info=vars[names[v]];if(!info.finite){finiteStates=false;reasons.push_back(info.name+"："+info.why.front());continue;}
+   states*=std::max<uint64_t>(1,info.values.size());if(states>limit){finiteStates=false;reasons.push_back("绘制变量的组合超过 "+std::to_string(limit)+" 种");break;}}
+  for(auto& x:external){reasons.push_back("使用了游戏资源："+x);inputs.push_back(reasons.back());}
   if(!external.empty())finiteStates=false;}
 };
 

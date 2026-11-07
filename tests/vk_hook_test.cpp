@@ -22,8 +22,8 @@ int main(){
  assert(code[0]==0xD503245Fu&&(code[1]&0xFC000000u)==0x14000000u&&target(code[1],stub+4)==reinterpret_cast<uintptr_t>(island));   // landing pad kept, b -> island
  uint64_t h;std::memcpy(&h,island+2,8);assert(island[0]==0x58000051u&&island[1]==0xD61F0220u&&h==reinterpret_cast<uint64_t>(&hook));   // ldr x17,#8; br x17; .quad hook
  assert((island[4]&0xFC000000u)==0x14000000u&&target(island[4],reinterpret_cast<uintptr_t>(island+4))==internal);   // the original: b internal
- assert(a.what.find("stub d503245f 14000400")==0&&a.what.find("its b at +4")!=std::string::npos);
- assert(target(code[64],plain)==reinterpret_cast<uintptr_t>(island+8)&&target(island[12],reinterpret_cast<uintptr_t>(island+12))==plain+32&&b.what.find("its b at +0")!=std::string::npos);
+ assert(a.what.find("入口 d503245f 14000400")==0&&a.what.find("+4 处的 b")!=std::string::npos);
+ assert(target(code[64],plain)==reinterpret_cast<uintptr_t>(island+8)&&target(island[12],reinterpret_cast<uintptr_t>(island+12))==plain+32&&b.what.find("+0 处的 b")!=std::string::npos);
  // Anything else is refused and left as it was.
- code[128]=0xA9BF7BFDu;code[129]=0x910003FDu;Redirect c;assert(!prepare(reinterpret_cast<uintptr_t>(code+128),&hook,island+16,c,why)&&why.find("not a [bti] + b stub, first words a9bf7bfd 910003fd")==0&&code[128]==0xA9BF7BFDu);
+ code[128]=0xA9BF7BFDu;code[129]=0x910003FDu;Redirect c;assert(!prepare(reinterpret_cast<uintptr_t>(code+128),&hook,island+16,c,why)&&why.find("不是 [bti] + b 形式的入口，开头为 a9bf7bfd 910003fd")==0&&code[128]==0xA9BF7BFDu);
  std::cout<<"Vulkan stub redirect: PASS (landing pad kept, direct b to our page and back, both ready before writing, other shapes refused)\n";}

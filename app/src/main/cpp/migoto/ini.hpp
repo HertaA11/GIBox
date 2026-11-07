@@ -68,22 +68,22 @@ struct IniSet {
     // Included files may add lines to a global section; a namespaced section, or any section of d3dx.ini, is
     // taken only the first time (GetPrivateProfileString behaviour).
     bool namespaced=!ns.empty()&&namespacedSection(name,ns,full),appendable=!ns.empty()&&!namespaced;std::string key=lower(full);auto it=sections.find(key);
-    if(it!=sections.end()&&!appendable){warn(path,"Duplicate section found: ["+full+"]");current=nullptr;continue;}
+    if(it!=sections.end()&&!appendable){warn(path,"段重复：["+full+"]");current=nullptr;continue;}
     if(it==sections.end()){Section s;s.name=full;if(namespaced){s.ns=ns;s.path=path;}it=sections.emplace(key,s).first;order.push_back(key);}
     current=&it->second;
-    if(!isCommandListSection(name)&&!inList(name,regularSections()))warn(path,"Unknown section type: ["+name+"]");
+    if(!isCommandListSection(name)&&!inList(name,regularSections()))warn(path,"未知的段类型：["+name+"]");
     noEquals=isCommandListSection(name)||istarts(name,"ShaderRegex")||lower(name)=="profile";continue;}
    size_t eq=line.find('=');
    if(preamble){
     if(eq!=std::string::npos){std::string k=lower(trim(line.substr(0,eq))),v=trim(line.substr(eq+1));
      if(k=="condition"){if(condition&&!condition(v,ns)){warn(path,"condition = false, skipping \""+ns+"\"");return;}continue;}
      if(k=="namespace"){ns=v;continue;}}
-    warn(path,"Entry outside of section: "+line);continue;}
+    warn(path,"条目不在任何段内："+line);continue;}
    if(!current)continue;   // the lines of a duplicate section that was not taken
    Line l;l.raw=line;l.ns=ns;l.file=path;l.number=int(n+1);
    if(eq!=std::string::npos){l.hasEquals=true;l.key=trim(line.substr(0,eq));l.val=trim(line.substr(eq+1));
-    if(l.val.empty()){warn(path,"No value found for: \""+line+"\" ["+current->name+"]");continue;}}
-   else if(!noEquals){warn(path,"Malformed line: \""+line+"\" ["+current->name+"]");continue;}
+    if(l.val.empty()){warn(path,"条目没有值：\""+line+"\"（["+current->name+"]）");continue;}}
+   else if(!noEquals){warn(path,"格式错误的行：\""+line+"\"（["+current->name+"]）");continue;}
    current->lines.push_back(l);}
  }
  // Sections whose name starts with a prefix, sorted the way the std::map in 3DMigoto iterates them.

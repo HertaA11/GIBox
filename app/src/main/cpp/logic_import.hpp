@@ -19,11 +19,11 @@
 namespace ms {
 
 inline std::string rehearseJson(const std::string& request){
- try{Json j=JsonParser(request).parse();require(j.type==Json::Object,"rehearsal request");const auto& main=j.at("main");require(main.type==Json::String&&!main.string.empty(),"rehearsal main");
-  std::vector<migoto::IniFile> files;const auto& list=j.at("files");require(list.type==Json::Array&&!list.array.empty()&&list.array.size()<=64,"rehearsal files");size_t total=0;
-  for(auto& f:list.array){require(f.type==Json::Object&&f.at("namespace").type==Json::String&&f.at("text").type==Json::String,"rehearsal file");total+=f.at("text").string.size();require(total<=8u*1024*1024,"rehearsal INI files over 8 MiB");files.push_back({f.at("namespace").string,f.at("text").string});}
+ try{Json j=JsonParser(request).parse();require(j.type==Json::Object,"预演请求：不是对象");const auto& main=j.at("main");require(main.type==Json::String&&!main.string.empty(),"预演请求：main 无效");
+  std::vector<migoto::IniFile> files;const auto& list=j.at("files");require(list.type==Json::Array&&!list.array.empty()&&list.array.size()<=64,"预演请求：files 无效");size_t total=0;
+  for(auto& f:list.array){require(f.type==Json::Object&&f.at("namespace").type==Json::String&&f.at("text").type==Json::String,"预演请求：file 无效");total+=f.at("text").string.size();require(total<=8u*1024*1024,"预演请求：INI 文件总计超过 8 MiB");files.push_back({f.at("namespace").string,f.at("text").string});}
   migoto::Rehearsal::Limits lim;const auto& l=j.at("limits");
-  if(l.type==Json::Object){auto take=[&](const char* k,uint64_t& out,uint64_t hi){const auto& n=l.at(k);if(n.type==Json::Number){require(n.number>=1&&n.number<=double(hi)&&std::floor(n.number)==n.number,std::string("rehearsal limit ")+k);out=uint64_t(n.number);}};
+  if(l.type==Json::Object){auto take=[&](const char* k,uint64_t& out,uint64_t hi){const auto& n=l.at(k);if(n.type==Json::Number){require(n.number>=1&&n.number<=double(hi)&&std::floor(n.number)==n.number,std::string("预演请求：限制值无效 ")+k);out=uint64_t(n.number);}};
    take("presents",lim.presents,1u<<20);take("states",lim.states,1u<<20);take("frames",lim.frames,256);take("ms",lim.ms,60000);}
   migoto::Engine e;e.load(files);e.start();migoto::Rehearsal r(e,main.string,lim);
   auto number=[](double v){char b[32];std::snprintf(b,sizeof b,"%.9g",v);return std::string(b);};
@@ -48,17 +48,17 @@ inline std::string drawsJson(const std::string& request){
  auto ref=[](const migoto::Ref& r)->std::string{switch(r.kind){case migoto::Ref::None:return "-";case migoto::Ref::Null:return "null";
    case migoto::Ref::Game:{char b[16];std::snprintf(b,sizeof b,"game:%08x",r.hash);return b;}case migoto::Ref::Mod:return "mod:"+r.resource;}return "-";};
  auto slots=[&](const std::map<std::string,migoto::Ref>& m){std::string o="{";bool first=true;for(auto& kv:m){o+=(first?"":",")+quote(kv.first)+":"+quote(ref(kv.second));first=false;}return o+"}";};
- try{Json j=JsonParser(request).parse();require(j.type==Json::Object,"draws request");const auto& main=j.at("main");require(main.type==Json::String&&!main.string.empty(),"draws main");
-  std::vector<migoto::IniFile> files;const auto& list=j.at("files");require(list.type==Json::Array&&!list.array.empty()&&list.array.size()<=64,"draws files");size_t total=0;
-  for(auto& f:list.array){require(f.type==Json::Object&&f.at("namespace").type==Json::String&&f.at("text").type==Json::String,"draws file");total+=f.at("text").string.size();require(total<=8u*1024*1024,"INI files over 8 MiB");files.push_back({f.at("namespace").string,f.at("text").string});}
+ try{Json j=JsonParser(request).parse();require(j.type==Json::Object,"绘制请求：不是对象");const auto& main=j.at("main");require(main.type==Json::String&&!main.string.empty(),"绘制请求：main 无效");
+  std::vector<migoto::IniFile> files;const auto& list=j.at("files");require(list.type==Json::Array&&!list.array.empty()&&list.array.size()<=64,"绘制请求：files 无效");size_t total=0;
+  for(auto& f:list.array){require(f.type==Json::Object&&f.at("namespace").type==Json::String&&f.at("text").type==Json::String,"绘制请求：file 无效");total+=f.at("text").string.size();require(total<=8u*1024*1024,"INI files over 8 MiB");files.push_back({f.at("namespace").string,f.at("text").string});}
   migoto::Engine e;e.load(files);e.start();
-  const auto& vars=j.at("vars");if(vars.type==Json::Object)for(auto& kv:vars.object){require(kv.second.type==Json::Number&&std::isfinite(kv.second.number),"draws var "+kv.first);
+  const auto& vars=j.at("vars");if(vars.type==Json::Object)for(auto& kv:vars.object){require(kv.second.type==Json::Number&&std::isfinite(kv.second.number),"绘制请求：变量值无效 "+kv.first);
    if(migoto::Var* v=e.global(migoto::lower(kv.first),main.string))v->value=float(kv.second.number);}
-  std::string out="{\"ok\":true,\"passes\":[";const auto& passes=j.at("passes");require(passes.type==Json::Array&&!passes.array.empty()&&passes.array.size()<=256,"draws passes");
-  for(size_t i=0;i<passes.array.size();i++){const auto& p=passes.array[i];require(p.type==Json::Object&&p.at("name").type==Json::String,"draws pass");migoto::DrawInfo d;
-   const auto& b=p.at("bindings");if(b.type==Json::Object)for(auto& kv:b.object){require(kv.second.type==Json::String,"draws binding");d.bindings[kv.first]=migoto::Ref::game(uint32_t(std::stoul(kv.second.string,nullptr,16)));}
-   const auto& c=p.at("checks");if(c.type==Json::Array)for(auto& x:c.array){require(x.type==Json::String,"draws check");d.checks.push_back(x.string);}
-   const auto& call=p.at("call");if(call.type==Json::Object)for(auto& kv:call.object){require(kv.second.type==Json::Number,"draws call");d.call[kv.first]=float(kv.second.number);}
+  std::string out="{\"ok\":true,\"passes\":[";const auto& passes=j.at("passes");require(passes.type==Json::Array&&!passes.array.empty()&&passes.array.size()<=256,"绘制请求：passes 无效");
+  for(size_t i=0;i<passes.array.size();i++){const auto& p=passes.array[i];require(p.type==Json::Object&&p.at("name").type==Json::String,"绘制请求：pass 无效");migoto::DrawInfo d;
+   const auto& b=p.at("bindings");if(b.type==Json::Object)for(auto& kv:b.object){require(kv.second.type==Json::String,"绘制请求：binding 无效");d.bindings[kv.first]=migoto::Ref::game(uint32_t(std::stoul(kv.second.string,nullptr,16)));}
+   const auto& c=p.at("checks");if(c.type==Json::Array)for(auto& x:c.array){require(x.type==Json::String,"绘制请求：check 无效");d.checks.push_back(x.string);}
+   const auto& call=p.at("call");if(call.type==Json::Object)for(auto& kv:call.object){require(kv.second.type==Json::Number,"绘制请求：call 无效");d.call[kv.first]=float(kv.second.number);}
    auto r=e.draw(d);out+=std::string(i?",":"")+"{\"name\":"+quote(p.at("name").string)+",\"skip\":"+(r.skip?"true":"false")+",\"bindings\":"+slots(r.bindings)+",\"draws\":[";
    for(size_t k=0;k<r.draws.size();k++){auto& x=r.draws[k];out+=std::string(k?",":"")+"{\"kind\":"+quote(x.kind)+",\"auto\":"+(x.automatic?"true":"false")+",\"args\":[";
     for(size_t a=0;a<x.args.size();a++){char n[32];std::snprintf(n,sizeof n,"%.9g",double(x.args[a]));out+=std::string(a?",":"")+n;}out+="],\"bindings\":"+slots(x.bindings)+"}";}

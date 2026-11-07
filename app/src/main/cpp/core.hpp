@@ -19,21 +19,21 @@ inline uint32_t u32(const uint8_t* p){return uint32_t(p[0])|(uint32_t(p[1])<<8)|
 inline float f32(const uint8_t* p){uint32_t v=u32(p);float f;std::memcpy(&f,&v,4);return f;}
 inline void put32(uint8_t* p,uint32_t v){for(int i=0;i<4;i++)p[i]=v>>(8*i);}
 inline Bytes read(const std::string& path,size_t max=256*1024*1024){
- std::ifstream f(path,std::ios::binary|std::ios::ate);require(bool(f),"Cannot read: "+path);
- auto n=f.tellg();require(n>=0&&uint64_t(n)<=max,"File too large: "+path);Bytes b(size_t(n),0);f.seekg(0);
+ std::ifstream f(path,std::ios::binary|std::ios::ate);require(bool(f),"无法读取："+path);
+ auto n=f.tellg();require(n>=0&&uint64_t(n)<=max,"文件过大："+path);Bytes b(size_t(n),0);f.seekg(0);
  if(n){f.read(reinterpret_cast<char*>(b.data()),n);}
- require(bool(f),"Short read: "+path);return b;
+ require(bool(f),"读取不完整："+path);return b;
 }
 inline std::string text(const std::string& p){auto b=read(p,1024*1024);return std::string(b.begin(),b.end());}
-inline void write(const std::string& p,const void* b,size_t n){std::ofstream f(p,std::ios::binary|std::ios::trunc);require(bool(f),"Cannot write: "+p);if(n)f.write(static_cast<const char*>(b),n);require(bool(f),"Write failed: "+p);}
+inline void write(const std::string& p,const void* b,size_t n){std::ofstream f(p,std::ios::binary|std::ios::trunc);require(bool(f),"无法写入："+p);if(n)f.write(static_cast<const char*>(b),n);require(bool(f),"写入失败："+p);}
 inline void write(const std::string& p,const std::string& b){write(p,b.data(),b.size());}
 inline bool exists(const std::string& p){return std::filesystem::exists(p);}
 inline std::string trim(std::string s){auto a=s.find_first_not_of(" \t\r\n");if(a==s.npos)return {};return s.substr(a,s.find_last_not_of(" \t\r\n")-a+1);}
 inline std::vector<std::string> lines(std::string s){if(s.compare(0,3,"\xef\xbb\xbf")==0)s.erase(0,3);std::istringstream in(s);std::vector<std::string> v;while(std::getline(in,s)){s=trim(s);if(!s.empty())v.push_back(s);}return v;}
 inline std::vector<std::string> words(const std::string& s){std::istringstream in(s);std::vector<std::string> v;std::string a;while(in>>a)v.push_back(a);return v;}
-inline unsigned decimal(const std::string& s){require(!s.empty()&&s.find_first_not_of("0123456789")==s.npos,"Invalid integer: "+s);auto n=std::stoull(s);require(n<=UINT32_MAX,"Integer overflow");return unsigned(n);}
-inline unsigned config(const std::string& s){auto n=decimal(trim(s));require(n>=10000000&&n<=10001999,"Character ID out of range");return n;}
-inline void filename(const std::string& s){require(!s.empty()&&s.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")==s.npos,"Invalid filename: "+s);}
+inline unsigned decimal(const std::string& s){require(!s.empty()&&s.find_first_not_of("0123456789")==s.npos,"整数无效："+s);auto n=std::stoull(s);require(n<=UINT32_MAX,"整数溢出");return unsigned(n);}
+inline unsigned config(const std::string& s){auto n=decimal(trim(s));require(n>=10000000&&n<=10001999,"角色 ID 超出范围");return n;}
+inline void filename(const std::string& s){require(!s.empty()&&s.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")==s.npos,"文件名无效："+s);}
 inline std::string normalize(std::string s,bool bone=false){std::string o;for(unsigned char c:s){if(c>='A'&&c<='Z')c+=32;if(!bone||(c>='a'&&c<='z')||(c>='0'&&c<='9'))o+=char(c);}if(!bone){auto p=o.rfind("_lod");if(p!=o.npos&&p+4<o.size()&&o.find_first_not_of("0123456789",p+4)==o.npos)o.resize(p);}return o;}
 struct Part {std::string name,group;unsigned material,bones;};
 struct Material {std::string name;unsigned slot;};
@@ -62,7 +62,7 @@ inline bool bindposeAgrees(const Bytes& sb,size_t i,const Bytes& tb,size_t t){fo
   if(!(std::isfinite(a)&&std::isfinite(b)&&std::abs(a-b)<=.001f*(1+std::max(std::abs(a),std::abs(b)))))return false;}return true;}
 inline BoneMap mapBones(const std::vector<std::string>& src,const std::vector<std::string>& dst,const Bytes& sb,const Bytes& tb,const std::set<unsigned>& used,
                         const std::vector<int>& srcParents={},const std::vector<int>& dstParents={}){
- require(!src.empty()&&src.size()<=512&&!dst.empty()&&dst.size()<=512&&sb.size()==64*src.size()&&tb.size()==64*dst.size(),"Bone count/bindpose length");
+ require(!src.empty()&&src.size()<=512&&!dst.empty()&&dst.size()<=512&&sb.size()==64*src.size()&&tb.size()==64*dst.size(),"骨骼数量或绑定姿势长度不符");
  std::map<std::string,std::vector<size_t>> exact,loose;for(size_t t=0;t<dst.size();t++){exact[dst[t]].push_back(t);loose[normalize(dst[t],true)].push_back(t);}
  // >=0 target bone; -1 no bone of that name; -2 several, not told apart by their ancestors.
  auto find=[&](size_t i)->int{auto e=exact.find(src[i]);if(e!=exact.end()&&e->second.size()==1)return int(e->second[0]);
@@ -73,18 +73,18 @@ inline BoneMap mapBones(const std::vector<std::string>& src,const std::vector<st
   for(size_t t:c){auto theirs=lineage(t,dst,dstParents);size_t n=0;while(n<mine.size()&&n<theirs.size()&&mine[n]==theirs[n])n++;if(n>score){score=n;best=int(t);tie=false;}else if(n==score)tie=true;}
   return best<0||tie?-2:best;};
  BoneMap m;m.target.assign(src.size(),-1);
- for(unsigned i:used){require(i<src.size(),"Bone source index");int t=find(i);
-  if(t>=0){require(bindposeAgrees(sb,i,tb,size_t(t)),"Bindpose mismatch: "+src[i]);m.target[i]=t;continue;}
-  require(t==-1,"Bone name ambiguous: "+src[i]);
-  require(!bodyBone(src[i])&&srcParents.size()==src.size(),"Bone name missing: "+src[i]);
+ for(unsigned i:used){require(i<src.size(),"源骨骼编号无效");int t=find(i);
+  if(t>=0){require(bindposeAgrees(sb,i,tb,size_t(t)),"绑定姿势不符："+src[i]);m.target[i]=t;continue;}
+  require(t==-1,"骨骼名称有歧义："+src[i]);
+  require(!bodyBone(src[i])&&srcParents.size()==src.size(),"找不到骨骼："+src[i]);
   int a=-1;for(int k=srcParents[i];k>=0;k=srcParents[size_t(k)]){int x=find(size_t(k));if(x>=0&&bindposeAgrees(sb,size_t(k),tb,size_t(x))){a=x;break;}if(x==-2)break;}
-  require(a>=0,"Bone name missing: "+src[i]+" (and no ancestor of it matches)");m.target[i]=a;m.moved.push_back({i,a});}
+  require(a>=0,"找不到骨骼："+src[i]+"（其上级骨骼也都不匹配）");m.target[i]=a;m.moved.push_back({i,a});}
  return m;}
 // Source bone indices to target ones, then per vertex: the weights going to one target bone added together, largest
 // first, summing to 1; unused slots weigh 0 on bone 0.
 inline void remap(Skin& s,const std::vector<int>& map){
  for(size_t i=0;i+32<=s.data.size();i+=32){uint8_t* v=s.data.data()+i;std::pair<float,unsigned> slot[4];int n=0;
-  for(int j=0;j<4;j++){float w=f32(v+4*j);if(!(w>0))continue;unsigned b=u32(v+16+4*j);require(b<map.size()&&map[b]>=0,"Unmapped bone");unsigned t=unsigned(map[b]);
+  for(int j=0;j<4;j++){float w=f32(v+4*j);if(!(w>0))continue;unsigned b=u32(v+16+4*j);require(b<map.size()&&map[b]>=0,"未映射的骨骼");unsigned t=unsigned(map[b]);
    int k=0;while(k<n&&slot[k].second!=t)k++;if(k<n){slot[k].first+=w;}else{slot[n++]={w,t};}}
   std::sort(slot,slot+n,[](const std::pair<float,unsigned>& a,const std::pair<float,unsigned>& b){return a.first>b.first||(a.first==b.first&&a.second<b.second);});
   float sum=0;for(int k=0;k<n;k++)sum+=slot[k].first;
@@ -108,7 +108,7 @@ struct Variants {std::vector<std::pair<std::string,std::vector<int>>> vars;Assig
 // When a draw is drawn: the variables it depends on and the value tuples it is drawn for. No variables: always.
 struct When {std::vector<std::string> vars;std::set<std::vector<int>> allow;};
 inline bool drawn(const When& w,const Assignment& a){if(w.vars.empty())return true;std::vector<int> t;for(auto& n:w.vars){auto it=a.find(n);if(it==a.end())return false;t.push_back(it->second);}return w.allow.count(t)>0;}
-inline int integer(const std::string& s){require(!s.empty()&&s.size()<11&&s.find_first_not_of("-0123456789")==s.npos&&s.find('-',1)==s.npos&&s!="-","Invalid integer: "+s);return std::stoi(s);}
+inline int integer(const std::string& s){require(!s.empty()&&s.size()<11&&s.find_first_not_of("-0123456789")==s.npos&&s.find('-',1)==s.npos&&s!="-","整数无效："+s);return std::stoi(s);}
 // The values in effect: the chosen ones where the variable has that value, else where it starts. A version 1 model
 // knows only its listed combinations: any other assignment is its default one.
 inline Assignment pick(const Variants& v,const std::map<std::string,int>& chosen){Assignment a=v.defaults;

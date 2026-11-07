@@ -126,7 +126,7 @@ public:
  std::string resourceKey(const std::string& name,const std::string& ns){auto* r=bySection(resources,name,ns);return r?lower(r->name):std::string();}
  std::vector<const TextureOverride*> matches(uint32_t hash,const DrawInfo* d){std::vector<const TextureOverride*> out;auto it=overrides.find(hash);if(it==overrides.end())return out;
   for(auto& t:it->second){if(t.drawMatch){if(!d)continue;bool ok=true;for(auto& m:t.match){auto c=d->call.find(m.first);
-     if(c==d->call.end()){limitation(t.name,"match_"+m.first+" needs the draw's "+m.first+", which the adapter did not provide");ok=false;break;}
+     if(c==d->call.end()){limitation(t.name,"match_"+m.first+" 需要绘制调用的 "+m.first+"，但适配层未提供");ok=false;break;}
      ok=ok&&m.second.matches(uint32_t(c->second));}
     if(!ok)continue;}
    out.push_back(&t);}
@@ -160,7 +160,7 @@ public:
 
  // ---- execution (used by the commands)
  void runList(CommandList& l,RunState& s,bool recursive=true){
-  if(s.recursion>maxRecursion){warning(l.section,"Command list recursion limit exceeded! Circular reference?");return;}
+  if(s.recursion>maxRecursion){warning(l.section,"命令列表递归超过上限，可能存在循环引用");return;}
   if(l.commands.empty())return;
   if(recursive)s.recursion++;
   for(size_t i=0;i<l.commands.size()&&!s.aborted;i++)l.commands[i]->run(s);
@@ -190,7 +190,7 @@ private:
  void queue(const std::string& section,Input::Kind k,int index=-1){std::vector<size_t> hits;
   for(size_t i=0;i<keys.size();i++){std::string full;if(lower(keys[i].name)==lower(section)){hits={i};break;}
    if(!keys[i].ns.empty()&&namespacedSection(section,keys[i].ns,full)&&lower(full)==lower(keys[i].name))hits.push_back(i);}
-  if(hits.size()!=1)throw std::invalid_argument((hits.empty()?"No key section ":"Several key sections named ")+section);
+  if(hits.size()!=1)throw std::invalid_argument(std::string(hits.empty()?"找不到按键段 ":"存在多个同名按键段 ")+section);
   queued.push_back({hits[0],k,index});}
  Resolver resolver(const std::string& ns,Scope* scope){return [this,ns,scope](const std::string& name)->Var*{std::string low=lower(name);
   if(scope)for(auto& level:scope->levels){auto it=level.find(low);if(it!=level.end())return it->second;}
@@ -231,22 +231,22 @@ struct Bind:Command {Kind kind()const override{return Kind::Bind;}std::string ds
   auto c=s.e.customResources.find(src);if(c!=s.e.customResources.end())return c->second;return Ref::mod(src);}
  void run(RunState& s)override{Ref r=resolve(s);std::string to=dst=="this"?s.thisSlot:dst;
   if(dstResource){s.e.customResources[to]=r;if(s.e.trace)s.e.note(Event::Bind,where,to+" = "+src);return;}
-  if(!s.draw&&s.bindings==&s.e.contextBindings)s.e.limitation(where,"a slot set outside a draw ("+to+"); Android has no D3D context to keep it bound for later draws");
+  if(!s.draw&&s.bindings==&s.e.contextBindings)s.e.limitation(where,"在绘制调用之外设置了槽位（"+to+"）；Android 上没有可保持该绑定的 D3D 上下文");
   (*s.bindings)[to]=r;if(s.e.trace)s.e.note(Event::Bind,where,to+" = "+src);}};
 struct DrawCmd:Command {Kind kind()const override{return Kind::Draw;}std::string type,where;std::vector<Expression> args;bool automatic=false,fromCaller=false;
  void run(RunState& s)override{IssuedDraw d;d.kind=type;d.where=where;d.automatic=automatic;d.fromCaller=fromCaller;for(auto& a:args)d.args.push_back(a(s));d.bindings=*s.bindings;
   if(s.e.trace){std::string detail=type+(automatic?" = auto":fromCaller?" = from_caller":"");for(size_t i=0;i<d.args.size();i++)detail+=(i?",":" = ")+std::to_string(d.args[i]);
-  s.e.note(Event::Draw,where,detail);}if(s.result)s.result->draws.push_back(d);else s.e.limitation(where,type+" outside a draw: the core records it, nothing is drawn");}};
+  s.e.note(Event::Draw,where,detail);}if(s.result)s.result->draws.push_back(d);else s.e.limitation(where,type+" 位于绘制调用之外：逻辑核心仅记录，不进行绘制");}};
 
 // ------------------------------------------------------------------ context
 inline RunState::RunState(Engine& engine):e(engine){}
 inline float RunState::keywordValue(const Keyword& k){std::string n=k.name;
  if(k.scope==Scope::Frame){if(n=="time")return float(e.nowSeconds);if(n=="frame_time")return e.frameTime;if(n=="fps")return e.fps;return float(e.frameNumber);}
  if(k.scope==Scope::Draw){if(!draw)return 0;auto it=draw->call.find(n);if(it!=draw->call.end())return it->second;
-  e.limitation(n,"the adapter did not provide the draw's "+n+"; read as 0");return 0;}
- auto it=e.host.find(n);if(it!=e.host.end())return it->second;e.limitation(n,"host value "+n+" is not available; read as 0");return 0;}
+  e.limitation(n,"适配层未提供绘制调用的 "+n+"，按 0 读取");return 0;}
+ auto it=e.host.find(n);if(it!=e.host.end())return it->second;e.limitation(n,"宿主值 "+n+" 不可用，按 0 读取");return 0;}
 inline float RunState::slotFilter(const std::string& slot){auto it=bindings->find(slot);if(it==bindings->end()||it->second.kind==Ref::None||it->second.kind==Ref::Null)return -0.0f;
- if(it->second.kind==Ref::Mod){e.limitation(slot,"texture filter on a slot holding a mod resource: its hash is not tracked; read as 0 (no match)");return 0;}
+ if(it->second.kind==Ref::Mod){e.limitation(slot,"对存放 MOD 资源的槽位使用贴图过滤：该资源没有可追踪的 hash，按 0 读取（不匹配）");return 0;}
  auto m=e.matches(it->second.hash,draw);if(m.empty())return 0;for(auto r=m.rbegin();r!=m.rend();++r)if((*r)->filterIndex!=FLT_MAX)return (*r)->filterIndex;return 1;}
 inline float RunState::param(int i,char c){auto it=e.params.find({i,c});return it==e.params.end()?0:it->second;}
 inline float RunState::randomValue(float max){if(max==0)return 0;float sign=max<0?-1.0f:1.0f;float u=e.uniform?e.uniform():0.5f;
@@ -254,7 +254,7 @@ inline float RunState::randomValue(float max){if(max==0)return 0;float sign=max<
 
 inline void Engine::checkSlot(RunState& s,const std::string& slot,bool together,const std::string& where){
  std::string checked=slot=="this"?s.thisSlot:slot;auto it=s.bindings->find(checked);if(it==s.bindings->end()||it->second.kind!=Ref::Game){
-  if(it!=s.bindings->end()&&it->second.kind==Ref::Mod)diag.add(Diagnostic::Notice,where,"checktextureoverride = "+checked+": it holds a mod resource, which has no tracked hash; nothing matches");
+  if(it!=s.bindings->end()&&it->second.kind==Ref::Mod)diag.add(Diagnostic::Notice,where,"checktextureoverride = "+checked+"：该槽位存放的是 MOD 资源，没有可追踪的 hash，不会匹配");
   return;}
  auto found=matches(it->second.hash,s.draw);std::string saved=s.thisSlot;s.thisSlot=checked;
  for(auto* t:found){if(trace)note(Event::Match,where,t->name+(together?" (pre+post)":s.post?" (post)":" (pre)"));if(!s.post&&s.result&&!together)s.result->matched.push_back(t->name);}
@@ -266,8 +266,8 @@ inline void Engine::checkSlot(RunState& s,const std::string& slot,bool together,
 inline float Engine::staticValue(const std::string& text,const std::string& ns,const std::string& where,bool& ok){
  float v=0;char* end=nullptr;std::string t=trim(text);v=std::strtof(t.c_str(),&end);if(!t.empty()&&end&&*end==0){ok=true;return v;}
  try{auto e=expression(t,ns,nullptr,false);StaticContext c;c.time=float(nowSeconds);c.frameNumber=float(frameNumber);c.params=[this](int i,char k){return params[{i,k}];};
-  if(staticEvaluate(e,c,v)){ok=true;return v;}warning(where,"cannot be statically evaluated: "+text);}
- catch(const SyntaxError& ex){warning(where,std::string("Unable to parse expression \"")+text+"\": "+ex.what());}
+  if(staticEvaluate(e,c,v)){ok=true;return v;}warning(where,"无法静态求值："+text);}
+ catch(const SyntaxError& ex){warning(where,std::string("无法解析表达式 \"")+text+"\"："+ex.what());}
  ok=false;return 0;}
 
 inline void Engine::parseConstantsGlobals(std::vector<Line>& rest){
@@ -276,10 +276,10 @@ inline void Engine::parseConstantsGlobals(std::vector<Line>& rest){
   for(;;){if(startsWith(name,"global ")){flags|=VarGlobal;name=trim(name.substr(7));}else if(startsWith(name,"persist ")){flags|=VarPersist;name=trim(name.substr(8));}
    else if(startsWith(name,"locked ")){flags|=VarLocked;name=trim(name.substr(7));}else break;}
   if(!(flags&VarGlobal)){rest.push_back(l);continue;}
-  if(!validVariableName(name)){warning("[Constants] @ "+l.ns,"Illegal Global Variable Name: \""+name+"\"");continue;}
+  if(!validVariableName(name)){warning("[Constants] @ "+l.ns,"全局变量名无效：\""+name+"\"");continue;}
   if(!l.ns.empty())name=namespacedVar(name,l.ns);
   float v=0;if(!l.val.empty()){bool ok;v=staticValue(lower(l.val),l.ns,"[Constants] "+l.raw,ok);if(!ok)continue;}   // upstream skips the declaration
-  if(globals.count(name)){warning("[Constants] @ "+l.ns,"Redeclaration of "+name);continue;}
+  if(globals.count(name)){warning("[Constants] @ "+l.ns,"重复声明："+name);continue;}
   Var var;var.name=name;var.value=v;var.flags=flags;globals[name]=var;initial[name]=v;}}
 
 // The keys of a [TextureOverride] that are its own settings, not commands (IniHandler.cpp TextureOverrideIniKeys).
@@ -295,9 +295,9 @@ inline void Engine::parseList(ListSection& ls,const std::vector<Line>& lines,con
   if(whitelist.count(key))continue;
   CommandList* target=&ls.pre;CommandList* explicitList=nullptr;std::string k=key;
   if(startsWith(key,"post ")){k=trim(key.substr(5));target=&ls.post;explicitList=&ls.post;}else if(startsWith(key,"pre ")){k=trim(key.substr(4));explicitList=&ls.pre;}
-  try{if(!parseLine(ls,scope,line,k,val,raw,explicitList,*target))warning("["+ls.name+"] @ "+line.ns,"Unrecognised entry: "+line.raw);}
-  catch(const SyntaxError& e){warning("["+ls.name+"] @ "+line.ns,"Syntax error in \""+line.raw+"\": "+e.what());}}
- if(scope.levels.size()!=1)warning("["+ls.name+"]","Scope unbalanced");}
+  try{if(!parseLine(ls,scope,line,k,val,raw,explicitList,*target))warning("["+ls.name+"] @ "+line.ns,"无法识别的条目："+line.raw);}
+  catch(const SyntaxError& e){warning("["+ls.name+"] @ "+line.ns,"语法错误：\""+line.raw+"\"："+e.what());}}
+ if(scope.levels.size()!=1)warning("["+ls.name+"]","作用域不平衡");}
 
 inline bool Engine::parseLine(ListSection& ls,Scope& scope,const Line& line,const std::string& key,const std::string& val,const std::string& raw,CommandList* explicitList,CommandList& target){
  const std::string& ns=line.ns;std::string where="["+ls.name+"] "+line.raw;
@@ -306,13 +306,13 @@ inline bool Engine::parseLine(ListSection& ls,Scope& scope,const Line& line,cons
   if(local||(!l.empty()&&l[0]=='$')){
    std::string name=local?trim(l.substr(5)):trim(l);
    if(local){if(l.size()<6||(l[5]!=' '&&l[5]!='\t'))return false;
-    if(!validVariableName(name)){warning(where,"Illegal local variable name: \""+name+"\"");return true;}
-    for(auto& level:scope.levels)if(level.count(name)){warning(where,"Illegal redeclaration of local variable \""+name+"\"");return true;}
-    if(global(name,ns))diag.add(Diagnostic::Notice,where,"Local \""+name+"\" masks a global variable with the same name");
+    if(!validVariableName(name)){warning(where,"局部变量名无效：\""+name+"\"");return true;}
+    for(auto& level:scope.levels)if(level.count(name)){warning(where,"局部变量重复声明：\""+name+"\"");return true;}
+    if(global(name,ns))diag.add(Diagnostic::Notice,where,"局部变量 \""+name+"\" 遮蔽了同名全局变量");
     ls.locals.emplace_front();ls.locals.front().name=name;scope.levels.front()[name]=&ls.locals.front();if(val.empty())return true;}
    if(!name.empty()&&name.back()==']')return false;   // pools are not ported
    Var* v=resolver(ns,&scope)(name);if(!v)return false;
-   if(v->flags&VarLocked){warning(where,"Assignment to locked variable "+name);return true;}
+   if(v->flags&VarLocked){warning(where,"对锁定变量赋值："+name);return true;}
    auto a=std::make_shared<Assign>();a->var=v;a->where=where;a->line=line.raw;a->value=expression(val,ns,&scope,true);target.commands.push_back(a);return true;}}
  // Flow control: if / elif / else if / else / endif (never with an explicit pre/post).
  if(!explicitList){
@@ -331,7 +331,7 @@ inline bool Engine::parseLine(ListSection& ls,Scope& scope,const Line& line,cons
      if(elsePos!=list.commands.size())f.commands.assign(list.commands.begin()+long(elsePos)+1,list.commands.end());
      list.commands.erase(list.commands.begin()+long(k)+1,list.commands.end());(post?c->postDone:c->preDone)=true;c->nested=nested;
      return c->elseIf?close(list,post,true):true;}
-    warning(where,"Statement \"endif\" missing \"if\"");return false;};
+    warning(where,"语句 \"endif\" 缺少对应的 \"if\"");return false;};
    if(close(ls.pre,false,false)&&close(ls.post,true,false)&&scope.levels.size()>1)scope.levels.pop_front();
    return true;}}
  // General commands.
@@ -340,17 +340,17 @@ inline bool Engine::parseLine(ListSection& ls,Scope& scope,const Line& line,cons
   add(c,explicitList,nullptr,ls.pre,ls.post);return true;}
  if(key=="run"){
   if(startsWith(val,"customshader")||startsWith(val,"builtincustomshader")){auto c=std::make_shared<CustomShaderRun>();c->name=val;c->where=where;c->line=line.raw;
-   limitation(where,"custom shaders are not run on Android (recorded only)");add(c,explicitList,nullptr,ls.pre,ls.post);return true;}
+   limitation(where,"Android 上不运行自定义着色器（仅记录）");add(c,explicitList,nullptr,ls.pre,ls.post);return true;}
   if(startsWith(val,"commandlist")||startsWith(val,"builtincommandlist")){ListSection* t=listSection(val,ns);
    if(!t&&startsWith(val,"builtincommandlist")){auto c=std::make_shared<Unported>();c->where=where;c->what=line.raw;c->line=line.raw;   // defined inside 3DMigoto, not in an INI
-    limitation(where,"built-in command lists act on D3D state; not available");add(c,explicitList,nullptr,ls.pre,ls.post);return true;}
+    limitation(where,"内置命令列表作用于 D3D 状态，不可用");add(c,explicitList,nullptr,ls.pre,ls.post);return true;}
    if(!t)return false;
    auto c=std::make_shared<RunList>();c->target=t;c->together=explicitList!=nullptr;c->where=where;c->line=line.raw;add(c,explicitList,nullptr,ls.pre,ls.post);return true;}}
  if(key=="handling"){if(val=="skip"){auto c=std::make_shared<Skip>();c->where=where;c->line=line.raw;add(c,explicitList,&ls.pre,ls.pre,ls.post);return true;}
   if(val=="abort"){auto c=std::make_shared<Abort>();c->where=where;c->line=line.raw;add(c,explicitList,nullptr,ls.pre,ls.post);return true;}}
  static const std::set<std::string> unported={"preset","exclude_preset","reset_per_frame_limits","clear","analyse_options","dump","special","store"};
  if(unported.count(key)||startsWith(key,"commandlist")){auto c=std::make_shared<Unported>();c->where=where;c->what=line.raw;c->line=line.raw;
-  limitation(where,key+" is not ported (GPU or frame analysis work)");add(c,explicitList,key=="preset"||key=="exclude_preset"?nullptr:&ls.pre,ls.pre,ls.post);return true;}
+  limitation(where,key+" 未移植（属于 GPU 或帧分析操作）");add(c,explicitList,key=="preset"||key=="exclude_preset"?nullptr:&ls.pre,ls.pre,ls.post);return true;}
  static const std::map<std::string,size_t> drawKinds={{"draw",2},{"drawauto",0},{"drawindexed",3},{"drawindexedinstanced",5},{"drawinstanced",4},{"dispatch",3}};
  auto dk=drawKinds.find(key);
  if(dk!=drawKinds.end()){auto c=std::make_shared<DrawCmd>();c->type=key;c->where=where;c->line=line.raw;
@@ -361,7 +361,7 @@ inline bool Engine::parseLine(ListSection& ls,Scope& scope,const Line& line,cons
    if(c->args.size()!=dk->second)return false;}
   add(c,explicitList,&ls.pre,ls.pre,ls.post);return true;}
  if(key=="drawindexedinstancedindirect"||key=="drawinstancedindirect"||key=="dispatchindirect"){auto c=std::make_shared<Unported>();c->where=where;c->what=line.raw;c->line=line.raw;
-  limitation(where,"indirect draws read GPU buffers; not available");add(c,explicitList,&ls.pre,ls.pre,ls.post);return true;}
+  limitation(where,"间接绘制需要读取 GPU 缓冲，不可用");add(c,explicitList,&ls.pre,ls.pre,ls.post);return true;}
  // Ini params: x = ..., y3 = ...
  {int index;char comp;if(iniParam(key,index,comp)){auto a=std::make_shared<Assign>();a->param=true;a->index=index;a->comp=comp;a->where=where;a->line=line.raw;
    a->value=expression(val,ns,&scope,true);target.commands.push_back(a);return true;}}
@@ -379,10 +379,10 @@ inline bool Engine::parseLine(ListSection& ls,Scope& scope,const Line& line,cons
 
 inline void Engine::parseTextureOverride(const Section& s,ListSection& ls){
  std::map<std::string,std::string> kv;for(auto& l:s.lines)if(l.hasEquals&&overrideKeys().count(lower(l.key))){std::string k=lower(l.key);
-  if(kv.count(k))warning("["+s.name+"]","Duplicate non-command list key found: "+k);else kv[k]=lower(l.val);}
+  if(kv.count(k))warning("["+s.name+"]","非命令列表键重复："+k);else kv[k]=lower(l.val);}
  if(!kv.count("hash")){for(auto& f:kv)if(startsWith(f.first,"match_")&&f.first.find("_first_")==std::string::npos&&f.first.find("_count")==std::string::npos){
-   limitation("["+s.name+"]","fuzzy resource matching (no hash) needs the D3D resource description; not ported");return;}
-  warning("["+s.name+"]","TextureOverride without a hash");return;}
+   limitation("["+s.name+"]","模糊资源匹配（无 hash）需要 D3D 资源描述，未移植");return;}
+  warning("["+s.name+"]","TextureOverride 缺少 hash");return;}
  TextureOverride t;t.list=&ls;t.name=s.name;t.hash=uint32_t(std::strtoul(kv["hash"].c_str(),nullptr,16));
  if(kv.count("match_priority"))t.priority=std::atoi(kv["match_priority"].c_str());
  if(kv.count("filter_index")){bool ok;float f=staticValue(kv["filter_index"],s.ns,"["+s.name+"] filter_index",ok);if(ok)t.filterIndex=f;}
@@ -391,7 +391,7 @@ inline void Engine::parseTextureOverride(const Section& s,ListSection& ls){
   if(startsWith(v,"<=")){f.op=FuzzyNumber::Le;p=2;}else if(startsWith(v,">=")){f.op=FuzzyNumber::Ge;p=2;}else if(startsWith(v,"=")){f.op=FuzzyNumber::Eq;p=1;}
   else if(startsWith(v,"!")){f.op=FuzzyNumber::Ne;p=1;}else if(startsWith(v,"<")){f.op=FuzzyNumber::Lt;p=1;}else if(startsWith(v,">")){f.op=FuzzyNumber::Gt;p=1;}else f.op=FuzzyNumber::Eq;
   v=trim(v.substr(p));char* end=nullptr;unsigned long n=std::strtoul(v.c_str(),&end,10);
-  if(v.empty()||*end){limitation("["+s.name+"]","match_"+std::string(m)+" = "+it->second+": field expressions are not ported");continue;}
+  if(v.empty()||*end){limitation("["+s.name+"]","match_"+std::string(m)+" = "+it->second+"：字段表达式未移植");continue;}
   f.value=uint32_t(n);t.match[m]=f;t.drawMatch=true;}
  overrides[t.hash].push_back(t);}
 
@@ -400,20 +400,20 @@ inline void Engine::parseKey(const Section& s){
  for(auto& l:s.lines){if(!l.hasEquals)continue;std::string key=lower(l.key);
   if(key=="key")k.keys.push_back(l.val);else if(key=="back")k.backs.push_back(l.val);
   else{int i;char c;bool var=!key.empty()&&key[0]=='$',param=iniParam(key,i,c);
-   if(var||param){bool seen=false;for(auto& v:vars)seen=seen||v.first==key;if(seen)warning("["+s.name+"]","Duplicate key found: "+key);else vars.push_back({key,l.val});}   // the first one counts
+   if(var||param){bool seen=false;for(auto& v:vars)seen=seen||v.first==key;if(seen)warning("["+s.name+"]","键重复："+key);else vars.push_back({key,l.val});}   // the first one counts
    else if(!first.count(key))first[key]=l.val;}}
- if(k.keys.empty()&&k.backs.empty()){warning("["+s.name+"]","Missing Key=");return;}
+ if(k.keys.empty()&&k.backs.empty()){warning("["+s.name+"]","缺少 Key=");return;}
  k.type=first.count("type")?lower(first["type"]):"activate";
- if(k.type!="activate"&&k.type!="hold"&&k.type!="toggle"&&k.type!="cycle"){warning("["+s.name+"]","Unknown key type "+k.type);k.type="activate";}
+ if(k.type!="activate"&&k.type!="hold"&&k.type!="toggle"&&k.type!="cycle"){warning("["+s.name+"]","未知的按键类型 "+k.type);k.type="activate";}
  k.delay=first.count("delay")?std::atoi(first["delay"].c_str()):0;k.releaseDelay=first.count("release_delay")?std::atoi(first["release_delay"].c_str()):0;
- if(k.delay||k.releaseDelay)limitation("["+s.name+"]","key delay / release_delay are not ported");
+ if(k.delay||k.releaseDelay)limitation("["+s.name+"]","按键 delay / release_delay 未移植");
  auto parseRun=[&](Preset& p,const std::string& text){if(text.empty())return;std::string v=lower(trim(text));ListSection* t=listSection(v,k.ns);
-  if(!t){warning("["+s.name+"]","Invalid run=\""+text+"\"");return;}
+  if(!t){warning("["+s.name+"]","无效的 run=\""+text+"\"");return;}
   p.run=std::make_unique<ListSection>();p.run->name=s.name+" run";auto c=std::make_shared<RunList>();c->target=t;c->where="["+s.name+"] run = "+v;
   add(c,nullptr,nullptr,p.run->pre,p.run->post);p.run->post.post=true;};
  auto parseCondition=[&](Preset& p,const std::string& text){if(text.empty())return;
-  try{p.condition=expression(text,k.ns,nullptr,false);p.conditional=true;}catch(const SyntaxError& e){warning("["+s.name+"]","Invalid condition = \""+text+"\": "+e.what());}};
- auto lookupVar=[&](const std::string& name,const std::string& ns)->Var*{Var* v=global(lower(name),ns);if(!v||(v->flags&VarLocked)){warning("["+s.name+"]","Unknown or locked variable "+name);return nullptr;}return v;};
+  try{p.condition=expression(text,k.ns,nullptr,false);p.conditional=true;}catch(const SyntaxError& e){warning("["+s.name+"]","无效的 condition = \""+text+"\"："+e.what());}};
+ auto lookupVar=[&](const std::string& name,const std::string& ns)->Var*{Var* v=global(lower(name),ns);if(!v||(v->flags&VarLocked)){warning("["+s.name+"]","未知或已锁定的变量 "+name);return nullptr;}return v;};
  auto get=[&](const char* key){auto it=first.find(key);return it==first.end()?std::string():it->second;};
  if(k.type!="cycle"){Preset p;
   for(auto& v:vars){bool ok;float f=staticValue(lower(v.second),k.ns,"["+s.name+"] "+v.first,ok);if(!ok)continue;int i;char c;
@@ -437,7 +437,7 @@ inline void Engine::parseKey(const Section& s){
 
 inline void Engine::load(const std::vector<IniFile>& files){
  ini.diag=&diag;
- for(auto& f:files)ini.add(f,[this](const std::string& cond,const std::string& ns){bool ok;float v=staticValue(lower(cond),ns,"include condition",ok);return ok&&v!=0;});
+ for(auto& f:files)ini.add(f,[this](const std::string& cond,const std::string& ns){bool ok;float v=staticValue(lower(cond),ns,"include 条件",ok);return ok&&v!=0;});
  std::vector<Line> constants;parseConstantsGlobals(constants);
  // Every command list section exists before any is parsed, so a run may name one defined later.
  for(auto& kv:ini.sections){const Section& s=kv.second;if(!isCommandListSection(s.name)||istarts(s.name,"ShaderOverride")||istarts(s.name,"ShaderRegex")||istarts(s.name,"CustomShader")||istarts(s.name,"BuiltInCustomShader")||istarts(s.name,"Clear"))continue;
@@ -447,8 +447,8 @@ inline void Engine::load(const std::vector<IniFile>& files){
    r.shortName=s.ns.empty()?s.name:std::string(p)+s.name.substr(std::string(p).size()+s.ns.size()+2);
    for(auto& l:s.lines)if(l.hasEquals&&!r.values.count(lower(l.key)))r.values[lower(l.key)]=l.val;
    resources[kv.first]=r;}
-  else if(istarts(s.name,"ShaderOverride")||istarts(s.name,"ShaderRegex"))limitation("["+s.name+"]","shader overrides need the game's D3D shaders; not run on Android");
-  else if(istarts(s.name,"Pool")||istarts(s.name,"Preset"))limitation("["+s.name+"]","not ported");}
+  else if(istarts(s.name,"ShaderOverride")||istarts(s.name,"ShaderRegex"))limitation("["+s.name+"]","着色器覆盖需要游戏的 D3D 着色器，Android 上不运行");
+  else if(istarts(s.name,"Pool")||istarts(s.name,"Preset"))limitation("["+s.name+"]","未移植");}
  for(auto& kv:lists){ListSection& ls=*kv.second;const Section* s=ini.find(ls.name);
   if(lower(ls.name)=="constants"){parseList(ls,constants,{});continue;}
   bool texture=istarts(ls.name,"TextureOverride");parseList(ls,s->lines,texture?overrideKeys():std::set<std::string>());

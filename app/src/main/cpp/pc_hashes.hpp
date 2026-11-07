@@ -36,18 +36,18 @@ struct Db {std::string commit,date,source;std::vector<Component> comps;std::map<
  std::map<std::string,unsigned> characters;   // PC character -> AvatarId (0: not tied)
  bool empty()const{return comps.empty();}};
 
-inline uint64_t count(const Json& v,const char* what){require(v.type==Json::Number&&v.number>=0&&v.number<4294967296.0&&v.number==double(uint64_t(v.number)),std::string("pc-hashes: ")+what);return uint64_t(v.number);}
+inline uint64_t count(const Json& v,const char* what){require(v.type==Json::Number&&v.number>=0&&v.number<4294967296.0&&v.number==double(uint64_t(v.number)),std::string("pc-hashes：")+what+" 无效");return uint64_t(v.number);}
 inline Db parse(const std::string& text){Json j=JsonParser(text).parse();Db d;
- require(j.type==Json::Object&&j.at("format").string=="gibox-pc-hashes","not a GIBox PC hash database");require(j.at("version").type==Json::Number&&j.at("version").number==1,"PC hash database version is not supported");
+ require(j.type==Json::Object&&j.at("format").string=="gibox-pc-hashes","不是 GIBox 的 PC hash 数据库");require(j.at("version").type==Json::Number&&j.at("version").number==1,"PC hash 数据库版本不受支持");
  d.commit=j.at("commit").string;d.date=j.at("date").string;d.source=j.at("source").string;
- const auto& cs=j.at("characters");require(cs.type==Json::Array&&cs.array.size()<=1024,"pc-hashes: characters");
- for(auto& c:cs.array){require(c.type==Json::Object&&!c.at("name").string.empty(),"pc-hashes: character");auto name=c.at("name").string;unsigned avatar=0;
-  if(c.at("avatar").type==Json::Number){auto a=count(c.at("avatar"),"avatar");require(a==0||(a>=10000000&&a<=10001999),"pc-hashes: avatar of "+name);avatar=unsigned(a);}
-  d.characters[name]=avatar;const auto& ps=c.at("components");require(ps.type==Json::Array&&ps.array.size()<=64,"pc-hashes: components of "+name);
-  for(auto& p:ps.array){require(p.type==Json::Object,"pc-hashes: component of "+name);Component x;x.character=name;x.avatar=avatar;x.name=p.at("name").string;x.ib=lower(p.at("ib").string);
-   require(x.ib.empty()||hex8(x.ib),"pc-hashes: ib of "+name+" "+x.name);
-   for(auto* k:{"indexes","counts"}){const auto& a=p.at(k);if(a.type!=Json::Array)continue;require(a.array.size()<=64,"pc-hashes: "+std::string(k));for(auto& v:a.array)(std::string(k)=="indexes"?x.indexes:x.counts).push_back(count(v,k));}
-   const auto& t=p.at("textures");if(t.type==Json::Array){require(t.array.size()<=64,"pc-hashes: textures");for(auto& sub:t.array){std::vector<std::pair<std::string,std::string>> s;
+ const auto& cs=j.at("characters");require(cs.type==Json::Array&&cs.array.size()<=1024,"pc-hashes：characters 无效");
+ for(auto& c:cs.array){require(c.type==Json::Object&&!c.at("name").string.empty(),"pc-hashes：character 无效");auto name=c.at("name").string;unsigned avatar=0;
+  if(c.at("avatar").type==Json::Number){auto a=count(c.at("avatar"),"avatar");require(a==0||(a>=10000000&&a<=10001999),"pc-hashes：avatar 无效："+name);avatar=unsigned(a);}
+  d.characters[name]=avatar;const auto& ps=c.at("components");require(ps.type==Json::Array&&ps.array.size()<=64,"pc-hashes：components 无效："+name);
+  for(auto& p:ps.array){require(p.type==Json::Object,"pc-hashes：component 无效："+name);Component x;x.character=name;x.avatar=avatar;x.name=p.at("name").string;x.ib=lower(p.at("ib").string);
+   require(x.ib.empty()||hex8(x.ib),"pc-hashes：ib 无效："+name+" "+x.name);
+   for(auto* k:{"indexes","counts"}){const auto& a=p.at(k);if(a.type!=Json::Array)continue;require(a.array.size()<=64,"pc-hashes："+std::string(k)+" 无效");for(auto& v:a.array)(std::string(k)=="indexes"?x.indexes:x.counts).push_back(count(v,k));}
+   const auto& t=p.at("textures");if(t.type==Json::Array){require(t.array.size()<=64,"pc-hashes：textures 无效");for(auto& sub:t.array){std::vector<std::pair<std::string,std::string>> s;
      if(sub.type==Json::Array)for(auto& b:sub.array)if(b.type==Json::Array&&b.array.size()==2&&b.array[0].type==Json::String&&hex8(lower(b.array[1].string)))s.push_back({b.array[0].string,lower(b.array[1].string)});
      x.textures.push_back(std::move(s));}}
    size_t at=d.comps.size();if(!x.ib.empty())d.byIb[x.ib].push_back(at);
@@ -59,21 +59,21 @@ inline Db parse(const std::string& text){Json j=JsonParser(text).parse();Db d;
 // without such a hash, those tied to its AvatarId (every outfit of it).
 inline std::set<std::string> charactersFor(const Db& d,unsigned avatar,const std::vector<std::string>& hashes,std::string* how=nullptr){std::set<std::string> out;
  for(auto& h:hashes){auto it=d.byIb.find(lower(h));if(it!=d.byIb.end())for(size_t i:it->second)out.insert(d.comps[i].character);}
- if(!out.empty()){if(how)*how="by the index-buffer hashes its rules name";return out;}
- if(avatar){for(auto& c:d.characters)if(c.second==avatar)out.insert(c.first);}if(how)*how=out.empty()?"none: no index-buffer hash of a PC character and AvatarId "+std::to_string(avatar)+" ties to none":"by AvatarId "+std::to_string(avatar);
+ if(!out.empty()){if(how)*how="依据规则中的索引缓冲 hash";return out;}
+ if(avatar){for(auto& c:d.characters)if(c.second==avatar)out.insert(c.first);}if(how)*how=out.empty()?"无：规则中没有 PC 角色的索引缓冲 hash，AvatarId "+std::to_string(avatar)+" 也对应不到":"依据 AvatarId "+std::to_string(avatar);
  return out;}
 
 // ---------------------------------------------------------------- this device's index uploads (hash-map.json)
 struct Mesh {std::string ib,variant,character,component,renderer,mesh,avatar,build;unsigned vertices=0,bones=0;std::vector<std::pair<uint32_t,uint32_t>> subs;};
 struct DeviceMap {std::map<std::string,Mesh> byIb;};
 inline DeviceMap parseMap(const std::string& text){Json j=JsonParser(text).parse();DeviceMap m;
- require(j.type==Json::Object&&j.at("format").string=="gibox-hash-map"&&j.at("version").type==Json::Number&&j.at("version").number==1,"not a GIBox hash map");
- const auto& a=j.at("meshes");require(a.type==Json::Array&&a.array.size()<=65536,"hash map meshes");
- for(auto& x:a.array){require(x.type==Json::Object,"hash map mesh");Mesh e;e.ib=lower(x.at("ib").string);require(hex8(e.ib),"hash map ib");
+ require(j.type==Json::Object&&j.at("format").string=="gibox-hash-map"&&j.at("version").type==Json::Number&&j.at("version").number==1,"不是 GIBox 的设备 hash 表");
+ const auto& a=j.at("meshes");require(a.type==Json::Array&&a.array.size()<=65536,"设备 hash 表：meshes 无效");
+ for(auto& x:a.array){require(x.type==Json::Object,"设备 hash 表：mesh 无效");Mesh e;e.ib=lower(x.at("ib").string);require(hex8(e.ib),"设备 hash 表：ib 无效");
   e.variant=x.at("variant").string;e.character=x.at("character").string;e.component=x.at("component").string;e.renderer=x.at("renderer").string;e.mesh=x.at("mesh").string;e.avatar=x.at("avatar").string;e.build=x.at("build").string;
-  e.vertices=unsigned(count(x.at("vertices"),"vertices"));e.bones=x.at("bones").type==Json::Number?unsigned(count(x.at("bones"),"bones")):0;require(!e.mesh.empty()&&e.vertices>0,"hash map mesh "+e.ib);
-  const auto& s=x.at("submeshes");require(s.type==Json::Array&&!s.array.empty()&&s.array.size()<=64,"hash map submeshes");
-  for(auto& p:s.array){require(p.type==Json::Array&&p.array.size()==2,"hash map submesh");e.subs.push_back({uint32_t(count(p.array[0],"start")),uint32_t(count(p.array[1],"count"))});}
+  e.vertices=unsigned(count(x.at("vertices"),"vertices"));e.bones=x.at("bones").type==Json::Number?unsigned(count(x.at("bones"),"bones")):0;require(!e.mesh.empty()&&e.vertices>0,"设备 hash 表：网格信息无效："+e.ib);
+  const auto& s=x.at("submeshes");require(s.type==Json::Array&&!s.array.empty()&&s.array.size()<=64,"设备 hash 表：submeshes 无效");
+  for(auto& p:s.array){require(p.type==Json::Array&&p.array.size()==2,"设备 hash 表：submesh 无效");e.subs.push_back({uint32_t(count(p.array[0],"start")),uint32_t(count(p.array[1],"count"))});}
   m.byIb[e.ib]=std::move(e);}
  return m;}
 inline std::string writeMap(const DeviceMap& m){std::string o="{\"format\":\"gibox-hash-map\",\"version\":1,\"meshes\":[";bool first=true;

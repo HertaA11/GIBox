@@ -106,11 +106,11 @@ class AppState(private val activity: Activity) {
     private var pcHashesFor = ""
 
     init {
-        AppLog.debug(game, "app", "App Start $appVersion")
+        AppLog.debug(game, "app", "app-start 版本 $appVersion")
         // GIBox's outfit table (assets/outfits.json): the original look and the skins of each character, for the picker,
         // the mod lists and the converter.
         runCatching { Outfits.use(Outfits.parse(activity.assets.open("outfits.json").use { it.readBytes() }.toString(Charsets.UTF_8))) }
-            .onFailure { AppLog.warning(game, LOGGER, "外观对照表读取失败：${it.message}") }
+            .onFailure { AppLog.warning(game, LOGGER, "outfits-error 外观对照表读取失败：${it.message}") }
         // File access is asked for once, at the first start after installing; later a feature that needs it asks again.
         if (!hasStorage() && readPrivate("storage-asked.txt").isEmpty()) { writePrivate("storage-asked.txt", "1"); grantStorage() }
         runCatching { Control.retireExperiments(game) }
@@ -125,7 +125,7 @@ class AppState(private val activity: Activity) {
         val top = stack.removeAt(stack.lastIndex)
         if (top is Screen.Pick && top.pending != null) {
             Importer.discard(top.pending)
-            AppLog.info(game, LOGGER, "取消导入 ${top.modName}")
+            AppLog.info(game, LOGGER, "import-cancel ${top.modName}")
         }
     }
     private fun closeTop() { if (stack.size > 1) stack.removeAt(stack.lastIndex) }
@@ -155,10 +155,10 @@ class AppState(private val activity: Activity) {
         runCatching {
             for ((file, what) in listOf("pc-hashes.json" to "PC hash 数据库", "device-hashes.json" to "手机 hash 表")) {
                 val bytes = activity.assets.open(file).use { it.readBytes() }
-                if (Control.installShared(game, file, bytes)) AppLog.info(game, LOGGER, "已安装$what（${bytes.size / 1024} KB）")
+                if (Control.installShared(game, file, bytes)) AppLog.info(game, LOGGER, "shared-installed $what（${bytes.size / 1024} KB）")
             }
             pcHashesFor = game
-        }.onFailure { AppLog.warning(game, LOGGER, "hash 数据安装失败：${it.message}") }
+        }.onFailure { AppLog.warning(game, LOGGER, "shared-error hash 数据安装失败：${it.message}") }
     }
     fun refreshStatus() { status = Control.status(game) }
     fun acceptStatus(pkg: String, snapshot: Control.Status) { if (game == pkg) status = snapshot }
@@ -189,7 +189,7 @@ class AppState(private val activity: Activity) {
 
     fun rename(name: String, text: String) = save("改名", needsStorage = false) {
         Labels.set(labelsFile, name, text)
-        AppLog.info(game, LOGGER, "改名 $name → ${text.trim().ifEmpty { name }}")
+        AppLog.info(game, LOGGER, "rename $name → ${text.trim().ifEmpty { name }}")
     }
     fun selected(name: String): Boolean = Control.selected(game, name)
 
@@ -219,17 +219,17 @@ class AppState(private val activity: Activity) {
     }
     private fun useGame(pkg: String) {
         game = pkg
-        AppLog.info(pkg, LOGGER, "游戏：${serverName(pkg)}（$pkg，按 LSPosed 注入自动选择）")
+        AppLog.info(pkg, LOGGER, "game ${serverName(pkg)}（$pkg，按 LSPosed 注入自动选择）")
         runCatching { Control.retireExperiments(pkg) }
         Importer.discardAll(modsRoot)
     }
     fun setReplacement(on: Boolean) = save("保存") {
         Control.setEnabled(game, on)
-        AppLog.info(game, "app", if (on) "模型替换已开启" else "模型替换已关闭")
+        AppLog.info(game, "app", if (on) "model-replacement 开启" else "model-replacement 关闭")
     }
     /** Switching on a second mod of a character asks first (both, only this one, or not). */
     fun setSelected(mod: Importer.Mod, on: Boolean) {
-        if (!on) { save("保存") { Control.disable(game, mod.name); AppLog.info(game, LOGGER, "停用 ${mod.name}") }; return }
+        if (!on) { save("保存") { Control.disable(game, mod.name); AppLog.info(game, LOGGER, "mod-disable ${mod.name}") }; return }
         val others = enabledWith(mod.name, mod.id)
         if (others.isEmpty()) { save("保存") { enable(mod.name, emptyList()) }; return }
         prompt = bothPrompt("同时开启多个 MOD？", "", mod.name, mod.id, others, "取消")
@@ -240,7 +240,7 @@ class AppState(private val activity: Activity) {
     private fun enable(name: String, off: List<String>) {
         for (o in off) Control.disable(game, o)
         Control.enable(game, name)
-        AppLog.info(game, LOGGER, "启用 $name" + if (off.isEmpty()) "" else "，停用 " + off.joinToString("、"))
+        AppLog.info(game, LOGGER, "mod-enable $name" + if (off.isEmpty()) "" else "，同时停用 " + off.joinToString("、"))
     }
     /** "Both / only this one / dismiss" for a mod whose character already has enabled mods. */
     private fun bothPrompt(title: String, lead: String, name: String, id: Int, others: List<String>, dismiss: String) = Prompt(
@@ -255,39 +255,39 @@ class AppState(private val activity: Activity) {
     /** A [Key] of the mod's INI logic, pressed in the game by the logic core (experiments.logicCore). */
     fun pressKey(mod: Importer.Mod, key: ModelManifest.Key, back: Boolean = false) = save("按键") {
         Control.pressKey(game, mod.name, key.file, key.section, back)
-        AppLog.info(game, LOGGER, "按键 ${mod.name} ${key.section}" + if (back) "（上一个）" else "")
+        AppLog.info(game, LOGGER, "key-press ${mod.name} ${key.section}" + if (back) "（上一个）" else "")
     }
     /** A cycle key's preset chosen directly (0-based), activated in the game as if stepped to. */
     fun selectKey(mod: Importer.Mod, key: ModelManifest.Key, index: Int) = save("按键") {
         Control.keyInput(game, mod.name, key.file, key.section, false, index, null)
-        AppLog.info(game, LOGGER, "按键 ${mod.name} ${key.section} 选第 ${index + 1} 个")
+        AppLog.info(game, LOGGER, "key-select ${mod.name} ${key.section}：第 ${index + 1} 个")
     }
     /** A hold key held (down) or released (up). */
     fun holdKey(mod: Importer.Mod, key: ModelManifest.Key, down: Boolean) = save("按键") {
         Control.keyInput(game, mod.name, key.file, key.section, false, -1, if (down) "down" else "up")
-        AppLog.info(game, LOGGER, "按键 ${mod.name} ${key.section} " + if (down) "按住" else "松开")
+        AppLog.info(game, LOGGER, "key-hold ${mod.name} ${key.section}：" + if (down) "按住" else "松开")
     }
     /** Material experiments (debug): read back on every recomposition through `revision`. */
     fun experiment(key: String): Boolean = Control.experiment(game, key)
     fun experimentInt(key: String): Int = Control.experimentInt(game, key)
     fun setExperiment(key: String, value: Any) = save("保存实验设置") {
         Control.setExperiment(game, key, value)
-        AppLog.info(game, LOGGER, "调试实验 $key = $value")
+        AppLog.info(game, LOGGER, "experiment $key = $value")
     }
     /** Texture-only mods: strategy and LOD option (control.json "textureMods"), and a run of the test rounds. */
     fun textureMods(key: String, fallback: String): String = Control.textureMods(game, key, fallback)
     fun setTextureMods(key: String, value: String) = save("保存纯贴图设置") {
         Control.setTextureMods(game, key, value)
-        AppLog.info(game, LOGGER, "纯贴图 $key = $value")
+        AppLog.info(game, LOGGER, "texture-option $key = $value")
     }
     fun textureModsFlag(key: String): Boolean = Control.textureModsFlag(game, key)
     fun setTextureModsFlag(key: String, value: Boolean) = save("保存纯贴图设置") {
         Control.setTextureMods(game, key, value)
-        AppLog.info(game, LOGGER, "纯贴图 $key = $value")
+        AppLog.info(game, LOGGER, "texture-option $key = $value")
     }
     fun startTextureTest() = save("开始轮测") {
         val n = Control.requestTextureTest(game, 4000)
-        AppLog.info(game, LOGGER, "纯贴图轮测 #$n：自动 → 直接改材质 → 克隆材质，各观察 4 秒")
+        AppLog.info(game, LOGGER, "texture-cycle #$n：自动 → 直接改材质 → 克隆材质，各观察 4 秒")
         toast("已开始轮测 #$n，结果见日志 texture-test")
     }
     /** 显示替换 开/关 for a model with its own on/off switch (model.json "replaceWhen"). */
@@ -312,7 +312,7 @@ class AppState(private val activity: Activity) {
             confirm = "确定", dismiss = "取消",
             onConfirm = { save("重新采集骨骼") {
                 Control.requestBoneRefresh(pkg, id)
-                AppLog.info(pkg, LOGGER, "请求重新采集 ${Characters.nameOf(id)}（$id）的骨骼")
+                AppLog.info(pkg, LOGGER, "bone-recapture ${Characters.nameOf(id)}（$id）：已请求重新采集骨骼")
                 toast("已提交，请在大世界切换到${Characters.nameOf(id)}")
             } },
         )
@@ -331,7 +331,7 @@ class AppState(private val activity: Activity) {
         val source = SafSource(activity.contentResolver, uri, activity.cacheDir)
         work("导入 MOD", "正在解压…", { log ->
             val pending = Importer.prepare(source, modsRoot, log)
-            AppLog.info(game, LOGGER, "读取 ${source.name()}：${log.toString().trim()}")
+            AppLog.info(game, LOGGER, "read ${source.name()}：${log.toString().trim()}")
             Pair(pending, source.name())
         }) { (pending, picked) ->
             val name = Importer.suggestName(picked)
@@ -345,14 +345,14 @@ class AppState(private val activity: Activity) {
     fun animationBoneFallback(dir: File?): Boolean = dir?.let { Importer.animationBoneFallback(it) } ?: false
     fun setAnimationBoneFallback(mod: Importer.Mod, enabled: Boolean) = save("保存动画转换实验", needsStorage = false) {
         mod.source?.let { Importer.setAnimationBoneFallback(it, enabled) }
-        AppLog.info(game, LOGGER, "${mod.name} 动画骨骼兼容 = $enabled（下次转换生效）")
+        AppLog.info(game, LOGGER, "animation-compat ${mod.name}：" + (if (enabled) "开" else "关") + "（下次转换生效）")
         toast(if (enabled) "已开启动画骨骼兼容，请重新转换此 MOD" else "已恢复严格检查，请重新转换此 MOD")
     }
     /** Another INI scheme for an imported mod: stored, and converted again if it already was. */
     fun chooseScheme(mod: Importer.Mod, rel: String) {
         val source = mod.source ?: return
         if (rel == scheme(source)) return
-        try { Importer.setScheme(source, rel); AppLog.info(game, LOGGER, "${mod.name} 改用 INI 方案 $rel") }
+        try { Importer.setScheme(source, rel); AppLog.info(game, LOGGER, "ini-scheme ${mod.name} → $rel") }
         catch (e: Throwable) { fail("选择 INI 方案", e, null); return }
         refresh()
         if (mod.converted && mod.id in 10000000..10001999) convert(source, mod.id)
@@ -389,25 +389,25 @@ class AppState(private val activity: Activity) {
     }
     private fun commit(pick: Screen.Pick, pending: File, name: String, id: Int) {
         if (stack.lastOrNull() == pick) closeTop()
-        AppLog.info(game, LOGGER, "导入 ${pick.importedAs} → Mods/$name，角色 ${Characters.nameOf(id)}（$id）")
+        AppLog.info(game, LOGGER, "import ${pick.importedAs} → Mods/$name，角色 ${Characters.nameOf(id)}（$id）")
         convertJob(name) { log -> Importer.convert(Importer.commit(pending, modsRoot, name), id, modelsRoot, boneRoot, decoder, log) }
     }
     /** Re-conversion of an imported mod, for `id`. */
     fun convert(source: File, id: Int) {
-        AppLog.info(game, LOGGER, "转换 ${source.name} 为 ${Characters.nameOf(id)}（$id）")
+        AppLog.info(game, LOGGER, "convert ${source.name} → ${Characters.nameOf(id)}（$id）")
         convertJob(source.name) { log -> Importer.convert(source, id, modelsRoot, boneRoot, decoder, log) }
     }
     private fun convertJob(name: String, job: (StringBuilder) -> Importer.Result) {
         work("转换", "正在转换 $name…\n大的 MOD 可能要一分钟。", { log ->
-            try { job(log).also { AppLog.debug(game, "converter", log.toString().trim()) } }
-            catch (e: Throwable) { AppLog.debug(game, "converter", log.toString().trim()); throw e }
+            try { job(log).also { AppLog.debug(game, "converter", "conversion-log\n" + log.toString().trim()) } }
+            catch (e: Throwable) { AppLog.debug(game, "converter", "conversion-log\n" + log.toString().trim()); throw e }
         }) { r ->
             val model = r.model.name
-            AppLog.info(game, LOGGER, "完成 $model：${r.summary.replace('\n', ' ')}")
+            AppLog.info(game, LOGGER, "converted $model：${r.summary.replace('\n', ' ')}")
             refresh()
             val others = enabledWith(model, r.id)
             if (others.isEmpty()) {
-                try { enable(model, emptyList()) } catch (e: Throwable) { AppLog.warning(game, LOGGER, "启用失败：$e") }
+                try { enable(model, emptyList()) } catch (e: Throwable) { AppLog.warning(game, LOGGER, "enable-error 启用失败：$e") }
                 refresh()
                 prompt = Prompt("导入完成", "${label(model)}\n${r.summary}\n\n已启用。游戏运行中也会自动载入。")
             } else {
@@ -423,20 +423,20 @@ class AppState(private val activity: Activity) {
         prompt = Prompt(
             title = "一键重新转换", text = "按各自的角色重新转换 ${list.size} 个 MOD，可能要几分钟。", confirm = "开始", dismiss = "取消",
             onConfirm = {
-                AppLog.info(game, LOGGER, "一键重新转换 ${list.size} 个 MOD")
+                AppLog.info(game, LOGGER, "reconvert-all ${list.size} 个 MOD")
                 work("重新转换", "正在重新转换 ${list.size} 个 MOD…", { _ ->
                     val failed = ArrayList<String>()
                     list.forEachIndexed { i, mod ->
                         val name = label(mod.name)
                         activity.runOnUiThread { busy = Busy("重新转换", "${i + 1} / ${list.size}：$name") }
                         val log = StringBuilder()
-                        try { Importer.convert(mod.source, mod.id, modelsRoot, boneRoot, decoder, log); AppLog.debug(game, "converter", log.toString().trim()) }
-                        catch (e: Throwable) { AppLog.debug(game, "converter", log.toString().trim()); AppLog.warning(game, LOGGER, "重新转换 ${mod.name} 失败：$e"); failed.add("$name：${e.message ?: e}") }
+                        try { Importer.convert(mod.source, mod.id, modelsRoot, boneRoot, decoder, log); AppLog.debug(game, "converter", "conversion-log\n" + log.toString().trim()) }
+                        catch (e: Throwable) { AppLog.debug(game, "converter", "conversion-log\n" + log.toString().trim()); AppLog.warning(game, LOGGER, "reconvert-error ${mod.name}：$e"); failed.add("$name：${e.message ?: e}") }
                     }
                     failed
                 }) { failed ->
                     refresh()
-                    AppLog.info(game, LOGGER, "一键重新转换完成：成功 ${list.size - failed.size}，失败 ${failed.size}")
+                    AppLog.info(game, LOGGER, "reconvert-done 成功 ${list.size - failed.size}，失败 ${failed.size}")
                     prompt = Prompt("重新转换完成", "成功 ${list.size - failed.size} 个" + if (failed.isEmpty()) "。" else "，失败 ${failed.size} 个：\n" + failed.joinToString("\n"))
                 }
             },
@@ -475,7 +475,7 @@ class AppState(private val activity: Activity) {
             title = "删除 ${label(mod.name)}", text = "删除 Mods 里的这份 MOD 和转换好的模型？导入时选的原文件不受影响。",
             confirm = "删除", dismiss = "取消", destructive = true,
             onConfirm = {
-                try { Control.disable(game, mod.name); Importer.delete(mod, modelsRoot); Labels.set(labelsFile, mod.name, null); AppLog.info(game, LOGGER, "删除 ${mod.name}") }
+                try { Control.disable(game, mod.name); Importer.delete(mod, modelsRoot); Labels.set(labelsFile, mod.name, null); AppLog.info(game, LOGGER, "mod-delete ${mod.name}") }
                 catch (e: Throwable) { fail("删除", e, null) }
                 if (stack.lastOrNull() == Screen.Detail(mod.name)) closeTop()
                 refresh()
@@ -488,7 +488,7 @@ class AppState(private val activity: Activity) {
         val dest = File(modelsRoot, name)
         if (dest.exists()) { prompt = Prompt("错误", "输出目录已经存在，请换一个模型名：$dest"); return }
         work("手动转换", "正在转换…", { log -> ModelConverter.convert(File(src), File(bones), dest, id, mapping, variants, decoder, log) }) { out ->
-            AppLog.info(game, "converter", "手动转换完成：$out")
+            AppLog.info(game, "converter", "manual-convert-done $out")
             refresh()
             prompt = Prompt("转换结束", out.joinToString("\n"))
         }
@@ -498,7 +498,7 @@ class AppState(private val activity: Activity) {
     fun launch() {
         val intent = activity.packageManager.getLaunchIntentForPackage(game)
         if (intent == null) { prompt = Prompt("错误", "没有找到游戏：$game\n（没有安装，或者在设置里选错了服务器）"); return }
-        AppLog.info(game, "app", "启动 $game")
+        AppLog.info(game, "app", "launch $game")
         activity.startActivity(intent)
     }
     fun grantStorage() {
@@ -624,7 +624,7 @@ class AppState(private val activity: Activity) {
         }
     }
     fun fail(what: String, e: Throwable, log: StringBuilder?) {
-        AppLog.error(game, LOGGER, "${what}失败：$e")
+        AppLog.error(game, LOGGER, "action-error ${what}失败：$e")
         val details = if (log != null && log.isNotEmpty()) "\n\n" + log.toString().trim() else ""
         prompt = Prompt("错误", "${what}失败：${e.message ?: e.toString()}$details\n\n日志文件：$logFile")
     }

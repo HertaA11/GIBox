@@ -40,7 +40,7 @@ final class TextureMod {
             List<Object> textures = new ArrayList<>(); Set<String> decoded = new HashSet<>(); long bytes = 0; int n = 0;
             for (Object raw : (List<?>) doc.get("resources")) {
                 @SuppressWarnings("unchecked") Map<String, Object> r = (Map<String, Object>) raw; String name = (String) r.get("name");
-                if (!Boolean.TRUE.equals(r.get("exists"))) { log.append("贴图 ").append(name).append(" 没有文件").append(r.get("error") == null ? "" : "：" + r.get("error")).append("，用到它的规则跳过\n"); continue; }
+                if (!Boolean.TRUE.equals(r.get("exists"))) { log.append("贴图 ").append(name).append(" 没有文件").append(r.get("error") == null ? "" : "：" + r.get("error")).append("，跳过引用它的规则\n"); continue; }
                 try {
                     File f = TextureDiag.resolve(base, (String) r.get("file")); String ext = f.getName().toLowerCase(Locale.ROOT);
                     check(ext.endsWith(".dds") || ext.endsWith(".png"), "只支持 DDS / PNG：" + f.getName()); check(f.length() <= 256L << 20, "贴图过大：" + f.getName());
@@ -57,14 +57,14 @@ final class TextureMod {
                     textures.add(Json.of("resource", name, "file", file, "width", w, "height", y, "bytes", (long) pixels.length,
                         "source", Json.of("file", r.get("file"), "width", sw, "height", sh, "format", r.get("format") == null ? "" : r.get("format"))));
                     log.append("贴图 ").append(name).append("：").append(sw).append("x").append(sh).append(sw != w ? " 缩到 " + w + "x" + y : "").append("（RGBA，").append(pixels.length >> 10).append(" KiB）\n");
-                } catch (Exception e) { log.append("贴图 ").append(name).append(" 读不了：").append(e.getMessage()).append("，用到它的规则跳过\n"); }
+                } catch (Exception e) { log.append("贴图 ").append(name).append(" 无法读取：").append(e.getMessage()).append("，跳过引用它的规则\n"); }
             }
             // The game side writes diffuse (_MainTex) and lightmap (_LightMapTex) only; anything else is diagnosed, not written.
             int usable = 0, rules = 0;
             for (Object raw : (List<?>) doc.get("rules")) { Map<?, ?> r = (Map<?, ?>) raw; if ("control".equals(r.get("kind"))) continue; rules++; boolean any = false;
                 for (Object t : (List<?>) r.get("textures")) { Map<?, ?> b = (Map<?, ?>) t; any = any || (("diffuse".equals(b.get("role")) || "lightmap".equals(b.get("role"))) && decoded.contains(b.get("resource"))); }
                 if (any) usable++; }
-            check(usable > 0, "纯贴图 MOD 里没有能写入的贴图：" + rules + " 条规则都不是能确认的 diffuse / lightmap，或它们的贴图读不了");
+            check(usable > 0, "纯贴图 MOD 里没有能写入的贴图：" + rules + " 条规则都不是能确认的 diffuse / lightmap，或其贴图无法读取");
             List<Object> vars = new ArrayList<>(); Map<String, Object> defaults = new LinkedHashMap<>();
             for (Object raw : (List<?>) doc.get("variables")) { Map<?, ?> v = (Map<?, ?>) raw; List<?> values = (List<?>) v.get("values"); if (values == null || values.isEmpty() || values.size() > 64 || vars.size() >= 16) continue;
                 String name = (String) v.get("name"); Object initial = v.get("initial"); vars.add(Json.of("name", name, "values", new ArrayList<Object>(values)));

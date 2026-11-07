@@ -139,10 +139,10 @@ public class ImporterTest {
   Outfits.use(table);File omodels=new File(base,"模型-外观");omodels.mkdirs();
   ok(Importer.guessOutfit(shm,10000063,ob).outfit==ff,"the picker's suggestion");
   Importer.setOutfit(shm,"avatar_lady_pole_shenhe");boolean refused=false;
-  try{Importer.convert(shm,10000063,omodels,ob,dec,new StringBuilder());}catch(IllegalArgumentException e){refused=e.getMessage().contains("这个 MOD 是「冷花幽露」的")&&e.getMessage().contains("83a9116d")&&e.getMessage().contains("选的是「原皮」");}
+  try{Importer.convert(shm,10000063,omodels,ob,dec,new StringBuilder());}catch(IllegalArgumentException e){refused=e.getMessage().contains("此 MOD 适用于「冷花幽露」")&&e.getMessage().contains("83a9116d")&&e.getMessage().contains("所选外观为「原皮」");}
   ok(refused&&!new File(omodels,"ShenheFF").exists(),"a Frostflower Dew mod is refused as the original look");
   Importer.setOutfit(shm,null);StringBuilder olog=new StringBuilder();r=Importer.convert(shm,10000063,omodels,ob,dec,olog);
-  ok(r.library&&olog.toString().contains("外观：冷花幽露（avatar_lady_pole_shenhecostumedai）；MOD 的 INI 哈希认出是这套：83a9116d")&&olog.toString().contains("使用骨骼库："+new File(new File(ob,"10000063"),ff.prefab))&&r.summary.startsWith("申鹤·冷花幽露（10000063）"),"converted for the skin with its library: "+olog);
+  ok(r.library&&olog.toString().contains("外观：冷花幽露（avatar_lady_pole_shenhecostumedai）；依据 INI 哈希识别：83a9116d")&&olog.toString().contains("使用骨骼库："+new File(new File(ob,"10000063"),ff.prefab))&&r.summary.startsWith("申鹤·冷花幽露（10000063）"),"converted for the skin with its library: "+olog);
   ok(ModelManifest.read(new File(omodels,"ShenheFF")).outfit.equals(ff.prefab)&&Importer.outfit(shm)==null,"model.json names the outfit");
   Outfits.use(null);
   System.out.println("Importer: PASS (outfit table, outfit by INI hash, library per outfit, a skin mod refused as the original and converted for its skin, lower-LOD library records and models, mod names, unreadable models listed, 7.1 character table, search by ID/name, recommended character first, folder/zip staging, picker prepare/commit/discard, zip-slip guard, bone-library and ID conversion, character change, Mods list, delete, XXMI log line and levels)");

@@ -100,7 +100,7 @@ inline float evaluate(const Node& n,Context& c){
    case Op::Floor:return std::floor(r);case Op::Trunc:return std::trunc(r);case Op::Round:return std::round(r);case Op::Frac:return r-std::floor(r);
    case Op::Sqrt:return std::sqrt(r);case Op::Rsqrt:return float(1.0/std::sqrt(r));case Op::Exp:return std::exp(r);case Op::Exp2:return std::exp2(r);
    case Op::Log:return std::log(r);case Op::Log2:return std::log2(r);case Op::Saturate:return float(std::max(0.0,std::min(double(r),1.0)));
-   case Op::Random:return c.randomValue(r);default:throw std::logic_error("unary operator");}}
+   case Op::Random:return c.randomValue(r);default:throw std::logic_error("未知的一元运算符");}}
   case Node::Binary:{float l=evaluate(*n.lhs,c),r=evaluate(*n.rhs,c);switch(n.op){
    case Op::Pow:return std::pow(l,r);case Op::Mul:return l*r;case Op::Div:return l/r;case Op::FloorDiv:return std::floor(l/r);case Op::Mod:return std::fmod(l,r);
    case Op::Add:return l+r;case Op::Sub:return l-r;
@@ -108,7 +108,7 @@ inline float evaluate(const Node& n,Context& c){
    case Op::Lt:return l<r;case Op::Le:return l<=r;case Op::Gt:return l>r;case Op::Ge:return l>=r;case Op::Eq:return l==r;case Op::Ne:return l!=r;
    case Op::Same:return bitsOf(l)==bitsOf(r);case Op::NotSame:return bitsOf(l)!=bitsOf(r);
    case Op::BitAnd:return float(toInt32(l)&toInt32(r));case Op::BitXor:return float(toInt32(l)^toInt32(r));case Op::BitOr:return float(toInt32(l)|toInt32(r));
-   case Op::And:return l!=0&&r!=0;case Op::Or:return l!=0||r!=0;default:throw std::logic_error("binary operator");}}}
+   case Op::And:return l!=0&&r!=0;case Op::Or:return l!=0||r!=0;default:throw std::logic_error("未知的二元运算符");}}}
  return 0;}
 
 // Upstream ParseFloatToken: "0b" binary, otherwise wcstof (decimal, 0x hex, inf, nan); overflow becomes infinity.
@@ -155,7 +155,7 @@ inline Expression parseExpression(const std::string& text,const Resolver& resolv
  struct Item {enum Type {Token,Leaf,Group,Oper} type=Token;std::string token;size_t pos=0;std::unique_ptr<Node> leaf;std::vector<Item> group;Op op=Op::Add;
   std::unique_ptr<Item> l,r;bool operand()const{return type!=Token;}};
  std::vector<Item> items;size_t pos=0;
- auto allowed=[&](bool ok,size_t p,const std::string& what){if(!inList&&!ok)throw SyntaxError(what+" is not allowed outside a command list",p);};
+ auto allowed=[&](bool ok,size_t p,const std::string& what){if(!inList&&!ok)throw SyntaxError(what+" 不能在命令列表之外使用",p);};
  while(true){
   pos=text.find_first_not_of(" \t",pos);if(pos==std::string::npos)break;std::string rest=text.substr(pos);bool matched=false;
   for(auto* t:operatorTokens()){size_t n=std::strlen(t);if(rest.compare(0,n,t)==0){Item it;it.token=t;it.pos=pos;items.push_back(std::move(it));pos+=n;matched=true;break;}}
@@ -164,35 +164,35 @@ inline Expression parseExpression(const std::string& text,const Resolver& resolv
   if(matched)continue;
   auto node=std::make_unique<Node>();node->pos=pos;size_t len=0;
   if(std::isdigit((unsigned char)rest[0])||rest[0]=='.'){
-   if(!parseFloatToken(rest,node->value,len))throw SyntaxError("Float not recognized: "+rest,pos);
+   if(!parseFloatToken(rest,node->value,len))throw SyntaxError("无法识别的浮点数："+rest,pos);
   }else if(rest[0]=='$'){
-   if(startsWith(rest,"$pool"))throw SyntaxError("Resource pool variables are not supported: "+rest,pos);
-   len=variableTokenEnd(rest);Var* v=resolve(rest.substr(0,len));if(!v)throw SyntaxError("Variable not recognized: "+rest.substr(0,len),pos);
+   if(startsWith(rest,"$pool"))throw SyntaxError("不支持资源池变量："+rest,pos);
+   len=variableTokenEnd(rest);Var* v=resolve(rest.substr(0,len));if(!v)throw SyntaxError("无法识别的变量："+rest.substr(0,len),pos);
    node->kind=Node::Variable;node->var=v;
   }else{
    while(len<rest.size()&&identifierChar(rest[len]))len++;
    std::string word=rest.substr(0,len);size_t slotLen=len;while(slotLen<rest.size()&&(identifierChar(rest[slotLen])||rest[slotLen]=='-'))slotLen++;
-   if(!word.empty()&&slotName(word)){node->kind=Node::Slot;node->slot=word;allowed(false,pos,"A texture filter");}
+   if(!word.empty()&&slotName(word)){node->kind=Node::Slot;node->slot=word;allowed(false,pos,"贴图过滤");}
    else if(!word.empty()&&iniParam(word,node->index,node->comp))node->kind=Node::Param;
    else if(const Keyword* k=word.empty()?nullptr:keyword(word)){node->kind=Node::Key;node->key=k;allowed(k->outsideLists,pos,word);}
    else if(!word.empty()&&parseFloatToken(rest,node->value,len)){}   // inf, nan
-   else if(slotName(rest.substr(0,slotLen))){node->kind=Node::Slot;node->slot=rest.substr(0,slotLen);len=slotLen;allowed(false,pos,"A texture filter");}
-   else throw SyntaxError("Unsupported operand (resource targets, pools, shaders and scissor operands are not ported): "+rest,pos);
+   else if(slotName(rest.substr(0,slotLen))){node->kind=Node::Slot;node->slot=rest.substr(0,slotLen);len=slotLen;allowed(false,pos,"贴图过滤");}
+   else throw SyntaxError("不支持的操作数（资源目标、资源池、着色器和裁剪操作数未移植）："+rest,pos);
   }
   Item it;it.type=Item::Leaf;it.pos=pos;it.leaf=std::move(node);items.push_back(std::move(it));pos+=len;}
  // Parentheses: each ")" closes the nearest "(" before it.
  for(size_t i=0;i<items.size();i++){if(items[i].type!=Item::Token||items[i].token!=")")continue;size_t open=i;bool found=false;
   while(open>0){open--;if(items[open].type==Item::Token&&items[open].token=="("){found=true;break;}}
-  if(!found)throw SyntaxError("Unmatched )",items[i].pos);
+  if(!found)throw SyntaxError("多余的 )",items[i].pos);
   Item g;g.type=Item::Group;g.pos=items[open].pos;for(size_t k=open+1;k<i;k++)g.group.push_back(std::move(items[k]));
   items.erase(items.begin()+long(open),items.begin()+long(i)+1);items.insert(items.begin()+long(open),std::move(g));i=open;}
- for(auto& it:items)if(it.type==Item::Token&&it.token=="(")throw SyntaxError("Unmatched (",it.pos);
+ for(auto& it:items)if(it.type==Item::Token&&it.token=="(")throw SyntaxError("未闭合的 (",it.pos);
  auto oper=[](Item& at,Op op,Item* l,Item* r){Item n;n.type=Item::Oper;n.op=op;n.pos=at.pos;if(l)n.l=std::make_unique<Item>(std::move(*l));n.r=std::make_unique<Item>(std::move(*r));return n;};
  std::function<void(std::vector<Item>&,int)> pass;
  std::function<void(Item&,int)> into=[&](Item& it,int which){if(it.type==Item::Group)pass(it.group,which);else if(it.type==Item::Oper){if(it.l)into(*it.l,which);into(*it.r,which);}};
  pass=[&](std::vector<Item>& list,int which){
   for(auto& it:list)into(it,which);
-  if(list.empty())throw SyntaxError("Expression inside parentheses must not be empty",0);
+  if(list.empty())throw SyntaxError("括号内的表达式不能为空",0);
   if(which<0){   // unary operators and functions, right to left, where the right neighbour is an operand and the left one is not
    for(long i=long(list.size())-2;i>=0;i--){Item& t=list[size_t(i)];if(t.operand()||!list[size_t(i)+1].operand()||(i>0&&list[size_t(i)-1].operand()))continue;
     const OpName* f=nullptr;for(auto& u:unaryOps())if(t.token==u.text){f=&u;break;}if(!f)continue;
@@ -210,9 +210,9 @@ inline Expression parseExpression(const std::string& text,const Resolver& resolv
  std::function<std::unique_ptr<Node>(Item&)> finish=[&](Item& it)->std::unique_ptr<Node>{
   if(it.type==Item::Leaf)return std::move(it.leaf);
   if(it.type==Item::Group)return single(it.group);
-  if(it.type==Item::Token)throw SyntaxError("Non-evaluatable",it.pos);
+  if(it.type==Item::Token)throw SyntaxError("无法求值",it.pos);
   auto n=std::make_unique<Node>();n->kind=it.l?Node::Binary:Node::Unary;n->op=it.op;n->pos=it.pos;if(it.l)n->lhs=finish(*it.l);n->rhs=finish(*it.r);return n;};
- single=[&](std::vector<Item>& list)->std::unique_ptr<Node>{if(list.empty())throw SyntaxError("Empty expression",0);if(list.size()>1)throw SyntaxError("Unexpected",list[1].pos);return finish(list[0]);};
+ single=[&](std::vector<Item>& list)->std::unique_ptr<Node>{if(list.empty())throw SyntaxError("表达式为空",0);if(list.size()>1)throw SyntaxError("意外的内容",list[1].pos);return finish(list[0]);};
  Expression e;e.text=text;e.root=single(items);return e;}
 
 // Upstream static_evaluate(evaluate_variables=true): values, variables, ini params and the frame clock; anything

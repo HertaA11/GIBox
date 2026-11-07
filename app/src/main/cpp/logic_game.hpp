@@ -119,8 +119,8 @@ public:
  const migoto::Diagnostics& diagnostics()const{return engine.diag;}
  const migoto::Engine& core()const{return engine;}
  std::string summary()const{size_t lim=engine.diag.count(migoto::Diagnostic::Limitation),warn=engine.diag.count(migoto::Diagnostic::Warning);
-  return std::to_string(spec.files.size())+" INI, "+std::to_string(engine.globals.size())+" globals, "+std::to_string(spec.resources.size())+" resources, "+std::to_string(passes.size())+" draws per frame, "+std::to_string(spec.choices.size())+" prebuilt choices; "
-   +std::to_string(warn)+" warnings, "+std::to_string(lim)+" limitations";}
+  return "INI "+std::to_string(spec.files.size())+" 个，全局变量 "+std::to_string(engine.globals.size())+" 个，资源 "+std::to_string(spec.resources.size())+" 个，每帧绘制 "+std::to_string(passes.size())+" 次，预先转换的选项 "+std::to_string(spec.choices.size())+" 个；"
+   +"警告 "+std::to_string(warn)+" 条，限制 "+std::to_string(lim)+" 条";}
 private:
  const LogicSpec& spec;migoto::Engine engine;std::vector<migoto::Session::Pass> passes;
  std::map<std::string,migoto::DrawResult> current;int matched=-1;bool clock=false;uint32_t last=0;std::set<std::string> restored;
@@ -140,8 +140,8 @@ private:
   for(size_t f=0;f<spec.choices.size();f++)if(fits(f)){matched=int(f);return;}
   // No frame has this selection: name the closest frame (most parts equal) and each part that differs.
   stats.misses++;size_t best=0,bestSame=0;for(size_t f=0;f<spec.choices.size();f++){size_t same=0;for(auto& d:spec.choices[f])same+=now[d.first]==d.second;if(same>bestSame||f==0){best=f;bestSame=same;}}
-  miss="closest prebuilt frame index "+std::to_string(best)+" ("+std::to_string(bestSame)+" of "+std::to_string(now.size())+" parts equal)";
-  if(!spec.choices.empty())for(auto& d:spec.choices[best])if(now[d.first]!=d.second){auto shorten=[](const std::string& t){return t.size()>400?t.substr(0,400)+"...":t;};miss+="; "+d.first+": prebuilt "+shorten(d.second)+" selected "+shorten(now[d.first]);}}
+  miss="最接近的预先转换帧为第 "+std::to_string(best)+" 帧（"+std::to_string(now.size())+" 个部件中 "+std::to_string(bestSame)+" 个相同）";
+  if(!spec.choices.empty())for(auto& d:spec.choices[best])if(now[d.first]!=d.second){auto shorten=[](const std::string& t){return t.size()>400?t.substr(0,400)+"...":t;};miss+="；"+d.first+"：预先转换的为 "+shorten(d.second)+"，当前选中 "+shorten(now[d.first]);}}
 };
 
 }  // namespace ms

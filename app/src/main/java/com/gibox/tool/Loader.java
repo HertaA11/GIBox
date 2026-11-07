@@ -56,15 +56,15 @@ final class Loader {
                         extract(zip, "lib/arm64-v8a/libgibox.so", library);
                     }
                     library.setReadable(true, true); library.setExecutable(true, true);
-                    log.log("GIBox: libgibox.so extracted (" + library.length() + " bytes), loading", null);
+                    log.log("GIBox library-extracted libgibox.so，" + library.length() + " 字节，开始加载", null);
                     NativeBridge.loadModule(library.getAbsolutePath());
-                    log.log("GIBox: libgibox.so loaded, starting the runtime", null);
+                    log.log("GIBox library-loaded libgibox.so 已加载，启动运行时", null);
                     // Mods are imported and converted in the app; the game only loads finished models (no scanning here).
                     NativeBridge.start(context.getPackageName(),privateDir.getAbsolutePath());
-                    log.log("GIBox: runtime loaded for " + context.getPackageName(), null);
+                    log.log("GIBox runtime-loaded 游戏 " + context.getPackageName(), null);
                 } catch (Throwable e) {
                     loading.set(false);
-                    try { log.log("GIBox: runtime not loaded", e); } catch (Throwable ignored) {}
+                    try { log.log("GIBox runtime-error 运行时未加载", e); } catch (Throwable ignored) {}
                     try { privateDir.mkdirs(); Files.write(new File(privateDir, "bootstrap-error.txt").toPath(), e.toString().getBytes(StandardCharsets.UTF_8)); } catch (Exception ignored) {}
                 }
             }

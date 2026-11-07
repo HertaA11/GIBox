@@ -297,7 +297,7 @@ public final class ModelConverter {
             check(more.size()<=MAX_ASSIGNMENTS,"脸部贴图条件的取值组合过多");assignments=more;}
         for(int i=0;i<assignments.size();i++){Map<String,Integer> a=assignments.get(i);Resource f=faceTexture(ini,a,resources(ini,src,a));
             if(i==0)face=f;else varies|=(face==null)!=(f==null)||face!=null&&!face.file.equals(f.file);}
-        if(varies){log.append("脸部贴图随款式或动画帧变化，暂不导入；脸保持游戏原版\n");return null;}
+        if(varies){log.append("脸部贴图随款式或动画帧变化，暂不导入，脸部保持游戏原版\n");return null;}
         if(face!=null)log.append("脸部贴图：").append(face.file.getName()).append(" -> 游戏的 ").append(FACE_RENDERER).append(" 渲染器（只换贴图，不换脸部网格）\n");
         return face;}
     /** The texture swap entry of model.json, its material added to the build. */
@@ -723,7 +723,7 @@ public final class ModelConverter {
             for(File f:files){String body=ModConfig.source(f);String ns=logicNamespace(src,placed(ini,src,f),body);list.add(Json.of("namespace",ns,"text",body));if(f.getCanonicalFile().equals(ini.file.getCanonicalFile()))main=ns;}
             check(main!=null,why+"；逻辑核心预演：主 INI 不在 XXMI 会加载的文件里");
             Map<String,Object> j=Json.obj(Json.parse(r.run(Json.write(Json.of("main",main,"files",list)))),"预演结果");
-            if(!Boolean.TRUE.equals(j.get("ok"))){String m=why+"；逻辑核心预演也不能确定："+j.get("reason");if(Boolean.TRUE.equals(j.get("external")))throw new Driven(m);throw new IllegalArgumentException(m);}
+            if(!Boolean.TRUE.equals(j.get("ok"))){String m=why+"；逻辑核心预演也无法确定："+j.get("reason");if(Boolean.TRUE.equals(j.get("external")))throw new Driven(m);throw new IllegalArgumentException(m);}
             Animation a=new Animation();
             for(Object x:Json.arr(j.get("frames"),"预演 frames",1,64)){Map<String,Integer> m=new LinkedHashMap<>();for(Map.Entry<String,Object> e:Json.obj(x,"预演 frame").entrySet()){check(e.getKey().startsWith("$"),"预演变量："+e.getKey());m.put(e.getKey(),(int)Json.integer(e.getValue(),e.getKey(),-1000000,1000000));}a.assignments.add(m);}
             if(a.assignments.size()<2)return null;
@@ -733,7 +733,7 @@ public final class ModelConverter {
             for(Object p:Json.arr(j.get("phases"),"phases",0,4096)){Map<String,Object> ph=Json.obj(p,"phase");t.append("；").append(ph.get("var")).append(" 只按取余使用，按相位（模 ").append(ph.get("modulus")).append("）比较");}
             List<Object> keys=Json.arr(j.get("keys"),"keys",0,4096);if(!keys.isEmpty())t.append("；探索了按键 ").append(keys).append("，其中 ").append(j.get("keyFrames")).append(" 帧只有按键能到");
             for(Object n:Json.arr(j.get("notes"),"notes",0,4096))t.append("；").append(n);
-            t.append("；为什么不走取余循环：").append(why);a.rehearsal=t.toString();return a;}
+            t.append("；未采用取余循环的原因：").append(why);a.rehearsal=t.toString();return a;}
         static double number(Ini ini,String expression){String x=lower(expression.trim());Double n=x.startsWith("$")?ini.numbers.get(x):Double.valueOf(x);check(n!=null&&Double.isFinite(n),"动画常量无效："+expression);return n;}
         static int integer(Ini ini,String x){double n=number(ini,x);check(n==Math.rint(n)&&Math.abs(n)<=1000000,"动画帧号必须是整数："+x);return (int)n;}
         static Animation parse(Ini ini){
@@ -750,7 +750,7 @@ public final class ModelConverter {
                     if(x.substring(eq+1).contains("$")||open.contains(Boolean.TRUE))dynamic=true;}}
             if(!dynamic)return null;
             List<String> lines=new ArrayList<>();for(String l:present.lines)lines.add(lower(l).replaceAll("\\s+",""));
-            String why="暂不支持这个 Present 动画程序；当前支持按计数器取余、递增帧号并循环的模型动画，不能当作普通款式合并";
+            String why="暂不支持此 Present 动画程序；目前仅支持按计数器取余、递增帧号并循环的模型动画，无法作为普通款式合并";
             check(lines.size()==8,why);
             Matcher timing=Pattern.compile("if(\\$[a-z_][a-z0-9_]*)%(.+)==0").matcher(lines.get(0));
             Matcher bound=Pattern.compile("if(\\$[a-z_][a-z0-9_]*)<(.+)").matcher(lines.get(1));
@@ -907,7 +907,7 @@ public final class ModelConverter {
         List<Object> files=new ArrayList<>();for(int i=0;i<L.files.size();i++)files.add(Json.of("namespace",L.namespaces.get(i),"text",L.texts.get(i)));
         Map<String,Object> v=new LinkedHashMap<>();for(Map.Entry<String,Integer> e:vars.entrySet())v.put(e.getKey(),(long)e.getValue());
         Map<String,Object> reply=Json.obj(Json.parse(core.run(Json.write(Json.of("main",L.mainNs,"files",files,"vars",v,"passes",L.passes)))),"3dm 后端结果");
-        check(Boolean.TRUE.equals(reply.get("ok")),"逻辑核心不能运行这个 INI："+reply.get("reason"));
+        check(Boolean.TRUE.equals(reply.get("ok")),"逻辑核心无法运行此 INI："+reply.get("reason"));
         Map<String,Map<String,Object>> byName=new LinkedHashMap<>();for(Object x:Json.arr(reply.get("passes"),"passes",1,256)){Map<String,Object> p=Json.obj(x,"pass");byName.put((String)p.get("name"),p);}
         String prefix="resource\\"+lower(L.mainNs)+"\\";List<Draw> out=new ArrayList<>();
         for(Object raw:L.passes){Map<String,Object> pass=Json.obj(raw,"pass");String part=(String)pass.get("name");if(part.equals("skin"))continue;Map<String,Object> got=byName.get(part);check(got!=null,"缺少绘制结果："+part);
@@ -1042,9 +1042,9 @@ public final class ModelConverter {
                     Build b=new Build();b.animationBoneFallback=o.animationBoneFallback;b.materials.putAll(registry.materials);
                     try{collect(ini,src,bones,mapping,vars,0,b,log,o.fallback);}
                     catch(IllegalArgumentException ex){if(o.animationBoneFallback||ex.getMessage()==null||!ex.getMessage().startsWith("骨骼索引越界"))throw ex;
-                        throw new IllegalArgumentException(ex.getMessage()+"。手机上这个角色的骨骼里没有这些编号；如果它们在 PC 上本就不起作用，可在设置里把日志级别设为“调试”，到此 MOD 详情的“动画转换实验”打开“忽略越界骨骼关联”再重新转换（实验：去掉库外关联、其余权重重新归一化，不保证与 PC 等价）",ex);}
+                        throw new IllegalArgumentException(ex.getMessage()+"。手机上此角色的骨骼中没有这些编号；如果它们在 PC 上本就不起作用，可在设置中将日志级别设为“调试”，在此 MOD 详情的“动画转换实验”中打开“忽略越界骨骼关联”后重新转换（实验：去掉库外关联、其余权重重新归一化，不保证与 PC 等价）",ex);}
                     check(!b.groups.isEmpty(),"动画帧没有有效模型绘制："+frame);
-                    for(Group g:b.groups.values())if(g.extraBones.vertices>0)log.append("animation-bone-fallback frame=").append(frame).append(' ').append(g.name).append(": ").append(g.extraBones.summary()).append('\n');
+                    for(Group g:b.groups.values())if(g.extraBones.vertices>0)log.append("animation-bone-fallback 帧 ").append(frame).append("，部件 ").append(g.name).append("：").append(g.extraBones.summary()).append('\n');
                     Variation one=new Variation(ini,new ArrayList<>(),new ArrayList<>());for(Group g:b.groups.values()){fixUnweighted(g);WeightOrder order=weights.get(g.name);if(order==null)weights.put(g.name,new WeightOrder(g.vertices));else if(!order.align(g))animation.stableWeights=false;g.draws=drawTable(g,one,new int[]{0},1,new HashSet<>());g.compact.clear();g.ranges.clear();}b.cache.clear();
                     List<Object> parts=emitParts(b,blob);StringBuilder key=new StringBuilder();for(Object raw:parts){Map<String,Object> p=Json.obj(raw,"part");key.append(p.get("name")).append('|').append(p.get("renderer")).append('|').append(p.get("vertices")).append('|').append(p.get("bones")).append(Json.obj(p.get("data"),"data").keySet());
                         for(Object dr:Json.arr(p.get("draws"),"draws",1,64)){Map<String,Object> d=Json.obj(dr,"draw");key.append('|').append(d.get("material")).append('#').append(d.get("slot"));}}
@@ -1150,7 +1150,7 @@ public final class ModelConverter {
                  for(int t=0;t<(all?na*nb:8)&&bad==null;t++){Map<Integer,Integer> set=new LinkedHashMap<>();set.put(a,all?t/nb:rnd.nextInt(na));set.put(b,all?t%nb:rnd.nextInt(nb));if(!consistent(ini,var,sig,set,sigOf0))bad=new int[]{a,b};}}
             if(bad!=null){List<String> merged=new ArrayList<>(named.get(bad[0]));merged.addAll(named.get(bad[1]));named.remove(bad[1]);named.set(bad[0],merged);continue;}
             boolean ok=true;for(int t=0;t<16&&ok;t++){Map<Integer,Integer> set=new LinkedHashMap<>();for(int g=0;g<groups.size();g++)if(rnd.nextBoolean())set.put(g,rnd.nextInt(var.size(g)));ok=consistent(ini,var,sig,set,sigOf0);}
-            if(!ok){log.append("款式变量之间相互影响（同时改几组时画出的内容和分别改时对不上），无法分组处理，只转换默认款式\n");named.clear();continue;}
+            if(!ok){log.append("款式变量之间相互影响（同时修改多组时的绘制结果与分别修改时不一致），无法分组处理，仅转换默认款式\n");named.clear();continue;}
             break;}
         List<Map<String,Integer>> kept=new ArrayList<>();Map<String,Integer> sigIndex=new LinkedHashMap<>();int[] sigOf=new int[var.runs.size()];
         for(int i=0;i<var.runs.size();i++){Integer c=sigIndex.get(sig[i]);if(c==null){c=kept.size();sigIndex.put(sig[i],c);kept.add(var.runs.get(i));}sigOf[i]=c;}
@@ -1191,9 +1191,9 @@ public final class ModelConverter {
             // A program that follows the game: every outfit its draws can show is converted, and the logic core picks
             // among them in the game (real clock, the App's keys). Without outfits to pick it would show only the start.
             if(driven!=null){check(!shown.isEmpty(),driven+"；也没有可在游戏里选择的款式变量，只能显示初始状态，所以不转换");
-                log.append("Present 程序跟随游戏（时钟、游戏的绘制等），预演不出播放顺序：按款式变量的全部取值转换；打开实验开关“逻辑核心驱动”时，进游戏由逻辑核心按真实时间和 App 里的按键选择款式；关闭时按款式表手动切换。原因：").append(driven).append('\n');}
+                log.append("Present 程序跟随游戏（时钟、游戏的绘制等），无法预演播放顺序：按款式变量的全部取值转换；打开实验开关“逻辑核心驱动”时，进游戏由逻辑核心按真实时间和 App 里的按键选择款式；关闭时按款式表手动切换。原因：").append(driven).append('\n');}
             if(!shown.isEmpty()){Map<String,Object> logic=logicVariants(ini,src,kept,shown,map,tmp,log);if(logic!=null){if(driven!=null)logic.put("driven",true);manifest.put("logic",logic);}
-                else if(driven!=null)log.append("逻辑核心数据写不出（见上面的原因）：这套 MOD 只能按款式表手动切换\n");}
+                else if(driven!=null)log.append("逻辑核心数据未写入（原因见上）：此 MOD 只能按款式表手动切换\n");}
             if(replaceWhen!=null){manifest.put("version",3);manifest.put("replaceWhen",replaceWhen);log.append("未启用几何替换的款式保留游戏原模型和材质；此模型需要支持格式 3 的 GIBox\n");}
             if(o.sourcePath!=null)manifest.put("source",Json.of("path",o.sourcePath,"signature",o.sourceSignature==null?"":o.sourceSignature));
             write(tmp,"conversion.log",text(log.toString()));
