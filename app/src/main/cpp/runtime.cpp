@@ -650,6 +650,34 @@ struct Runtime::Impl {
   if(!near){texQuickNo.insert({native,mn});}else if(out.empty()){if(why.empty())why="映射中没有适用的槽";if(texWaitUntil.size()>1024)texWaitUntil.clear();texWaitUntil[{native,mn}]=texClock()+500;}return out;}
  bool texUsable(TexLive* L,Ptr r,const std::string& label){if(!alive(r))return false;auto a=attachments.find(r);if(a!=attachments.end()){if(L)texSay(*L,"att|"+hex(r),"texture-skip",texTag(*L)+"："+label+" 已由 GIBox 模型 "+a->second->set->name+" 接管，网格 MOD 优先，不写入");return false;}
   if(swapped.count(r)){if(L)texSay(*L,"swap|"+hex(r),"texture-skip",texTag(*L)+"："+label+" 上有网格 MOD 的脸部贴图替换，不写入");return false;}return true;}
+ std::vector<Ptr> texPool(TexLive* L){std::vector<Ptr> pool;try{pool=worldRenderers();}catch(const std::exception&){}for(auto& sn:seen)if(seenLive(sn))pool.push_back(sn.renderer);
+  for(auto& kv:texPending)if(texPendLive(kv))pool.push_back(kv.first);
+  if(L)for(auto& x:L->slots)pool.push_back(x.renderer);
+  return pool;}
+ // The game texture a slot shows in a property: what our write replaced when we wrote the slot, else what is on it now
+ // (0 when that is one of ours: the original cannot be known there).
+ Ptr texOriginal(TexLive* L,Ptr r,int slot,const char* prop){
+  if(L)for(auto& s:L->slots)if(s.renderer==r&&s.slot==slot){for(auto& w:s.writes)if(w.write.property==prop)return w.before;return 0;}
+  Ptr arr=e.get(abi::getMaterials,r);auto mats=arr?pointers(arr,64):std::vector<Ptr>{};if(size_t(slot)>=mats.size()||!alive(mats[size_t(slot)]))return 0;
+  Ptr t=textureOf(mats[size_t(slot)],prop);return alive(t)&&!texOursTexture(t)?t:0;}
+ // On PC a TextureOverride on a texture hash acts wherever the game binds that texture. The game's face diffuse is also
+ // the main texture of Face_Eye and Brow (device logs: "also the main texture on Brow, Face_Eye"), while the PC database
+ // lists it under Face only, and a body diffuse can sit on the hair as well. So a slot a texture-hash rule writes brings
+ // every other slot under the same character root that shows the same game texture in that property, with that rule.
+ void texShare(const texdiag::TextureMod& m,TexLive* L,const std::vector<Ptr>& candidates,std::vector<TexTarget>& out,std::set<std::pair<Ptr,int>>& taken){
+  std::vector<Ptr> pool;{std::set<Ptr> once;for(Ptr r:candidates)if(once.insert(r).second)pool.push_back(r);}
+  std::map<Ptr,Ptr> roots;auto rootOf=[&](Ptr r){auto it=roots.find(r);if(it!=roots.end())return it->second;Ptr x=0;try{x=avatarRoot(r);}catch(const std::exception&){}roots[r]=x;return x;};
+  size_t n=out.size();
+  for(size_t i=0;i<n;i++){const TexTarget base=out[i];
+   for(size_t k:base.rules){const auto& rule=m.doc.rules[k];if(rule.pcTextures.empty()||rule.pcHasIb)continue;
+    std::set<std::string> props;for(auto& u:rule.pcTextures){if(u.role=="diffuse")props.insert("_MainTex");else if(u.role=="lightmap")props.insert("_LightMapTex");}
+    for(auto& p:props){Ptr original=texOriginal(L,base.renderer,base.slot,p.c_str());Ptr root=original?rootOf(base.renderer):0;if(!root)continue;
+     for(Ptr r:pool)try{if(!alive(r)||rootOf(r)!=root)continue;Ptr arr=e.get(abi::getMaterials,r);if(!arr)continue;size_t count=pointers(arr,64).size();
+      for(size_t s=0;s<count;s++){if(r==base.renderer&&int(s)==base.slot)continue;if(texOriginal(L,r,int(s),p.c_str())!=original)continue;
+       if(!taken.insert({r,int(s)}).second){for(auto& o:out)if(o.renderer==r&&o.slot==int(s)&&std::find(o.rules.begin(),o.rules.end(),k)==o.rules.end())o.rules.push_back(k);continue;}
+       Ptr native=load<Ptr>(r+0x10);std::string label=rendererName(r)+"#"+hex(native);Ptr mesh=e.get(abi::getMesh,r);std::string meshName=alive(mesh)?fingerprint(mesh).mesh:std::string();bool lod=lowerLod(meshName);
+       if(!texUsable(L,r,label)||(lod&&ctl.tex.lod!="migrate")){taken.erase({r,int(s)});continue;}
+       out.push_back({r,native,int(s),{k},"与 "+base.label+" 槽 "+std::to_string(base.slot)+" 共用游戏贴图 "+texDescribe(original)+"（"+p+"）：PC 按贴图 hash "+rule.hash+" 替换，绑定这张贴图的绘制都会换",label,meshName,lod});}}catch(const std::exception&){}}}}}
  std::vector<TexTarget> texTargets(const std::string& path,const texdiag::TextureMod& m,TexLive* L){std::vector<TexTarget> out;std::set<std::pair<Ptr,int>> taken;
   auto mi=texMatches.find(path);auto li=texMatchLive.find(path);
   if(mi!=texMatches.end()&&li!=texMatchLive.end())for(auto& x:mi->second){if(x.verdict!=texdiag::Verdict::Confirmed||x.renderer<0||x.slot<0)continue;const auto& R=li->second[size_t(x.renderer)];
@@ -657,10 +685,11 @@ struct Runtime::Impl {
    if(!taken.insert({R.renderer,x.slot}).second){for(auto& t:out)if(t.renderer==R.renderer&&t.slot==x.slot&&std::find(t.rules.begin(),t.rules.end(),x.rule)==t.rules.end())t.rules.push_back(x.rule);continue;}
    bool pc=!m.doc.rules[x.rule].pcTextures.empty()||m.doc.rules[x.rule].pcHasIb;
    out.push_back({R.renderer,R.native,x.slot,{x.rule},pc?"确定匹配（PC hash 数据库定位的部件与槽位，见 texture-diag-match）":"确定匹配（indexStart = match_first_index，同一 hash 的分段全部对上，材质数 = 子网格数）",texdiag::label(R),R.meshName,R.lod});}
-  std::vector<Ptr> pool;try{pool=worldRenderers();}catch(const std::exception&){}for(auto& sn:seen)if(seenLive(sn))pool.push_back(sn.renderer);for(auto& kv:texPending)if(texPendLive(kv))pool.push_back(kv.first);if(L)for(auto& x:L->slots)pool.push_back(x.renderer);
+  auto pool=texPool(L);
   for(Ptr r:pool){std::string why;for(auto& t:texRecordTargets(path,m,r,why)){if(!texUsable(L,r,t.label))continue;
     if(!taken.insert({r,t.slot}).second){for(auto& o:out)if(o.renderer==r&&o.slot==t.slot)for(size_t k:t.rules)if(std::find(o.rules.begin(),o.rules.end(),k)==o.rules.end())o.rules.push_back(k);continue;}out.push_back(t);}
    if(L&&!why.empty())texSay(*L,"wait|"+hex(r)+"|"+why,"texture-wait",texTag(*L)+"："+rendererName(r)+"#"+hex(load<Ptr>(r+0x10))+" 等待，原因："+why);}
+  texShare(m,L,pool,out,taken);
   return out;}
  // One slot: what the strategy writes, read back at once; the log line names everything needed to follow it.
  bool texApply(TexLive& L,const texdiag::TextureMod& m,const std::map<std::string,Texture>& px,const TexTarget& t,TexSlot& s){
@@ -791,7 +820,9 @@ struct Runtime::Impl {
    texSeen(native,via);auto& tt=texTimes[native];if(!tt.matched)tt.matched=texClock();
    if(!texStoreReady(path,why)){texPend(r);texSay(L,"ready|"+hex(r),"texture-wait",texTag(L)+"："+targets[0].label+" 已匹配（"+via+"），等待："+why);return;}
    for(auto& t:targets)if(texAssetWait(L,t,via))return;
-   for(auto& t:targets){TexSlot fresh;texApply(L,m,px,t,fresh);L.slots.push_back(std::move(fresh));}if(handoff)texHanded.push_back(r);}
+   // Slots elsewhere showing the same game texture as a texture-hash rule's slot here (texShare): written with it.
+   {std::set<std::pair<Ptr,int>> taken;for(auto& t:targets)taken.insert({t.renderer,t.slot});size_t own=targets.size();try{texShare(m,&L,texPool(&L),targets,taken);}catch(const std::exception&){targets.resize(own);}}
+   for(auto& t:targets){bool have=false;for(auto& x:L.slots)have=have||(x.renderer==t.renderer&&x.slot==t.slot);if(have||(t.renderer!=r&&texAssetWait(L,t,via)))continue;TexSlot fresh;texApply(L,m,px,t,fresh);L.slots.push_back(std::move(fresh));}if(handoff)texHanded.push_back(r);}
   catch(const std::exception& ex){texSay(L,"quick|"+hex(r)+"|"+ex.what(),"texture-error",texTag(L)+"："+ex.what());}}
  // The game's model hand-off (Runtime::spawned), before it shows the model: its renderers are read and matched here
  // (the first confirmation needs no earlier one), the mapping saved, and the slots written when the textures are ready.

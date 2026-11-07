@@ -387,7 +387,7 @@ inline std::vector<Write> writes(const Rule& r,const std::map<std::string,int>& 
 inline std::vector<size_t> planOrder(const Doc& d,std::vector<size_t> rules){std::stable_sort(rules.begin(),rules.end(),[&](size_t a,size_t b){auto t=[&](size_t k){return d.rules[k].kind=="hash-unknown"?0:1;};return t(a)<t(b);});return rules;}
 inline std::vector<Write> writesFor(const Doc& d,const std::vector<size_t>& rules,const std::map<std::string,int>& vars,std::vector<std::string>& skipped){std::vector<Write> out;
  for(size_t k:planOrder(d,rules)){std::vector<std::string> sk;for(auto& w:writes(d.rules[k],vars,sk)){bool replaced=false;for(auto& o:out)if(o.property==w.property){o=w;replaced=true;}if(!replaced)out.push_back(w);}
-  for(auto& x:sk)skipped.push_back(rules.size()>1?d.rules[k].section+": "+x:x);}
+  for(auto& x:sk)skipped.push_back(rules.size()>1?d.rules[k].section+"："+x:x);}
  return out;}
 inline std::string sections(const Doc& d,const std::vector<size_t>& rules){std::string o;for(size_t k:planOrder(d,rules))o+=(o.empty()?"":" + ")+d.rules[k].section;return o;}
 }  // namespace ms::texdiag

@@ -1426,6 +1426,13 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
     assert(rep.find(std::string("Body / 网格 Body（3 顶点，3 索引，起点 [0]）：hash 数据 "))!=std::string::npos&&rep.find(std::string("IB|SRV|UAV ")+hbody)!=std::string::npos&&rep.find("（已记入 hash-map）")!=std::string::npos);
     auto map=text(sharedC+"/hash-map.json");assert(map.find(std::string("\"ib\":\"")+hb+"\"")!=std::string::npos&&map.find(std::string("\"ib\":\"")+hbody+"\",\"variant\":\"as uploaded, desc DEFAULT, Bind=IB|SRV|UAV\",\"character\":\"\"")!=std::string::npos);
     T.installed(false,"");q.shutdown();}
+   // Face_Eye under the same character shows the game texture Bang shows (as the game's Face_Eye and Brow show the
+   // face's diffuse, which the PC database lists under Face only): the texture-hash rule on Bang writes it as well, as
+   // 3DMigoto does wherever the texture is bound; the same texture under another character is left alone.
+   Ptr eyeR=f->renderer(f->mesh("Face_Eye",3),"BoneA","Face_Eye"),emat=load<Ptr>(f->obj[eyeR].materials+0x20);
+   Ptr farR=f->renderer(f->mesh("Face_Eye",3),"BoneA","Face_Eye",f->kavehRoot),fmat=load<Ptr>(f->obj[farR].materials+0x20);
+   for(Ptr m:{emat,fmat}){f->diffuse[m]=gameTex;store<uint32_t>(load<Ptr>(m+0x10)+8,uint32_t(-21));}
+   {Ptr four[4]={body,bang,eyeR,farR};store<Ptr>(f->owner+0x68,f->array(8,4,four));}
    Bytes px(16,0x40);write(modC+"/textures/0.rgba",px.data(),px.size());
    write(modC+"/texture.json",R"J({"format":"gibox-texture-mod","version":1,"name":"HashMod","generation":"c1","character":{"id":10000107},"variants":{"vars":[],"default":{}},
     "textures":[{"resource":"rx","file":"textures/0.rgba","width":2,"height":2}],
@@ -1441,12 +1448,13 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
     // 0 like Bang, and a part name that names nothing: without the map nothing would decide).
     assert(countC(std::string("TextureOverrideNewBody，hash ")+hbody+"，match_first_index 0 → 确定匹配，渲染器 Body#")==1);
     assert(f->diffuse[gmat]!=gameTex&&f->diffuse[bmat]!=gameTex);
+    assert(f->diffuse[emat]==f->diffuse[gmat]&&f->diffuse[fmat]==gameTex&&countC("共用游戏贴图 ")>=1&&countC("PC 按贴图 hash ab64b4cc 替换，绑定这张贴图的绘制都会换")>=1);
     // A renderer discovery saw, then destroyed and its wrapper's memory reused by a string before the next discovery
     // (the archive's character switch): the next tick's users of the discovered list leave it alone.
     Ptr ghost=f->renderer(f->mesh("Ghost",3));auto scene=f->scene;f->scene.push_back(ghost);for(uint64_t end=t+600;t<end;t+=100)q.tick(t);
     Ptr klass=load<Ptr>(ghost),native=load<Ptr>(ghost+0x10);f->scene=scene;store<Ptr>(ghost,f->kindClass("string"));store<uint64_t>(ghost+0x10,0x0061005300000005ull);
     for(uint64_t end=t+1500;t<end;t+=100){q.tick(t);}store<Ptr>(ghost,klass);store<Ptr>(ghost+0x10,native);
-    q.shutdown();assert(f->diffuse[gmat]==gameTex&&f->diffuse[bmat]==gameTex);}
+    q.shutdown();assert(f->diffuse[gmat]==gameTex&&f->diffuse[bmat]==gameTex&&f->diffuse[emat]==gameTex&&f->diffuse[fmat]==gameTex);}
    // Another device: no capture of its own, only the map shipped with the App (device-hashes.json, as the App installs
    // it): the mod is matched all the same.
    {std::filesystem::rename(sharedC+"/hash-map.json",sharedC+"/device-hashes.json");std::filesystem::remove_all(modC+"/texture-mapping.json");
