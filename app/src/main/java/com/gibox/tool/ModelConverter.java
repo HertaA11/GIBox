@@ -64,7 +64,8 @@ public final class ModelConverter {
                 if(previous==null)sections.put(key,s);
                 else if(key.equals("present")){previous.lines.addAll(s.lines);compatibility.add("已合并重复 Present 段");}
                 else if(key.startsWith("key")&&previous.lines.equals(s.lines))compatibility.add("已忽略完全相同的重复按键段："+s.name);
-                else check(false,"重复 INI 段："+s.name);
+                // 3DMigoto (IniHandler) parses only the first of two sections with one name and warns about the rest.
+                else compatibility.add("重复的 INI 段 ["+s.name+"]：与 3DMigoto 一样只用第一个，后面的忽略");
             }
             Pattern decl=Pattern.compile("(?i)^(?:global\\s+)?(?:persist\\s+)?(\\$[a-z_][a-z0-9_]*)(?:\\s*=\\s*([+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?))?\\s*$");
             Pattern cmp=Pattern.compile("(\\$[A-Za-z_][A-Za-z0-9_]*)\\s*(?:===|!==|==|!=|<=|>=|<|>)\\s*(-?\\d+)");
@@ -97,10 +98,22 @@ public final class ModelConverter {
         final LinkedHashSet<String> external=new LinkedHashSet<>();
         /** External calls cannot bind this mod's buffers. Known texture-reference conventions are handled below. */
         Section run(String n) { Section s=sections.get(lower(n.trim()));if(s==null){check(lower(n.trim()).startsWith("commandlist"),"缺少段："+n);external.add(n.trim());}return s; }
+        /** if / else / endif lines 3DMigoto does not act on (CommandList.cpp): an endif, else or else if with no open
+         *  if ("endif missing if": the line is dropped), and an if that never gets its endif with its else lines ("if
+         *  missing endif": a no-op, the lines after it stay in the list and always run). */
+        Set<Integer> unmatched(Section s){Set<Integer> out=new HashSet<>();Deque<List<Integer>> open=new ArrayDeque<>();
+            for(int i=0;i<s.lines.size();i++){String a=lower(s.lines.get(i));
+                if(a.startsWith("if ")){List<Integer> f=new ArrayList<>();f.add(i);open.push(f);}
+                else if(a.startsWith("else if ")||a.startsWith("elseif ")||a.equals("else")){if(open.isEmpty())out.add(i);else open.peek().add(i);}
+                else if(a.equals("endif")){if(open.isEmpty())out.add(i);else open.pop();}}
+            for(List<Integer> f:open)out.addAll(f);
+            if(!out.isEmpty())compatibility.add("["+s.name+"] 的 if / endif 不成对：与 3DMigoto 一样，多余的 endif / else 忽略，缺 endif 的 if 不起作用（其后的行总是执行）");
+            return out;}
         List<String> active(Section s,Map<String,Integer> v){
             class Branch {boolean parent,taken,enabled,otherwise;Branch(boolean p,boolean e){parent=p;enabled=p&&e;taken=e;} }
-            Deque<Branch> stack=new ArrayDeque<>();List<String> out=new ArrayList<>();boolean on=true;
+            Deque<Branch> stack=new ArrayDeque<>();List<String> out=new ArrayList<>();boolean on=true;Set<Integer> skip=unmatched(s);
             for(int i=0;i<s.lines.size();i++){String l=s.lines.get(i),a=lower(l);
+                if(skip.contains(i))continue;
                 if(a.startsWith("if ")){boolean yes;try{yes=new Expr(l.substring(3),v).eval()!=0;}
                     // A condition on the clock or the game (time - $lastload < 1.5) cannot be evaluated here. When its
                     // whole block only sets variables, nothing the converter reads depends on it: the block is left out.
@@ -265,7 +278,9 @@ public final class ModelConverter {
             }
         }
         for(Evaluated e:sections)if(!e.declaresDraw&&autoHashes.contains(e.hash)&&!unbound(e.bindings.get("ib"))){{Draw d=new Draw(e.name,e.bindings,-1,0);d.hash=e.hash;d.issuer=autoIssuer.get(e.hash);draws.add(d);}usedHashes.add(e.hash);}
-        for(String hash:autoHashes)check(usedHashes.contains(hash),"drawindexed=auto 没有对应的 ib 资源，hash="+hash);
+        // drawindexed = auto under a hash no section gives a mod IB: 3DMigoto draws the game's own geometry there, which
+        // is nothing to convert (ModFix deleted such sections by hand).
+        for(String hash:autoHashes)if(!usedHashes.contains(hash))ini.compatibility.add("hash "+hash+" 上的 drawindexed = auto 没有 MOD 自己的索引缓冲：在游戏里画的是游戏原有的几何，不转换");
         for(Draw d:draws)if(!"skip".equalsIgnoreCase(mapping.get(lower(d.part))))resolveStreams(d,providers,rs);
         return draws;
     }

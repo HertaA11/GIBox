@@ -95,9 +95,9 @@ public final class CompatibilityTest {
         ok(chosenLog.toString().contains("模型主 INI：second.ini")&&chosenLog.toString().contains("未导入辅助 INI：Citlali.ini"),"conversion uses the chosen scheme: "+chosenLog);
         Files.delete(new File(src,"second.ini").toPath());refused=false;try{ModLibrary.mainIni(archive);}catch(IllegalArgumentException e){refused=e.getMessage().contains("已不存在");}ok(refused,"a removed scheme asks again");
         ModLibrary.setOverride(archive,"ini",null);GimiPatternsTest.put(src,"second.ini",text);
-        // Conflicting duplicate model sections remain errors; only the known harmless control duplicates are merged.
-        Files.delete(new File(src,"second.ini").toPath());GimiPatternsTest.put(src,"Citlali.ini",text+"\n[TextureOverrideCitlaliHead]\nib = ResourceCitlaliHeadIB\n");
-        refused=false;try{new ModelConverter.Ini(src);}catch(IllegalArgumentException e){refused=e.getMessage().contains("重复 INI 段");}ok(refused,"do not merge conflicting geometry sections");
+        // A second section of a name already used: as 3DMigoto (IniHandler), only the first is read, the rest said.
+        Files.delete(new File(src,"second.ini").toPath());GimiPatternsTest.put(src,"Citlali.ini",text+"\n[TextureOverrideCitlaliHead]\nib = ResourceCitlaliBodyIB\n");
+        {ModelConverter.Ini dup=new ModelConverter.Ini(src);ok(dup.compatibility.contains("重复的 INI 段 [TextureOverrideCitlaliHead]：与 3DMigoto 一样只用第一个，后面的忽略")&&!dup.sections.get("textureoverridecitlalihead").lines.contains("ib = ResourceCitlaliBodyIB"),"the first of two sections of one name is used: "+dup.compatibility);}
     }
     // A Present program the frame-loop pattern does not cover (back and forth), through the logic core's rehearsal
     // (core_test --rehearse in place of NativeBridge.rehearse): frames by the values the draws read, the order
@@ -340,6 +340,19 @@ public final class CompatibilityTest {
         String body0=(String)Json.obj(Json.obj(frames.get(0),"frame").get("draws"),"d").get("HeroBody"),body1=(String)Json.obj(Json.obj(frames.get(1),"frame").get("draws"),"d").get("HeroBody"),head0=(String)Json.obj(Json.obj(frames.get(0),"frame").get("draws"),"d").get("HeroHead");
         ok(body0.equals("kind=drawindexed;count=3;start=0;base=0;ib="+body+common+"kind=drawindexed;count=3;start=3;base=0;ib="+body+common),"two draws, ranges from $half, in command order: "+body0);
         ok(body1.equals("kind=drawindexed;count=6;start=0;base=0;ib="+body+common)&&head0.equals("kind=drawindexed;count=auto;start=0;base=0;ib="+head+common),"frame 1 and the auto draw: "+body1+" / "+head0);}
+    // INI slips 3DMigoto lets through: an endif with no if is dropped, an if with no endif does nothing (the lines after
+    // it always run), and drawindexed = auto under a hash with no mod IB draws the game's own geometry: not converted.
+    static void tolerance(File base)throws Exception{
+        String g="global $creditinfo = 0\nglobal $x = 0\n";
+        String[][] cases={{"stray-endif",GimiPatternsTest.ini(g,"","endif\n",""),"if / endif 不成对"},
+            {"missing-endif",GimiPatternsTest.ini(g,"","if $x == 1\nps-t1 = ResourceCitlaliBodyDiffuse\n",""),"缺 endif 的 if 不起作用"},
+            {"orphan-auto",GimiPatternsTest.ini(g,"","","")+"\n[TextureOverrideCitlaliExtra]\nhash = 55555555\ndrawindexed = auto\n","hash 55555555 上的 drawindexed = auto 没有 MOD 自己的索引缓冲"}};
+        for(String[] c:cases){File src=GimiPatternsTest.mod(base,"tol-"+c[0],c[1]);StringBuilder log=new StringBuilder();
+            ModelConverter.convert(src,null,new File(base,"tol-"+c[0]+"-out"),10000107,new ModelConverter.Options().variants(true).mapping("CitlaliHead=body;CitlaliBody=body"),DECODE,log);
+            ok(log.toString().contains(c[2]),c[0]+" converts and says so: "+log);}
+        // An if with no endif: its lines run whatever $x is, as in 3DMigoto (the light map is bound).
+        ModelConverter.Ini ini=new ModelConverter.Ini(new File(base,"tol-missing-endif"));
+        ok(ini.active(ini.sections.get("textureoverridecitlalihead"),new HashMap<>(ini.vars)).contains("ps-t1 = ResourceCitlaliBodyDiffuse"),"the lines after an unterminated if always run");}
     private static String nativeChecker;   // tools/test_host.py passes build/host/core_test
     // The [Key] sections for the App's panel: every type with a key= or back= (the first type= counts, an unknown one is
     // activate, as 3DMigoto takes it); a section without a key, a commented-out type and a name 3DMigoto would not take are
@@ -368,7 +381,7 @@ public final class CompatibilityTest {
     }
     public static void main(String[] args)throws Exception{
         nativeChecker=args.length>0?args[0]:null;File base=Files.createTempDirectory("gibox-compatibility-").toFile();
-        try{logicKeys();legacy(base);hohe(base);animation(base);rehearsedAnimation(base);drivenOutfits(base);staticBackend(base);logicSignature(base);face(base);System.out.println("Compatibility: PASS (3dm backend for static, outfit and animated models, logic core data for animations and outfits, rehearsed Present programs, driven outfits, switched-off schemes, App keys (every type, presets by position, special presets, back), face texture swap, layout precedence, variants, R16, main INI, duplicates, PC filename casing, TexFx ranges, ambiguity, INI schemes)");}
+        try{logicKeys();legacy(base);hohe(base);animation(base);rehearsedAnimation(base);drivenOutfits(base);staticBackend(base);logicSignature(base);face(base);tolerance(base);System.out.println("Compatibility: PASS (unpaired if / endif, duplicate sections and auto draws on game geometry as 3DMigoto takes them, 3dm backend for static, outfit and animated models, logic core data for animations and outfits, rehearsed Present programs, driven outfits, switched-off schemes, App keys (every type, presets by position, special presets, back), face texture swap, layout precedence, variants, R16, main INI, duplicates, PC filename casing, TexFx ranges, ambiguity, INI schemes)");}
         finally{ModelConverter.remove(base);}
     }
 }
