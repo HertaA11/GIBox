@@ -1,3 +1,4 @@
+#include "uid_hide.hpp"
 #include "core.hpp"
 #include "json.hpp"
 #include "model.hpp"
@@ -307,10 +308,15 @@ int main(int argc,char**argv){
  std::filesystem::remove_all(root);
  // The global client's build picks its own table: Unity methods by MethodIndex, the game's fields, the native finds;
  // nothing pending. Another build ID picks nothing.
+ // UID hiding: the label with 4+ digits or alone, either colon, any case; not GUID, not short numbers, not other words.
+ {auto uid=[](const std::u16string& s){return uid::looksLikeUid(s.data(),int32_t(s.size()));};
+  assert(uid(u"UID:123456789")&&uid(u"uid : 1234")&&uid(u"UID\uff1a800000001")&&uid(u"UID:")&&uid(u"Lv.60 UID: 1234567"));
+  assert(!uid(u"GUID:12345678")&&!uid(u"UID:123")&&!uid(u"UID 12345678")&&!uid(u"AUID:1234")&&!uid(u"UID:x1234")&&!uid(u"UI")&&!uid(u"Fluid:12345"));}
  {assert(!abi::select("0000")&&abi::at(abi::getMesh)==0x8f4217c&&abi::managerSlot==0x9070);
   assert(abi::select("32f920af1fd831959a440d294fa996a09657afb8")&&std::string(abi::buildId).substr(0,8)=="32f920af");
   assert(abi::at(abi::getMesh)==0x903ef50&&abi::at(abi::manager)==0x157d53a0&&abi::at(abi::nativeAlloc)==0x517af94&&abi::at(abi::receive)==0x9798c6c);
   // The allocator instance, not the storage pointer most calls read: CN's 0x15d92120 and the manager both 0x34200 lower.
+  assert(abi::at(abi::uiTextSet)==0x10f32c44&&abi::at(abi::uiTextPopulate)==0x10f335f8&&abi::at(abi::uiVertexClear)==0x10fc44b4&&abi::at(abi::behaviourEnabled)==0xa7eb77c);
   assert(abi::at(abi::componentByName)==0x97a7e00&&abi::at(abi::lodPause)==0x1369a604&&abi::at(abi::lodResume)==0x1369a60c&&abi::at(abi::lodSelfPaused)==0x1369a610&&abi::at(abi::lodCurrent)==0x1369a564);
   assert(abi::at(abi::nativeAllocator)==0x15d5df20&&0x15d92120-abi::at(abi::nativeAllocator)==0x158095a0-abi::at(abi::manager));
   assert(abi::managerSlot==0x90e0&&abi::entityVisual==0xc8&&abi::visualRenderers==0x68&&abi::managerLists.size()==12&&abi::entityIds.front()==0x368);

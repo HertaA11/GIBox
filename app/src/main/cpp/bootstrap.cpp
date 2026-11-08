@@ -10,6 +10,7 @@
 #include <thread>
 #include "dobby.h"
 #include "vk_capture.hpp"
+#include "uid_hide.hpp"
 
 namespace {
 std::atomic<bool> started{false};std::unique_ptr<ms::Runtime> runtime;
@@ -42,6 +43,19 @@ uint64_t onMeshBones(uintptr_t renderer,uintptr_t mesh,uintptr_t hashes,uintptr_
  auto result=meshBonesOriginal(renderer,mesh,hashes,bones,a4,a5,a6,a7);
  if(auto* p=published.load(std::memory_order_acquire))p->meshBound(renderer);
  return result;}
+// UID hiding (uid_hide.hpp): Text.set_text runs, then a Text that now shows a UID label is switched off; a Text laid
+// out with one draws nothing. Neither changes the string; ms::uid::on is the live switch.
+using TextSetFn=void(*)(uintptr_t,uintptr_t,uintptr_t);using PopulateFn=void(*)(uintptr_t,uintptr_t,uintptr_t);
+using ClearFn=void(*)(uintptr_t,uintptr_t);using EnabledFn=void(*)(uintptr_t,bool,uintptr_t);
+TextSetFn textSetOriginal=nullptr;PopulateFn populateOriginal=nullptr;ClearFn vertexClear=nullptr;EnabledFn setEnabled=nullptr;
+std::atomic<unsigned> uidHidden{0};
+void onTextSet(uintptr_t text,uintptr_t value,uintptr_t method){
+ const bool hide=ms::uid::on.load(std::memory_order_relaxed)&&ms::uid::managedUid(value);
+ textSetOriginal(text,value,method);
+ if(hide&&text){setEnabled(text,false,0);uidHidden.fetch_add(1,std::memory_order_relaxed);}}
+void onPopulate(uintptr_t text,uintptr_t helper,uintptr_t method){
+ if(text&&helper&&ms::uid::on.load(std::memory_order_relaxed)&&ms::uid::managedUid(*reinterpret_cast<const uintptr_t*>(text+ms::abi::uiTextString))){vertexClear(helper,0);uidHidden.fetch_add(1,std::memory_order_relaxed);return;}
+ populateOriginal(text,helper,method);}
 // The recorded entry bytes (7.1) against this build's: equal, except the immediates that move with the code's address
 // (ADRP / ADR pages, B / BL / conditional branch offsets, literal loads, and the low 12 bits of a load / store / add
 // off a register other than SP: an ADRP's page offset). 7.2's get_gameObject and resource receiver differ only there.
@@ -78,6 +92,19 @@ extern "C" JNIEXPORT void JNICALL Java_com_gibox_tool_NativeBridge_start(JNIEnv*
   if(on){std::string detail;bool ok=false;try{ok=ms::vkhook::install(detail);}catch(const std::exception& e){detail=e.what();}bootLog(pkg,ok?"vulkan-capture":"vulkan-capture-disabled",ok?"已安装："+detail+"（只读索引缓冲 hash）":detail);}}
  std::thread([pkg,priv]{try{bootStatus(pkg,"waiting","等待 libyuanshen.so");Image image;for(unsigned n=0;n<480&&!image.base;n++){dl_iterate_phdr(findImage,&image);if(!image.base)std::this_thread::sleep_for(std::chrono::milliseconds(500));}ms::require(image.base!=0,"等待 libyuanshen.so 加载超时");
  auto actual=ms::loadedBuildId(image.base,image.ph,image.count,sizeof(ElfW(Phdr)));if(!ms::abi::select(actual)){bootStatus(pkg,"buildid-mismatch","实际 Build ID："+actual);return;}
+ // UID hiding: hooked only when "hideUid" is on at this start. Each address must be inside an executable segment and
+ // start a function body (not a B to elsewhere: hooking a 4-byte wrapper would write over the next method).
+ {bool want=false;try{auto c=ms::JsonParser(ms::text(sharedDir(pkg)+"/control.json")).parse();want=c.at("hideUid").type==ms::Json::Bool&&c.at("hideUid").boolean;}catch(const std::exception&){}
+  if(want){ms::uid::on.store(true);std::string bad;
+   auto exec=[&](uintptr_t rva){uintptr_t a=image.base+rva;for(size_t i=0;i<image.count;i++){auto& h=image.ph[i];if(h.p_type==PT_LOAD&&(h.p_flags&PF_X)&&a>=image.base+h.p_vaddr&&a-(image.base+h.p_vaddr)<h.p_memsz)return (rva&3)==0;}return false;};
+   for(auto o:{ms::abi::uiTextSet,ms::abi::uiTextPopulate,ms::abi::uiVertexClear,ms::abi::behaviourEnabled}){auto rva=ms::abi::at(o);char b[24];std::snprintf(b,sizeof(b),"0x%llx ",static_cast<unsigned long long>(rva));
+    if(!exec(rva))bad+=std::string(b)+"不在可执行段 ";else if(o==ms::abi::uiTextSet||o==ms::abi::uiTextPopulate){uint32_t w=*reinterpret_cast<const uint32_t*>(image.base+rva);if((w&0xfc000000u)==0x14000000u)bad+=std::string(b)+"是跳转 ";}}
+   if(!bad.empty())bootLog(pkg,"uid-hide-disabled","地址检查未通过："+bad);
+   else{setEnabled=reinterpret_cast<EnabledFn>(image.base+ms::abi::at(ms::abi::behaviourEnabled));vertexClear=reinterpret_cast<ClearFn>(image.base+ms::abi::at(ms::abi::uiVertexClear));
+    bool a=DobbyHook(reinterpret_cast<void*>(image.base+ms::abi::at(ms::abi::uiTextSet)),reinterpret_cast<dobby_dummy_func_t>(onTextSet),reinterpret_cast<dobby_dummy_func_t*>(&textSetOriginal))==0&&textSetOriginal;
+    bool b=DobbyHook(reinterpret_cast<void*>(image.base+ms::abi::at(ms::abi::uiTextPopulate)),reinterpret_cast<dobby_dummy_func_t>(onPopulate),reinterpret_cast<dobby_dummy_func_t*>(&populateOriginal))==0&&populateOriginal;
+    bootLog(pkg,a||b?"uid-hide":"uid-hide-disabled",std::string("UI.Text.set_text ")+(a?"已挂钩":"挂钩失败")+"，UI.Text.OnPopulateMesh "+(b?"已挂钩":"挂钩失败")+"（按“UID:数字”识别，不改动 UID 本身）");
+    if(a||b)std::thread([pkg]{unsigned said=0;for(int i=0;i<90;i++){std::this_thread::sleep_for(std::chrono::seconds(20));unsigned n=uidHidden.load();if(n!=said){said=n;bootLog(pkg,"uid-hide-count","已隐藏 UID 文本 "+std::to_string(n)+" 次");}}}).detach();}}}
  // Offsets of this build not found yet (offsets.hpp pendingRequired): nothing is hooked or called.
  if(*ms::abi::pendingRequired){bootStatus(pkg,"offsets-pending",std::string("此版本还缺偏移：")+ms::abi::pendingRequired);return;}
  ms::Engine engine(image.base);

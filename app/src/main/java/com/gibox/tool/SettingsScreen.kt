@@ -16,14 +16,16 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.dp
 import com.alorma.compose.settings.ui.expressive.SettingsGroup
 import com.alorma.compose.settings.ui.expressive.SettingsMenuLink
+import com.alorma.compose.settings.ui.expressive.SettingsSwitch
 
 
-/** Settings: file directories; the debug page at the bottom. (The game is picked by LSPosed injection; file access is asked for when needed.) */
+/** Settings: general switches (UID hiding), file directories; the debug page at the bottom. (The game is picked by LSPosed injection; file access is asked for when needed.) */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun SettingsScreen(state: AppState) {
@@ -44,6 +46,19 @@ fun SettingsScreen(state: AppState) {
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = padding.calculateTopPadding(), bottom = padding.calculateBottomPadding() + 24.dp),
         ) {
+            item {
+                val rev = state.revision
+                val hideUid = remember(rev) { state.hideUid() }
+                SettingsGroup(title = { SectionTitle("通用") }, verticalArrangement = gap) {
+                    SettingsSwitch(
+                        state = hideUid,
+                        title = { Text("隐藏 UID") },
+                        subtitle = { Text("隐藏游戏界面上显示的 UID，不改动账号和 UID 本身。重启游戏后生效") },
+                        shapes = ListItemDefaults.segmentedShapes(0, 1),
+                        onCheckedChange = { state.setHideUid(it) },
+                    )
+                }
+            }
             item {
                 val paths = listOf(
                     "点击打开 Mods 文件夹" to state.modsRoot,

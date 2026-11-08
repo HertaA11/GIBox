@@ -310,6 +310,12 @@ class AppState(private val activity: Activity) {
         Control.keyInput(game, mod.name, key.file, key.section, false, -1, if (down) "down" else "up")
         AppLog.info(game, LOGGER, "key-hold ${mod.name} ${key.section}：" + if (down) "按住" else "松开")
     }
+    /** Settings → 通用: the UID in the game's UI hidden (takes effect at the next game start). */
+    fun hideUid(): Boolean = Control.hideUid(game)
+    fun setHideUid(on: Boolean) = save("保存") {
+        Control.setHideUid(game, on)
+        AppLog.info(game, LOGGER, "hide-uid " + if (on) "开启（重启游戏后生效）" else "关闭")
+    }
     /** Replaced characters kept on the full model in the world (the game's LOD held at level 0). */
     fun lodPin(): Boolean = Control.lodPin(game)
     fun setLodPin(on: Boolean) = save("保存") {
