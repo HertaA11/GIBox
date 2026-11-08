@@ -304,6 +304,12 @@ public final class CompatibilityTest {
         ok("Face".equals(swap.get("renderer"))&&"FaceTexture".equals(swap.get("material"))&&log.toString().contains("脸部贴图：CitlaliFaceHeadDiffuse.dds -> 游戏的 Face 渲染器"),"the face texture becomes a texture swap: "+log);
         boolean material=false;for(Object raw:Json.arr(manifest.get("materials"),"materials",1,64)){Map<String,Object> m=Json.obj(raw,"material");material|="FaceTexture".equals(m.get("name"))&&m.get("main")!=null;}
         ok(material,"the swap's material carries the face texture");
+        // XXMI's exporters write the face override as "this = Resource..." (Varka's VarkaFaceADiffuse): the same swap.
+        String viaThis=GimiPatternsTest.ini("global $look = 0\n","","","")+"[TextureOverrideCitlaliFaceADiffuse]\nhash = 98ec9704\nthis = ResourceCitlaliFaceADiffuse\n[ResourceCitlaliFaceADiffuse]\nfilename = CitlaliFaceADiffuse.dds\n";
+        GimiPatternsTest.put(src,"CitlaliFaceADiffuse.dds",new byte[128]);GimiPatternsTest.put(src,"Citlali.ini",viaThis);log=new StringBuilder();
+        ModelConverter.convert(src,null,out,10000107,new ModelConverter.Options().variants(true).replace(true),DECODE,log);manifest=Json.obj(Json.read(new File(out,"model.json"),4L<<20),"model");
+        ok(manifest.get("textures")!=null&&log.toString().contains("脸部贴图：CitlaliFaceADiffuse.dds -> 游戏的 Face 渲染器"),"a face override written as this = becomes the swap too: "+log);
+        new File(src,"CitlaliFaceADiffuse.dds").delete();GimiPatternsTest.put(src,"Citlali.ini",text);
         String varying=GimiPatternsTest.ini("global $look = 0\n","","","")+"[TextureOverrideCitlaliFaceHeadDiffuse]\nhash = 55555555\nif $look == 0\nps-t0 = ResourceCitlaliFaceHeadDiffuse\nelse\nps-t0 = ResourceCitlaliFaceAlt\nendif\n"
             +"[ResourceCitlaliFaceHeadDiffuse]\nfilename = CitlaliFaceHeadDiffuse.dds\n[ResourceCitlaliFaceAlt]\nfilename = CitlaliFaceAlt.dds\n[KeyLook]\nkey = l\ntype = cycle\n$look = 0,1\n";
         GimiPatternsTest.put(src,"CitlaliFaceAlt.dds",new byte[128]);GimiPatternsTest.put(src,"Citlali.ini",varying);log=new StringBuilder();

@@ -23,7 +23,7 @@
 namespace ms {
 namespace {
 bool alive(Ptr p){return p&&load<Ptr>(p+0x10);}
-uint64_t length(Ptr p,uint64_t max){require(p!=0,"托管数组为空");auto n=load<uint64_t>(p+0x18);require(n<=max,"托管数组超出上限");return n;}
+uint64_t length(Ptr p,uint64_t max){require(p!=0,"托管数组为空");auto n=load<uint64_t>(p+0x18);require(n<=max,"托管数组超出上限（长度 "+std::to_string(n)+"，上限 "+std::to_string(max)+"）");return n;}
 std::vector<Ptr> pointers(Ptr p,size_t max){auto n=length(p,max);std::vector<Ptr> out(n);if(n)std::memcpy(out.data(),reinterpret_cast<void*>(p+0x20),n*8);return out;}
 Bytes arrayBytes(Ptr p,size_t stride,size_t max){auto n=length(p,max);Bytes b(n*stride);if(!b.empty())std::memcpy(b.data(),reinterpret_cast<void*>(p+0x20),b.size());return b;}
 int threadId(){static thread_local int id=int(::syscall(SYS_gettid));return id;}
@@ -2753,12 +2753,14 @@ struct Runtime::Impl {
    if(!diagnosticOnly){failed.clear();attempts.clear();skipped.clear();notes.clear();findOff=false;findFails=0;findAt=0;discoverAt=0;staleNote.clear();bindingRejected.clear();bindingStamp.clear();}}
 
   if(!cerr.empty())log("control-error",cerr);}
- void tick(uint64_t now){if(inTick)return;bindingNow=now;if(now<next){guard(now);animationTick(now);return;}inTick=true;next=now+100;
+ // The step a failing tick was in, for tick-error (0.7.106: a whole minute of "托管数组超出上限" said nothing more).
+ const char* tickPhase="";std::string tickErrorSaid;uint64_t tickErrorAt=0;unsigned tickErrorRepeats=0;
+ void tick(uint64_t now){if(inTick)return;bindingNow=now;if(now<next){guard(now);animationTick(now);return;}inTick=true;next=now+100;tickPhase="开始";
   try{
    if(!tickTid.load())tickTid.store(threadId());
    // consume() may replace `models`: hand-off pointers into it are dropped first and set again below.
    seen.erase(std::remove_if(seen.begin(),seen.end(),[&](const Seen& sn){return !seenLive(sn);}),seen.end());
-   wantedNow.clear();bindingTargets.clear();bindingReady=false;if(!worker.background()){workerTick(now);}consume();ch=current();bindingStats();
+   tickPhase="读取文件与当前角色";wantedNow.clear();bindingTargets.clear();bindingReady=false;if(!worker.background()){workerTick(now);}consume();ch=current();bindingStats();tickPhase="骨骼库与预览";
    if(ch.config!=shownCharacter){shownCharacter=ch.config;log("character",ch.entity?std::to_string(ch.config):std::string("无"));}
    try{textureDiagTick(now);}catch(const std::exception& ex){log("texture-diag-unsupported",std::string("本轮诊断中止：")+ex.what());}
    try{textureModTick(now);}catch(const std::exception& ex){log("texture-error",std::string("本轮纯贴图 MOD 处理中止：")+ex.what());}
@@ -2778,8 +2780,8 @@ struct Runtime::Impl {
    if(now>=restorePruneAt){restorePruneAt=now+500;pruneRestoreBackups();}
    if(!ctl.enabled){if(!lodPins.empty())lodUnpinAll("模型替换已关闭");bool done=true;if(!sets.empty()||!attachments.empty())done=releaseAll();status(done?"disabled":"waiting",done?"":"正在恢复原模型；暂时失败的渲染器会单独重试",{},{});inTick=false;return;}
    auto wanted=chooseModels();wantedNow=wanted;std::set<std::string> wantedPaths;for(auto* m:wanted)wantedPaths.insert(m->path);
-   preload(wanted,wantedPaths);processPendingBinds(now);saveVerified();
-   for(auto& kv:attachments)if(wantedSet(*kv.second->set))guardMaterials(*kv.second,now);
+   tickPhase="预读与延后的绑定";preload(wanted,wantedPaths);processPendingBinds(now);saveVerified();
+   tickPhase="材质守护";for(auto& kv:attachments)if(wantedSet(*kv.second->set))guardMaterials(*kv.second,now);tickPhase="空闲模型";
    // Sets no longer wanted give their renderers back and stay built for quick switching back: released after a minute
    // unused, or sooner, oldest first, while they hold more than 256 MiB together. Wanted sets stay built while unused,
    // so the hand-off can attach them the moment the character appears.
@@ -2790,9 +2792,9 @@ struct Runtime::Impl {
     std::sort(idle.begin(),idle.end(),[](Set* a,Set* b){return a->used>b->used;});uint64_t kept=0;
     for(Set* x:idle){if(now>x->used+idleMs||kept+x->bytes>idleBudget){releaseSet(x);}else{kept+=x->bytes;}}}
    std::vector<Set*> live;for(auto* m:wanted)if(Set* s=liveSet(*m))live.push_back(s);
-   if(now>=discoverAt){discoverAt=now+500;discover(live,now);if(rendererTypeObject&&!goClass)try{seedGameObjectClass();}catch(const std::exception& ex){log("spawn-ready-error",ex.what());}for(auto* m:wanted)try{learnTargets(*m);}catch(const std::exception& ex){log("target-error",ex.what());}
+   tickPhase="场景扫描";if(now>=discoverAt){discoverAt=now+500;discover(live,now);if(rendererTypeObject&&!goClass)try{seedGameObjectClass();}catch(const std::exception& ex){log("spawn-ready-error",ex.what());}for(auto* m:wanted)try{learnTargets(*m);}catch(const std::exception& ex){log("target-error",ex.what());}
     live.clear();for(auto* m:wanted)if(Set* s=liveSet(*m))live.push_back(s);}  // a moved target releases its set
-   prepareBindingTargets();
+   tickPhase="款式与构建";prepareBindingTargets();
    // Variant choice from control.json, applied in place on built sets.
    for(Set* s:live)logicKeys(*s);
    for(Set* s:live)try{if(s->logic.driver&&!animated(*s)){if(!s->logic.want.empty())applyVariant(*s,s->logic.want);continue;}auto v=ctl.variables.find(s->name);applyVariant(*s,pick(s->variants,v==ctl.variables.end()?std::map<std::string,int>{}:v->second));}catch(const std::exception& ex){log("variant-error",s->name+"："+ex.what());}
@@ -2820,8 +2822,8 @@ struct Runtime::Impl {
      failed[m->path]={m->generation,ex.what()};log("model-error",m->name+"："+ex.what());errors.push_back(m->name+"："+ex.what());continue;}
     if(cur->built)promote(*cur,now);else building.push_back(m->name);
    }
-   lodPinTick(now,wanted);
-   animationPrepare(now);for(auto& s:sets)if(wantedSet(*s)&&s->animation.stopped)errors.push_back(s->name+"：动画已暂停："+s->animation.error);
+   tickPhase="LOD 固定";lodPinTick(now,wanted);
+   tickPhase="动画与状态";animationPrepare(now);for(auto& s:sets)if(wantedSet(*s)&&s->animation.stopped)errors.push_back(s->name+"：动画已暂停："+s->animation.error);
    for(auto& n:notes)errors.push_back(n);
    for(auto& kv:attachments){auto& n=kv.second->set->name;if(std::find(active.begin(),active.end(),n)==active.end())active.push_back(n);}
    for(auto& kv:texLive)if(kv.second&&!kv.second->slots.empty()&&std::find(active.begin(),active.end(),kv.second->mod)==active.end())active.push_back(kv.second->mod);
@@ -2833,7 +2835,10 @@ struct Runtime::Impl {
    else if(!building.empty())status("loading",building[0],active,errors);
    else if(!errors.empty())status("error",errors[0],active,errors);
    else status("waiting",wanted.empty()?(switchedOff()?"显示替换已关闭，保留游戏原模型（在 App 的款式里打开）":"没有勾选的模型"):(waiting.empty()?"等待角色出现":waiting)+(stale?"":findOff?"（全场景扫描不可用，目前只认当前操控的角色；GIBox Log.txt 里有 renderer-type-dump）":"（大世界、队伍界面、角色详情页任一处出现即可）"),active,errors);
-  }catch(const std::exception& ex){log("tick-error",ex.what());status("error",ex.what(),{},{ex.what()});}
+  }catch(const std::exception& ex){std::string what=std::string(ex.what())+"（步骤："+tickPhase+"）";
+   // The same failure every 100 ms is logged once per 10 s, with how often it came in between.
+   if(what!=tickErrorSaid||now>=tickErrorAt+10000){log("tick-error",what+(tickErrorRepeats?"；前 10 秒内又发生 "+std::to_string(tickErrorRepeats)+" 次":""));tickErrorSaid=what;tickErrorAt=now;tickErrorRepeats=0;}else tickErrorRepeats++;
+   status("error",what,{},{what});}
   inTick=false;animationTick(now);}
 };
 Runtime::Runtime(Engine e,std::string pkg,std::string priv,std::string media,bool threaded):p(std::make_unique<Impl>(std::move(e),std::move(pkg),std::move(priv),std::move(media),threaded)){}

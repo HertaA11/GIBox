@@ -137,7 +137,8 @@ public final class ModelConverter {
     static final class Resource {File file;int stride;String format;Resource(File f,int s,String t){file=f;stride=s;format=t;} }
     static final class Draw {String part,hash="",issuer="";Map<String,String> bindings;int count,start;Draw(String p,Map<String,String>b,int c,int s){part=p;bindings=new LinkedHashMap<>(b);count=c;start=s;} }
     private static String[] kv(String l){int p=l.indexOf('=');return p<0?null:new String[]{lower(l.substring(0,p).trim()),l.substring(p+1).trim()};}
-    private static boolean binding(String k){return k.equals("ib")||k.matches("vb[0-9]+")||k.matches("ps-t[0-9]+");}
+    /** "this" is 3DMigoto's texture the override's hash names (GIMI's FaceHeadDiffuse writes "this = Resource..."). */
+    private static boolean binding(String k){return k.equals("ib")||k.matches("vb[0-9]+")||k.matches("ps-t[0-9]+")||k.equals("this");}
     private static boolean unbound(String name){return name==null||name.equalsIgnoreCase("null");}
     private static boolean nnFix(String name){return lower(name.trim()).equals("commandlist\\global\\orfix\\nnfix");}
     private static boolean texFxComponent(String name){return lower(name.trim()).matches("commandlist\\\\texfx\\\\(?:component|c)(?:\\.[01])?");}
@@ -273,17 +274,18 @@ public final class ModelConverter {
         return false;
     }
     /** The face diffuse a texture-only override puts on (GIMI's FaceHeadDiffuse: hash = the game's face texture, ps-t0 =
-     *  the mod's, no draw and no buffers): on PC the game's own face mesh draws with it. The section or its resource must
-     *  be named as a face diffuse; null when there is none. Two different files in one assignment are refused. */
+     *  the mod's, or "this = " the mod's as XXMI's exporters write it; no draw and no buffers): on PC the game's own face
+     *  mesh draws with it. The section or its resource must be named as a face diffuse; null when there is none. Two
+     *  different files in one assignment are refused. */
     private static Resource faceTexture(Ini ini,Map<String,Integer> vars,Map<String,Resource> rs){Resource found=null;
-        for(Section s:ini.sections.values())if(lower(s.name).startsWith("textureoverride")){Evaluated e=new Evaluated(ini,s,vars,rs);String t=e.bindings.get("ps-t0");
+        for(Section s:ini.sections.values())if(lower(s.name).startsWith("textureoverride")){Evaluated e=new Evaluated(ini,s,vars,rs);String t=e.bindings.get("ps-t0");if(unbound(t))t=e.bindings.get("this");
             if(e.declaresDraw||!e.draws.isEmpty()||unbound(t))continue;boolean buffers=false;for(String k:e.bindings.keySet())buffers|=k.equals("ib")||k.matches("vb[0-9]+")||k.startsWith("vertex-stream:");
             if(buffers||!faceDiffuse(e.name)&&!faceDiffuse(t))continue;Resource r=resource(rs,t);
             if(found!=null&&!found.file.equals(r.file))check(false,"脸部贴图有多个来源："+found.file.getName()+"、"+r.file.getName());found=r;}
         return found;}
     /** Named as a face diffuse, or binding one to ps-t0 itself or in a CommandList it runs. */
     private static boolean faceSection(Ini ini,Section s,Set<String> visited){if(faceDiffuse(s.name))return true;if(!visited.add(lower(s.name)))return false;
-        for(String l:s.lines){String[] a=kv(l);if(a==null)continue;if(a[0].equals("ps-t0")&&faceDiffuse(a[1]))return true;if(a[0].equals("run")){Section t=ini.sections.get(lower(a[1].trim()));if(t!=null&&faceSection(ini,t,visited))return true;}}
+        for(String l:s.lines){String[] a=kv(l);if(a==null)continue;if((a[0].equals("ps-t0")||a[0].equals("this"))&&faceDiffuse(a[1]))return true;if(a[0].equals("run")){Section t=ini.sections.get(lower(a[1].trim()));if(t!=null&&faceSection(ini,t,visited))return true;}}
         return false;}
     private static boolean faceDiffuse(String name){String n=lower(name).replaceAll("[^a-z]","");return n.contains("face")&&n.contains("diffuse");}
     /** The face texture of every assignment converted (variants or frames), each also with every listed value of the
