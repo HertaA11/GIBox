@@ -1359,6 +1359,12 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
   // The hand-off: a runtime instance material is written before the game shows the model; a loaded asset is left to the game.
   Ptr handed=f->renderer(f->obj[body].mesh),hmat=load<Ptr>(f->obj[handed].materials+0x20);f->diffuse[hmat]=gameTex;store<uint32_t>(load<Ptr>(hmat+0x10)+8,uint32_t(-7));
   Ptr go=f->gameObjectOf({handed});q.spawned(go);q.spawnedAfter();assert(f->diffuse[hmat]==ours&&count("发现途径 交接")==1&&count("texture-handoff TexMod：交接 Avatar_Girl_Catalyst_Citlali_Manekin，读取并匹配渲染器 1 个，用时")>=1);
+  // Another character's model handed over while the mod's character is controlled (the party screen): same Body
+  // layout, but its own avatar; neither matched, written nor saved (0.7.109: Varka's face went onto Flins, Aino, ...).
+  {Ptr other=f->renderer(f->mesh("Body",3),"BoneA","Body",f->kavehRoot),omat=load<Ptr>(f->obj[other].materials+0x20);f->diffuse[omat]=gameTex;store<uint32_t>(load<Ptr>(omat+0x10)+8,uint32_t(-9));
+   Ptr ogo=f->gameObjectOf({other});q.spawned(ogo);q.spawnedAfter();run(300);
+   assert(f->diffuse[omat]==gameTex&&count("avatar avatar_boy_sword_kaveh）不是角色 10000107（avatar_girl_catalyst_citlali），也不在已保存的记录中，不匹配")==1);
+   auto mapping=text(modQ+"/texture-mapping.json");assert(mapping.find("\"version\":2")!=std::string::npos&&mapping.find("kaveh")==std::string::npos);}
   Ptr asset=f->renderer(f->obj[body].mesh),amat=load<Ptr>(f->obj[asset].materials+0x20);f->diffuse[amat]=gameTex;Ptr go2=f->gameObjectOf({asset});q.spawned(go2);q.spawnedAfter();
   assert(f->diffuse[amat]==gameTex&&count("上仍是资源材质；直接写入方式等待游戏的实例")==1);
   run(500);assert(f->diffuse[amat]==gameTex);   // the per-tick scan waits too

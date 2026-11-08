@@ -485,7 +485,7 @@ struct Runtime::Impl {
   std::string stamp;for(auto& r:live)stamp+=texDiagSeen[r.renderer].key+";";
   for(auto* d:docs){auto& last=texDiagMatched[d->path];if(last==d->stamp+"|"+stamp)continue;last=d->stamp+"|"+stamp;
    auto matches=texdiag::match(*d,live,deviceMap());unsigned counts[5]={0,0,0,0,0};bool mod=false;{auto f=texDiagDocs.find(d->path);mod=f!=texDiagDocs.end()&&f->second.mod;}
-   if(mod)texRemember(*d,matches,live);
+   if(mod)texRemember(*d,matches,live,controlledAvatar());
    for(auto& m:matches){counts[int(m.verdict)]++;if(m.verdict==texdiag::Verdict::Skipped)continue;texDiagLog("texture-diag-match","match|"+d->path+"|"+d->rules[m.rule].section+"|"+std::to_string(m.renderer)+"|"+std::to_string(m.slot),texdiag::matchLine(*d,m,live));}
    texDiagLog("texture-diag-match","sum|"+d->path,d->name+"：角色 "+std::to_string(ch.config)+" 的渲染器 "+std::to_string(live.size())+" 个，确定匹配 "+std::to_string(counts[0])+"，高可信候选 "+std::to_string(counts[1])+"，"
     +"存在歧义 "+std::to_string(counts[2])+"，无法匹配 "+std::to_string(counts[3])+"，无贴图 "+std::to_string(counts[4])+"；"+(mod?"写入按替换方式 "+ctl.tex.strategy+" 进行（见 texture-apply）":std::string("未替换任何内容（只读诊断）")));}}
@@ -539,7 +539,7 @@ struct Runtime::Impl {
  static std::string texSignature(const texdiag::TextureMod& m){std::string s=std::to_string(m.character);for(auto& r:m.doc.rules)s+="|"+r.section+"#"+r.hash+"#"+std::to_string(r.first)+"#"+r.kind;return texFnv(s);}
  std::string texMappingFile(const TexDiagFile& f){return f.dir+"/texture-mapping.json";}
  void texSaveMapping(const std::string& path){auto f=texDiagDocs.find(path);if(f==texDiagDocs.end()||!f->second.mod)return;auto& list=texRecords[path];
-  std::string o="{\"format\":\"gibox-texture-mapping\",\"version\":1,\"buildId\":"+quote(abi::buildId)+",\"signature\":"+quote(texSignature(*f->second.mod))+",\"character\":"+std::to_string(f->second.mod->character)+",\"records\":[";
+  std::string o="{\"format\":\"gibox-texture-mapping\",\"version\":2,\"buildId\":"+quote(abi::buildId)+",\"signature\":"+quote(texSignature(*f->second.mod))+",\"character\":"+std::to_string(f->second.mod->character)+",\"records\":[";
   for(size_t i=0;i<list.size();i++){auto& r=list[i];o+=std::string(i?",":"")+"{\"renderer\":"+quote(r.renderer)+",\"mesh\":"+quote(r.mesh)+",\"avatar\":"+quote(r.avatar)+",\"from\":"+quote(r.from)+",\"hash\":"+quote(r.hash)+",\"vertices\":"+std::to_string(r.vertices)+",\"bones\":"+std::to_string(r.bones)+",\"submeshes\":[";
    for(size_t k=0;k<r.subs.size();k++){o+=std::string(k?",":"")+"["+std::to_string(r.subs[k].first)+","+std::to_string(r.subs[k].second)+"]";}o+="],\"materials\":[";
    for(size_t k=0;k<r.parts.size();k++){o+=std::string(k?",":"")+quote(r.parts[k]);}o+="],\"slots\":[";
@@ -549,7 +549,9 @@ struct Runtime::Impl {
  // A saved mapping is used for these rules and this character (from any game build: each record is re-checked before a
  // write); anything else is dropped, said why.
  void texLoadMapping(const std::string& path,const TexDiagFile& f){texRecords.erase(path);if(f.mapping.empty())return;
-  try{Json j=JsonParser(f.mapping).parse();require(j.type==Json::Object&&texdiag::str(j,"format")=="gibox-texture-mapping"&&texdiag::num(j,"version",0)==1,"不是贴图映射文件");
+  try{Json j=JsonParser(f.mapping).parse();require(j.type==Json::Object&&texdiag::str(j,"format")=="gibox-texture-mapping","不是贴图映射文件");
+   // Version 1 (before 0.7.109) could hold other characters' meshes (party screen hand-offs): not used, made again.
+   if(texdiag::num(j,"version",0)!=2){log("texture-map",f.mod->name+"：旧版映射可能混入了其他角色的网格，已作废；该角色再出现时重新确认");return;}
    // Another game build: used all the same. Game updates keep the character meshes (7.1 -> 7.2), and every record is
    // checked against the live renderer before anything is written (texRecordTargets: mesh name, vertices, bones, each
    // submesh's start and count, slot materials, avatar), so a mesh that did change is simply not written.
@@ -566,9 +568,11 @@ struct Runtime::Impl {
    texRecords[path]=list;log("texture-map",f.mod->name+"：使用已保存的映射，网格 "+std::to_string(list.size())+" 个，游戏版本 "+std::string(abi::buildId).substr(0,8)+"，规则 "+texSignature(*f.mod));}
   catch(const std::exception& ex){log("texture-map",f.mod->name+"：已保存的映射读取失败（"+std::string(ex.what())+"），不使用");}}
  // What a match confirmed on a full mesh becomes a record (saved when new).
- void texRemember(const texdiag::Doc& d,const std::vector<texdiag::Match>& matches,const std::vector<texdiag::Renderer>& live){
+ // Only renderers of `avatar`, the mod's character as established by the caller (0.7.109): a record is later taken as
+ // proof that a model is the mod's character, so one of another character must never be saved.
+ void texRemember(const texdiag::Doc& d,const std::vector<texdiag::Match>& matches,const std::vector<texdiag::Renderer>& live,const std::string& avatar){
   texMatches[d.path]=matches;texMatchLive[d.path]=live;bool added=false;auto& list=texRecords[d.path];
-  for(auto& m:matches){if(m.verdict!=texdiag::Verdict::Confirmed||m.renderer<0||m.slot<0)continue;const auto& R=live[size_t(m.renderer)];if(R.lod||!R.known()||size_t(m.slot)>=R.materials.size())continue;
+  for(auto& m:matches){if(m.verdict!=texdiag::Verdict::Confirmed||m.renderer<0||m.slot<0)continue;const auto& R=live[size_t(m.renderer)];if(R.lod||!R.known()||size_t(m.slot)>=R.materials.size()||avatar.empty()||R.avatar!=avatar)continue;
    TexRecord* rec=nullptr;for(auto& x:list)if(x.renderer==normalize(R.name)&&x.mesh==R.meshName&&x.vertices==R.vertices&&x.avatar==R.avatar)rec=&x;
    if(!rec){TexRecord n;n.renderer=normalize(R.name);n.mesh=R.meshName;n.avatar=R.avatar;n.from=texdiag::label(R)+" ("+R.meshName+")";n.vertices=R.vertices;n.bones=R.bones;
     for(auto& s:R.layout.subs){n.subs.push_back({s.start,s.count});}for(auto& mt:R.materials)n.parts.push_back(texdiag::materialPart(mt.name));list.push_back(n);rec=&list.back();added=true;texQuickNo.clear();}
@@ -838,11 +842,19 @@ struct Runtime::Impl {
   try{Ptr arr=e.call<Ptr>(abi::componentsInChildren,go,rendererTypeObject,uint32_t(1),Ptr(0));if(!arr){freeOwned(tmp);return;}pin(tmp,arr);auto list=pointers(arr,256);uint64_t t0=texClock();
    for(auto& kv:texDiagDocs){auto& f=kv.second;if(!f.mod||!texModOn(f.mod->name))continue;const auto& m=*f.mod;
     std::vector<texdiag::Renderer> infos;for(Ptr r:list)if(alive(r)&&!attachments.count(r)){try{infos.push_back(texLightRead(r));texSeen(infos.back().native,"交接");}catch(const std::exception& ex){log("texture-error",m.name+"：读取交接渲染器 "+hex(r)+" 失败："+ex.what());}}
-    if(infos.empty()){continue;}bool own=ch.entity&&m.character==ch.config;auto ri=texRecords.find(kv.first);if(!own&&ri!=texRecords.end())for(auto& rec:ri->second)for(auto& i:infos)own=own||(!rec.avatar.empty()&&i.avatar==rec.avatar);
-    if(!own){if(texHandoffSaid.insert(m.name+"|"+goName).second)log("texture-handoff",m.name+"："+goName+"（渲染器 "+std::to_string(infos.size())+" 个）不是角色 "+std::to_string(m.character)+"（当前操控 "+std::to_string(ch.config)+"，已保存的 avatar 也不符），不匹配");continue;}
+    if(infos.empty()){continue;}
+    // Whose model this is, by its own renderers' avatar (0.7.109): the controlled character's when the mod is for it,
+    // or one a saved record has (records hold only avatars checked this way). Before, controlling the mod's character
+    // let every model handed over pass: in the party screen a face rule matched Flins', Aino's and Wriothesley's Face
+    // (a Face component has no index buffer of its own, so its name decides) and saved them as the mod's records.
+    std::string goAvatar;for(auto& i:infos)if(!i.avatar.empty()){goAvatar=i.avatar;break;}
+    std::string want=ch.entity&&m.character==ch.config?controlledAvatar():std::string();bool own=!goAvatar.empty()&&goAvatar==want;
+    auto ri=texRecords.find(kv.first);if(!own&&!goAvatar.empty()&&ri!=texRecords.end())for(auto& rec:ri->second)own=own||rec.avatar==goAvatar;
+    if(!own){if(texHandoffSaid.insert(m.name+"|"+goName).second)log("texture-handoff",m.name+"："+goName+"（渲染器 "+std::to_string(infos.size())+" 个，avatar "+(goAvatar.empty()?std::string("未知"):goAvatar)+"）不是角色 "+std::to_string(m.character)+(want.empty()?"":"（"+want+"）")+"，也不在已保存的记录中，不匹配");continue;}
+    infos.erase(std::remove_if(infos.begin(),infos.end(),[&](const texdiag::Renderer& i){return i.avatar!=goAvatar;}),infos.end());
     auto matches=texdiag::match(m.doc,infos,deviceMap());unsigned confirmed=0;for(auto& x:matches)confirmed+=x.verdict==texdiag::Verdict::Confirmed;
     for(auto& x:matches)if(x.verdict==texdiag::Verdict::Confirmed&&x.renderer>=0){auto& tt=texTimes[infos[size_t(x.renderer)].native];if(!tt.matched){tt.matched=texClock();}}
-    texRemember(m.doc,matches,infos);std::string lods;for(auto& i:infos)if(i.lod)lods+=(lods.empty()?"":", ")+i.name+"/"+i.meshName;
+    texRemember(m.doc,matches,infos,goAvatar);std::string lods;for(auto& i:infos)if(i.lod)lods+=(lods.empty()?"":", ")+i.name+"/"+i.meshName;
     log("texture-handoff",m.name+"：交接 "+goName+"，读取并匹配渲染器 "+std::to_string(infos.size())+" 个，用时 "+std::to_string(texClock()-t0)+" ms，按索引起点确认槽 "+std::to_string(confirmed)+" 个"+(lods.empty()?"":"；低精度网格："+lods));
     std::string strategy=texStrategy();if(strategy=="diagnose")continue;TexLive* L=nullptr;std::shared_ptr<std::map<std::string,Texture>> px;std::string why;
     if(!texLiveFor(kv.first,f,strategy,texTestId(),L,px,why)){for(Ptr r:list)if(alive(r))texPend(r);log("texture-wait",m.name+"："+goName+" 等待，原因："+why);continue;}
@@ -1447,6 +1459,8 @@ struct Runtime::Impl {
   try{Ptr ba=e.get(abi::getBones,renderer);pin(tmp,ba);auto bones=pointers(ba,512);Ptr t=bones.empty()?0:bones[0];
    for(unsigned i=0;i<24&&alive(t);i++){auto n=meshName(name(t));if(n.compare(0,7,"avatar_")==0){root=t;break;}t=e.get(abi::getParent,t);}
   }catch(...){freeOwned(tmp);throw;}freeOwned(tmp);return root;}
+ // The avatar of the character controlled in the world, from its renderers ("" while it has none).
+ std::string controlledAvatar(){try{for(Ptr r:worldRenderers())if(alive(r)){auto a=avatarIdentity(r);if(!a.empty())return a;}}catch(const std::exception&){}return {};}
  std::string avatarIdentity(Ptr renderer){Ptr root=avatarRoot(renderer);if(!root)return {};auto n=meshName(name(root));return n.substr(0,n.find("_manekin"));}
  bool targetsFor(const ModelInfo& m,std::vector<Fingerprint>& out){out.clear();auto l=learned.find(m.path);
   for(auto& p:m.parts){if(l!=learned.end()&&l->second.count(p.name)&&l->second.at(p.name).bones>=p.minBones)out.push_back(l->second.at(p.name));else if(p.hasTarget&&p.target.bones>=p.minBones)out.push_back(p.target);else return false;}return true;}
