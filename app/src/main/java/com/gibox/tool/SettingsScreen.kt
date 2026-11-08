@@ -52,8 +52,7 @@ fun SettingsScreen(state: AppState) {
                 SettingsGroup(title = { SectionTitle("通用") }, verticalArrangement = gap) {
                     SettingsSwitch(
                         state = hideUid,
-                        title = { Text("隐藏 UID") },
-                        subtitle = { Text("隐藏游戏界面上显示的 UID，不改动账号和 UID 本身。重启游戏后生效") },
+                        title = { Text("隐藏用户UID") },
                         shapes = ListItemDefaults.segmentedShapes(0, 1),
                         onCheckedChange = { state.setHideUid(it) },
                     )
