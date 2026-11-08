@@ -2590,13 +2590,14 @@ struct Runtime::Impl {
  // The game's LOD (MiHoYoLodLoader, a native engine component) puts a lower-detail mesh with another bone list into the
  // same renderer away from the camera (Alyosha's Body_LOD1: 149 bones, Body: 148). The loaders of a character GIBox
  // replaces are held at level 0, the full mesh, so our model stays on the bone list it was built for; they are resumed
- // when the character is no longer replaced (or the switch control.json "lodPin" is turned off). Only loaders the game
- // has not paused itself are touched, and only those are resumed.
+ // when the character is no longer replaced (or the switch control.json "lodPin" is turned off). A loader the game holds
+ // at a level itself (0.7.105: Alyosha's in the world, held at LOD1, so nothing was built until the detail page showed
+ // the full Body) is taken over too and put back at that level afterwards; one switching freely is resumed.
  // Found by GameObject.GetComponent("MiHoYoLodLoader"), the engine's own name lookup (no Type needed): on the renderer's
  // GameObject, then the avatar root's and its parent's. Calls: Pause/ResumeLodLoader, IsLodLoaderSelfPaused (component
  // byte +0x93 != 0xff in both builds) and get_currentLodLevel, each a one-instruction B into the native code in both
  // builds (gibox_check_lod); checked again here before the first call.
- struct LodPin {uint32_t handle=0;std::string where;std::set<Ptr> renderers;};std::map<Ptr,LodPin> lodPins;std::map<Ptr,std::pair<Ptr,uint64_t>> lodSearched;std::set<Ptr> lodNoneSaid;  // renderer -> (native, search again at)
+ struct LodPin {uint32_t handle=0;int held=-1/* the game's own level, -1 none */;std::string where;std::set<Ptr> renderers;};std::map<Ptr,LodPin> lodPins;std::map<Ptr,std::pair<Ptr,uint64_t>> lodSearched;std::set<Ptr> lodNoneSaid;  // renderer -> (native, search again at)
  int lodApi=-1;uint64_t lodPinAt=0;
  bool lodApiReady(){if(lodApi>=0)return lodApi==1;
   // A wrapper that is a single B (0x14000000 | imm26) into the engine; the fake engine of the host tests has no code.
@@ -2609,7 +2610,10 @@ struct Runtime::Impl {
   try{look(r,rendererName(r));if(out.empty()){Ptr root=avatarRoot(r);if(root){look(root,name(root));if(out.empty()){Ptr up=e.get(abi::getParent,root);look(up,up?name(up):"");}}}}
   catch(...){freeOwned(tmp);throw;}freeOwned(tmp);return out;}
  void lodUnpin(Ptr l,const char* why){auto it=lodPins.find(l);if(it==lodPins.end())return;
-  try{if(alive(l)&&(e.call<uint32_t>(abi::lodSelfPaused,l,Ptr(0))&1)){e.call<void>(abi::lodResume,l,Ptr(0));log("lod-unpin",it->second.where+"：恢复游戏的 LOD 切换（"+why+"）");}}catch(const std::exception& ex){log("lod-pin-error",it->second.where+"：恢复失败："+ex.what());}
+  try{if(alive(l)&&(e.call<uint32_t>(abi::lodSelfPaused,l,Ptr(0))&1)){int held=it->second.held;
+    if(held>0){e.call<void>(abi::lodPause,l,int32_t(held),Ptr(0));log("lod-unpin",it->second.where+"：恢复游戏原来固定的 LOD"+std::to_string(held)+"（"+why+"）");}
+    else{e.call<void>(abi::lodResume,l,Ptr(0));log("lod-unpin",it->second.where+"：恢复游戏的 LOD 切换（"+why+"）");}}}
+  catch(const std::exception& ex){log("lod-pin-error",it->second.where+"：恢复失败："+ex.what());}
   e.call<void>(abi::unpin,it->second.handle);lodPins.erase(it);}
  void lodUnpinAll(const char* why){std::vector<Ptr> all;for(auto& kv:lodPins)all.push_back(kv.first);for(Ptr l:all)lodUnpin(l,why);lodSearched.clear();lodNoneSaid.clear();}
  void lodPinTick(uint64_t now,const std::vector<const ModelInfo*>& wanted){
@@ -2625,10 +2629,11 @@ struct Runtime::Impl {
    lodSearched[r]={native,~0ull};
    try{auto loaders=lodLoadersOf(r);if(loaders.empty()){lodSearched[r].second=now+30000;if(lodNoneSaid.insert(r).second)log("lod-pin-none",rendererName(r)+"：渲染器、角色根节点上暂时没有 MiHoYoLodLoader，不固定（30 秒后再找）");continue;}
     for(auto& [l,where]:loaders){auto pin=lodPins.find(l);if(pin!=lodPins.end()){pin->second.renderers.insert(r);continue;}
-     if(e.call<uint32_t>(abi::lodSelfPaused,l,Ptr(0))&1){log("lod-pin-skip",where+"：游戏已固定此 LOD，不改动");continue;}
-     unsigned before=e.call<uint32_t>(abi::lodCurrent,l,Ptr(0))&0xff;e.call<void>(abi::lodPause,l,int32_t(0),Ptr(0));
-     LodPin p;p.handle=e.call<uint32_t>(abi::pin,l,2,Ptr(0));p.where=where;p.renderers.insert(r);lodPins[l]=p;
-     log("lod-pin",where+"：固定在完整模型（LOD0，原为 LOD"+std::to_string(before)+"），"+rendererName(r)+" 不再切换到低精度网格");}}
+     bool gameHeld=e.call<uint32_t>(abi::lodSelfPaused,l,Ptr(0))&1;unsigned before=e.call<uint32_t>(abi::lodCurrent,l,Ptr(0))&0xff;
+     LodPin p;p.held=gameHeld&&before<=7?int(before):-1;
+     if(p.held==0){log("lod-pin-skip",where+"：游戏已固定在完整模型（LOD0），不改动");lodSearched[r].second=now+30000;continue;}
+     e.call<void>(abi::lodPause,l,int32_t(0),Ptr(0));p.handle=e.call<uint32_t>(abi::pin,l,2,Ptr(0));p.where=where;p.renderers.insert(r);lodPins[l]=p;
+     log("lod-pin",where+"：固定在完整模型（LOD0，原为 LOD"+std::to_string(before)+(gameHeld?"，由游戏固定，结束后恢复":"")+"），"+rendererName(r)+" 不再切换到低精度网格");}}
    catch(const std::exception& ex){log("lod-pin-error",rendererName(r)+"："+ex.what());}}
   std::vector<Ptr> drop;for(auto& kv:lodPins){for(auto it=kv.second.renderers.begin();it!=kv.second.renderers.end();)if(!renderers.count(*it))it=kv.second.renderers.erase(it);else ++it;if(kv.second.renderers.empty())drop.push_back(kv.first);}
   for(Ptr l:drop)lodUnpin(l,"该角色不再被替换");
