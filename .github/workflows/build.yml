@@ -61,13 +61,17 @@ jobs:
         with:
           path: ${{ env.APK_PATH }}
           archive: false
-      # A version tag (v1.0.0 ...) publishes a release: the APK as GIBox-<version>.apk, the text of
-      # .github/release-notes.md as its description.
+      # A release: on a version tag (v1.0.0 ...), or when run by hand (workflow_dispatch), for the tag
+      # v<versionName> of app/build.gradle.kts made at this commit. The APK goes up as GIBox-<version>.apk,
+      # .github/release-notes.md is its description.
       - name: Publish release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          out="$RUNNER_TEMP/GIBox-${GITHUB_REF_NAME#v}.apk"
+          if [ "${GITHUB_REF#refs/tags/}" != "$GITHUB_REF" ]; then tag="$GITHUB_REF_NAME"
+          else tag="v$(sed -n 's/^ *versionName = "\(.*\)"/\1/p' app/build.gradle.kts)"; fi
+          if [ "$tag" = "v" ]; then echo "::error::no versionName in app/build.gradle.kts"; exit 1; fi
+          out="$RUNNER_TEMP/GIBox-${tag#v}.apk"
           cp "$APK_PATH" "$out"
-          gh release create "$GITHUB_REF_NAME" "$out" --repo "$GITHUB_REPOSITORY" --title "GIBox ${GITHUB_REF_NAME#v}" --notes-file .github/release-notes.md
+          gh release create "$tag" "$out" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "GIBox ${tag#v}" --notes-file .github/release-notes.md

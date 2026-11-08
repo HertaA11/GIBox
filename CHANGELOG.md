@@ -7,7 +7,7 @@
   - 同名的 INI 段：只用第一个，后面的忽略（与 3DMigoto 的 IniHandler 一致）。
   - 某个 hash 上的 `drawindexed = auto` 没有 MOD 自己的索引缓冲：在游戏里画的是游戏原有的几何，跳过不转换。
   - 以上情况都会在转换日志里写明。
-- GitHub：打 v 开头的版本标签时自动发布 Release，附带 APK。
+- GitHub：打 v 开头的版本标签，或手动运行构建工作流时，自动发布 Release（附带 APK，标签取 build.gradle.kts 的版本号）。
 
 # 0.7.109-source
 
