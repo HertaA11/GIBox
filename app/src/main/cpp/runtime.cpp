@@ -524,7 +524,11 @@ struct Runtime::Impl {
  // A confirmed full mesh, as features (saved per mod in texture-mapping.json for this build and these rules).
  // hash: the GIMI index-buffer hash this mesh's uploaded index data reproduced (0.7.59), empty when confirmed by submesh starts.
  struct TexRecord {std::string renderer,mesh,avatar,from,hash;unsigned vertices=0,bones=0;std::vector<std::pair<uint32_t,uint32_t>> subs;std::vector<std::string> parts;std::vector<std::pair<int,std::string>> slots;bool saved=false;};
- std::map<std::string,std::vector<TexRecord>> texRecords;std::set<std::pair<Ptr,Ptr>> texQuickNo;
+ std::map<std::string,std::vector<TexRecord>> texRecords;
+ // Negative results per mod (1.0.2: keyed by renderer and mesh alone, one mod's "not mine" made another mod skip a
+ // model that was its own: Vodyanitsa's mapping checked Furina's Body, and Furina's mod then found nothing for 500 ms
+ // at a time, for good once the slots had been put back).
+ typedef std::tuple<std::string,Ptr,Ptr> TexNoKey;std::set<TexNoKey> texQuickNo;
  // When a renderer was first seen (hand-off or scan) and how far it got: the texture-timing lines.
  struct TexTime {uint64_t seen=0,matched=0;std::string via,match;bool logged=false;};
  std::map<Ptr,TexTime> texTimes;
@@ -532,7 +536,7 @@ struct Runtime::Impl {
  // each use (a destroyed renderer's wrapper may have been collected and its memory reused).
  std::map<Ptr,std::pair<Ptr,Ptr>> texPending;void texPend(Ptr r){texPending[r]={load<Ptr>(r),load<Ptr>(r+0x10)};}
  static bool texPendLive(const std::pair<const Ptr,std::pair<Ptr,Ptr>>& kv){return kv.second.second&&load<Ptr>(kv.first)==kv.second.first&&load<Ptr>(kv.first+0x10)==kv.second.second;}std::vector<Ptr> texHanded;std::set<std::string> texHandoffSaid;
- std::map<std::pair<Ptr,Ptr>,uint64_t> texWaitUntil;std::string texWaitLod;   // a renderer near a mapping that does not apply: checked again after 500 ms
+ std::map<TexNoKey,uint64_t> texWaitUntil;std::string texWaitLod;std::set<Ptr> texDeferred;   // a renderer near a mapping that does not apply: checked again after 500 ms
  bool texModOn(const std::string& name)const{return ctl.enabled&&std::find(ctl.selected.begin(),ctl.selected.end(),name)!=ctl.selected.end();}
  static std::string texFnv(const std::string& s){uint64_t h=1469598103934665603ull;for(unsigned char c:s){h^=c;h*=1099511628211ull;}char b[20];std::snprintf(b,sizeof b,"%016llx",(unsigned long long)h);return b;}
  // The rules a mapping belongs to: a change of any section, hash, match_first_index or kind makes the saved one stale.
@@ -571,7 +575,16 @@ struct Runtime::Impl {
  // Only renderers of `avatar`, the mod's character as established by the caller (0.7.109): a record is later taken as
  // proof that a model is the mod's character, so one of another character must never be saved.
  void texRemember(const texdiag::Doc& d,const std::vector<texdiag::Match>& matches,const std::vector<texdiag::Renderer>& live,const std::string& avatar){
-  texMatches[d.path]=matches;texMatchLive[d.path]=live;bool added=false;auto& list=texRecords[d.path];
+  // The live matches of every caller together (1.0.2): a hand-off (party / detail page) used to replace the world's,
+  // so the world model's slots went back as "no longer targeted". Confirmed matches on renderers still alive stay.
+  {std::vector<texdiag::Match> merged=matches;std::vector<texdiag::Renderer> all=live;auto om=texMatches.find(d.path);auto ol=texMatchLive.find(d.path);
+   if(om!=texMatches.end()&&ol!=texMatchLive.end()){std::map<int,int> moved;
+    for(auto& x:om->second){if(x.verdict!=texdiag::Verdict::Confirmed||x.renderer<0||size_t(x.renderer)>=ol->second.size())continue;const auto& R=ol->second[size_t(x.renderer)];
+     if(!R.renderer||!alive(R.renderer)||load<Ptr>(R.renderer+0x10)!=R.native){continue;}
+     bool fresh=false;for(auto& n:live)fresh=fresh||n.renderer==R.renderer;if(fresh)continue;
+     auto mv=moved.find(x.renderer);if(mv==moved.end()){mv=moved.emplace(x.renderer,int(all.size())).first;all.push_back(R);}auto y=x;y.renderer=mv->second;merged.push_back(y);}}
+   texMatches[d.path]=std::move(merged);texMatchLive[d.path]=std::move(all);}
+  bool added=false;auto& list=texRecords[d.path];
   for(auto& m:matches){if(m.verdict!=texdiag::Verdict::Confirmed||m.renderer<0||m.slot<0)continue;const auto& R=live[size_t(m.renderer)];if(R.lod||!R.known()||size_t(m.slot)>=R.materials.size()||avatar.empty()||R.avatar!=avatar)continue;
    TexRecord* rec=nullptr;for(auto& x:list)if(x.renderer==normalize(R.name)&&x.mesh==R.meshName&&x.vertices==R.vertices&&x.avatar==R.avatar)rec=&x;
    if(!rec){TexRecord n;n.renderer=normalize(R.name);n.mesh=R.meshName;n.avatar=R.avatar;n.from=texdiag::label(R)+" ("+R.meshName+")";n.vertices=R.vertices;n.bones=R.bones;
@@ -640,8 +653,9 @@ struct Runtime::Impl {
  // name, avatar, submesh count and the slot materials' part names. why: what keeps it from being written, when nothing does.
  std::vector<TexTarget> texRecordTargets(const std::string& path,const texdiag::TextureMod& m,Ptr r,std::string& why){std::vector<TexTarget> out;
   auto ri=texRecords.find(path);if(ri==texRecords.end()||ri->second.empty()||!alive(r))return out;Ptr native=load<Ptr>(r+0x10);Ptr mesh=e.get(abi::getMesh,r);if(!alive(mesh))return out;Ptr mn=load<Ptr>(mesh+0x10);
-  if(texQuickNo.count({native,mn})){return out;}if(texWaitLod!=ctl.tex.lod){texWaitLod=ctl.tex.lod;texWaitUntil.clear();}
-  {auto w=texWaitUntil.find({native,mn});if(w!=texWaitUntil.end()&&texClock()<w->second)return out;}auto fp=fingerprint(mesh);bool lod=lowerLod(fp.mesh);bool near=false;auto rn=rendererName(r);
+  if(texQuickNo.count({path,native,mn})){return out;}if(texWaitLod!=ctl.tex.lod){texWaitLod=ctl.tex.lod;texWaitUntil.clear();}
+  // Not checked again yet: not a "no" (texDeferred keeps what was written there until the check is made).
+  {auto w=texWaitUntil.find({path,native,mn});if(w!=texWaitUntil.end()&&texClock()<w->second){texDeferred.insert(r);return out;}}auto fp=fingerprint(mesh);bool lod=lowerLod(fp.mesh);bool near=false;auto rn=rendererName(r);
   for(auto& rec:ri->second){if(normalize(rn)!=rec.renderer||meshName(fp.mesh)!=meshName(rec.mesh))continue;near=true;
    auto info=texLightRead(r);if(info.avatar!=rec.avatar){why="avatar "+info.avatar+" 与映射记录的 "+rec.avatar+" 不同";continue;}
    std::string ruleWhy;auto build=[&](const std::string& evidence){for(auto& sl:rec.slots){int rule=-1;for(size_t i=0;i<m.doc.rules.size();i++)if(m.doc.rules[i].section==sl.second)rule=int(i);if(rule<0)continue;
@@ -656,7 +670,7 @@ struct Runtime::Impl {
     if(info.layout.submeshes!=int(rec.subs.size())&&fp.submeshes!=rec.subs.size()){why="低精度网格 "+fp.mesh+" 有 "+std::to_string(fp.submeshes)+" 个子网格，完整网格有 "+std::to_string(rec.subs.size())+" 个";continue;}
     if(!parts){why="低精度网格 "+fp.mesh+"：槽位材质与完整网格不同";continue;}
     build("迁移自 "+rec.from+"（核对：渲染器名、网格 "+meshName(rec.mesh)+"、avatar、"+std::to_string(rec.subs.size())+" 子网格 / "+std::to_string(rec.parts.size())+" 材质、各槽位材质名）");}}
-  if(!near){texQuickNo.insert({native,mn});}else if(out.empty()){if(why.empty())why="映射中没有适用的槽";if(texWaitUntil.size()>1024)texWaitUntil.clear();texWaitUntil[{native,mn}]=texClock()+500;}return out;}
+  if(!near){texQuickNo.insert({path,native,mn});}else if(out.empty()){if(why.empty())why="映射中没有适用的槽";if(texWaitUntil.size()>1024)texWaitUntil.clear();texWaitUntil[{path,native,mn}]=texClock()+500;}return out;}
  bool texUsable(TexLive* L,Ptr r,const std::string& label){if(!alive(r))return false;auto a=attachments.find(r);if(a!=attachments.end()){if(L)texSay(*L,"att|"+hex(r),"texture-skip",texTag(*L)+"："+label+" 已由 GIBox 模型 "+a->second->set->name+" 接管，网格 MOD 优先，不写入");return false;}
   if(swapped.count(r)){if(L)texSay(*L,"swap|"+hex(r),"texture-skip",texTag(*L)+"："+label+" 上有网格 MOD 的脸部贴图替换，不写入");return false;}return true;}
  std::vector<Ptr> texPool(TexLive* L){std::vector<Ptr> pool;try{pool=worldRenderers();}catch(const std::exception&){}for(auto& sn:seen)if(seenLive(sn))pool.push_back(sn.renderer);
@@ -687,7 +701,7 @@ struct Runtime::Impl {
        Ptr native=load<Ptr>(r+0x10);std::string label=rendererName(r)+"#"+hex(native);Ptr mesh=e.get(abi::getMesh,r);std::string meshName=alive(mesh)?fingerprint(mesh).mesh:std::string();bool lod=lowerLod(meshName);
        if(!texUsable(L,r,label)||(lod&&ctl.tex.lod!="migrate")){taken.erase({r,int(s)});continue;}
        out.push_back({r,native,int(s),{k},"与 "+base.label+" 槽 "+std::to_string(base.slot)+" 共用游戏贴图 "+texDescribe(original)+"（"+p+"）：PC 按贴图 hash "+rule.hash+" 替换，绑定这张贴图的绘制都会换",label,meshName,lod});}}catch(const std::exception&){}}}}}
- std::vector<TexTarget> texTargets(const std::string& path,const texdiag::TextureMod& m,TexLive* L){std::vector<TexTarget> out;std::set<std::pair<Ptr,int>> taken;
+ std::vector<TexTarget> texTargets(const std::string& path,const texdiag::TextureMod& m,TexLive* L){std::vector<TexTarget> out;std::set<std::pair<Ptr,int>> taken;texDeferred.clear();
   auto mi=texMatches.find(path);auto li=texMatchLive.find(path);
   if(mi!=texMatches.end()&&li!=texMatchLive.end())for(auto& x:mi->second){if(x.verdict!=texdiag::Verdict::Confirmed||x.renderer<0||x.slot<0)continue;const auto& R=li->second[size_t(x.renderer)];
    if(!alive(R.renderer)||load<Ptr>(R.renderer+0x10)!=R.native||!texUsable(L,R.renderer,texdiag::label(R)))continue;
@@ -854,7 +868,7 @@ struct Runtime::Impl {
     infos.erase(std::remove_if(infos.begin(),infos.end(),[&](const texdiag::Renderer& i){return i.avatar!=goAvatar;}),infos.end());
     auto matches=texdiag::match(m.doc,infos,deviceMap());unsigned confirmed=0;for(auto& x:matches)confirmed+=x.verdict==texdiag::Verdict::Confirmed;
     for(auto& x:matches)if(x.verdict==texdiag::Verdict::Confirmed&&x.renderer>=0){auto& tt=texTimes[infos[size_t(x.renderer)].native];if(!tt.matched){tt.matched=texClock();}}
-    texRemember(m.doc,matches,infos,goAvatar);std::string lods;for(auto& i:infos)if(i.lod)lods+=(lods.empty()?"":", ")+i.name+"/"+i.meshName;
+    texRemember(m.doc,matches,infos,goAvatar);texDiagMatched.erase(kv.first);std::string lods;for(auto& i:infos)if(i.lod)lods+=(lods.empty()?"":", ")+i.name+"/"+i.meshName;
     log("texture-handoff",m.name+"：交接 "+goName+"，读取并匹配渲染器 "+std::to_string(infos.size())+" 个，用时 "+std::to_string(texClock()-t0)+" ms，按索引起点确认槽 "+std::to_string(confirmed)+" 个"+(lods.empty()?"":"；低精度网格："+lods));
     std::string strategy=texStrategy();if(strategy=="diagnose")continue;TexLive* L=nullptr;std::shared_ptr<std::map<std::string,Texture>> px;std::string why;
     if(!texLiveFor(kv.first,f,strategy,texTestId(),L,px,why)){for(Ptr r:list)if(alive(r))texPend(r);log("texture-wait",m.name+"："+goName+" 等待，原因："+why);continue;}
@@ -918,7 +932,10 @@ struct Runtime::Impl {
    if(!texStoreReady(kv.first,why)){status+=(status.empty()?"":"；")+who+"贴图准备中（"+why+"）";continue;}
    auto targets=texTargets(kv.first,m,L);
    // Slots no longer targeted (renderer gone, mapping lost) go back; a changed variant is written again.
+   std::set<Ptr> deferred=texDeferred;
    bool failed=false;for(auto it=L->slots.begin();it!=L->slots.end();){bool still=false;for(auto& t:targets)still=still||(t.renderer==it->renderer&&t.slot==it->slot);
+    // A renderer whose check was only put off (texWaitUntil) keeps its slots while it lives: not a "no longer targeted".
+    if(!still&&deferred.count(it->renderer)&&alive(it->renderer)&&load<Ptr>(it->renderer+0x10)==it->native){++it;continue;}
     std::string plan;if(still){for(auto& t:targets)if(t.renderer==it->renderer&&t.slot==it->slot){std::vector<std::string> sk;for(auto& w:texdiag::writesFor(m.doc,t.rules,texVars(m),sk))plan+=w.property+"="+w.resource+";";}}
     if(still&&plan==it->plan){++it;continue;}bool ok=texRestore(*L,*it,still?"款式已切换":"不再是替换目标");if(!ok){failed=true;break;}it=L->slots.erase(it);}
    if(failed){texDrop(std::move(texLive[kv.first]),false);texLive.erase(kv.first);status+=(status.empty()?"":"；")+who+"还原失败，已停止";continue;}

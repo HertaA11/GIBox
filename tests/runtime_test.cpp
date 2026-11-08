@@ -1377,6 +1377,38 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
   write(sharedQ+"/control.json","{\"enabled\":true,\"selected\":[],\"textureMods\":{\"strategy\":\"direct\"}}");run(1000);
   assert(f->diffuse[mat]==gameTex&&f->diffuse[tmat]==gameTex&&f->diffuse[hmat]==gameTex&&f->diffuse[ainst]==gameTex&&f->diffuse[minst]==gameTex);
   q.shutdown();f->world(0);f->scene={};}
+ // 42b. Two texture-only mods (1.0.2, device report): another character's mod (ATexOther, earlier in the map) checks
+ //      this character's Body against its own mapping and fails on the avatar; that must not make this character's mod
+ //      skip the Body, and a detail-page hand-off must not drop the world model's slots when that model goes away.
+ {size_t handles0=f->handles.size();std::string mediaC=root+"/mediaCache",sharedC=mediaC+"/"+pkg+"/GIBox",modA=sharedC+"/models/TexMod",modB=sharedC+"/models/ATexOther",logC=sharedC+"/GIBox Log.txt";
+  std::filesystem::create_directories(modA+"/textures");std::filesystem::create_directories(modB+"/textures");
+  Ptr entity=load<Ptr>(load<Ptr>(load<Ptr>(f->manager+kList)+0x10)+0x20);store<uint32_t>(entity+kConfig,10000200);
+  Ptr body=f->renderer(f->mesh("Body",3)),mat=load<Ptr>(f->obj[body].materials+0x20),gameTex=f->object("texture","Avatar_Tex_Body_Diffuse");f->diffuse[mat]=gameTex;f->world(body);f->scene={body};store<uint32_t>(load<Ptr>(mat+0x10)+8,uint32_t(-21));
+  Bytes px(16,0x7f);write(modA+"/textures/0.rgba",px.data(),px.size());write(modB+"/textures/0.rgba",px.data(),px.size());
+  auto doc=[](const std::string& name,unsigned id){std::string c=std::to_string(id);return R"J({"format":"gibox-texture-mod","version":1,"name":")J"+name+R"J(","generation":"g1","character":{"id":)J"+c+R"J(},"variants":{"vars":[],"default":{}},
+   "textures":[{"resource":"rbody","file":"textures/0.rgba","width":2,"height":2}],
+   "diag":{"format":"gibox-texture-diag","version":1,"name":")J"+name+R"J(","character":)J"+c+R"J(,"rules":[{"section":"TextureOverrideModBodyA","part":"ModBodyA","hint":"body","hash":"d5ae71a3","first":0,"kind":"segment","textures":[
+    {"slot":"ps-t0","resource":"rbody","role":"diffuse","condition":"","via":""}]}],"resources":[]}})J";};
+  write(modA+"/texture.json",doc("TexMod",10000107));write(modB+"/texture.json",doc("ATexOther",10000200));
+  // ATexOther's saved mapping: a Body of avatar_boy_sword_kaveh (texSignature: FNV-1a of the character and the rules).
+  auto fnv=[](const std::string& x){uint64_t h=1469598103934665603ull;for(unsigned char c:x){h^=c;h*=1099511628211ull;}char b[20];std::snprintf(b,sizeof b,"%016llx",(unsigned long long)h);return std::string(b);};
+  write(modB+"/texture-mapping.json","{\"format\":\"gibox-texture-mapping\",\"version\":2,\"buildId\":\"x\",\"signature\":\""+fnv("10000200|TextureOverrideModBodyA#d5ae71a3#0#segment")+"\",\"character\":10000200,\"records\":[{\"renderer\":\"body\",\"mesh\":\"Body\",\"avatar\":\"avatar_boy_sword_kaveh\",\"from\":\"Body\",\"hash\":\"\",\"vertices\":3,\"bones\":1,\"submeshes\":[[0,3]],\"materials\":[\"\"],\"slots\":[{\"slot\":0,\"rule\":\"TextureOverrideModBodyA\"}]}]}\n");
+  write(sharedC+"/control.json","{\"enabled\":true,\"selected\":[\"TexMod\",\"ATexOther\"],\"textureMods\":{\"strategy\":\"direct\"}}");
+  Runtime c(e,pkg,root+"/privateCache",mediaC,false);uint64_t t=7500000;auto run=[&](uint64_t ms){for(uint64_t end=t+ms;t<end;t+=100)c.tick(t);};
+  auto count=[&](const std::string& x){auto l=text(logC);size_t n=0;for(size_t p=l.find(x);p!=std::string::npos;p=l.find(x,p+1))n++;return n;};
+  // ATexOther's character (its own avatar) controlled once: its live state stays, and texQuick keeps scanning with it.
+  Ptr kbody=f->renderer(f->mesh("Body",3),"BoneA","Body",f->kavehRoot);f->world(kbody);f->scene={kbody};run(1500);
+  store<uint32_t>(entity+kConfig,10000107);f->world(body);f->scene={body};run(3000);assert(f->diffuse[mat]!=gameTex);Ptr ours=f->diffuse[mat];
+  assert(count("avatar avatar_girl_catalyst_citlali 与映射记录的 avatar_boy_sword_kaveh 不同")>=1);
+  // Another renderer of the same Mesh appears: ATexOther checks it first and says no; TexMod still writes it.
+  Ptr twin=f->renderer(f->obj[body].mesh),tmat=load<Ptr>(f->obj[twin].materials+0x20);f->diffuse[tmat]=gameTex;store<uint32_t>(load<Ptr>(tmat+0x10)+8,uint32_t(-22));f->scene={body,twin};run(700);
+  assert(f->diffuse[tmat]==ours);
+  // The detail page: a hand-off of this character's model, written, then destroyed; the world Body keeps its texture.
+  Ptr handed=f->renderer(f->obj[body].mesh),hmat=load<Ptr>(f->obj[handed].materials+0x20);f->diffuse[hmat]=gameTex;store<uint32_t>(load<Ptr>(hmat+0x10)+8,uint32_t(-23));
+  Ptr go=f->gameObjectOf({handed});c.spawned(go);c.spawnedAfter();run(300);assert(f->diffuse[hmat]==ours);
+  destroy(handed,0);f->scene={body,twin};run(2000);
+  assert(f->diffuse[mat]==ours&&count("TexMod：Body#")>=1&&text(logC).find("不再是替换目标")==std::string::npos);
+  c.shutdown();assert(f->diffuse[mat]==gameTex&&f->diffuse[tmat]==gameTex&&f->handles.size()==handles0);}   // earlier blocks leave their own handles
  // 43. The first match at the game's hand-off: no earlier confirmation, the model not yet in the world; the textures were
  //     prepared once the mod was on, so the hand-off only checks and binds. The mapping is saved and, after a restart,
  //     used for this build and these rules only; a lower LOD without migration waits and says why; a material the game
