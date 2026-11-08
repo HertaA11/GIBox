@@ -353,6 +353,18 @@ public final class CompatibilityTest {
         // An if with no endif: its lines run whatever $x is, as in 3DMigoto (the light map is bound).
         ModelConverter.Ini ini=new ModelConverter.Ini(new File(base,"tol-missing-endif"));
         ok(ini.active(ini.sections.get("textureoverridecitlalihead"),new HashMap<>(ini.vars)).contains("ps-t1 = ResourceCitlaliBodyDiffuse"),"the lines after an unterminated if always run");}
+    // Textures given as texture replacements ("this ="): the head's by its section name (TextureOverride<part>Diffuse),
+    // the body's by the PC database (texture hash -> IB 44444444, first index 3, diffuse). Without them: no texture.
+    static void thisTextures(File base)throws Exception{
+        String text=GimiPatternsTest.ini("global $creditinfo = 0\n","","","").replace("ps-t0 = ResourceCitlaliHeadDiffuse\n","").replace("ps-t0 = ResourceCitlaliBodyDiffuse\n","")
+            +"\n[TextureOverrideCitlaliHeadDiffuse]\nhash = 77777777\nthis = ResourceCitlaliHeadDiffuse\n[TextureOverrideBodyTexA]\nhash = 99999999\nthis = ResourceCitlaliBodyDiffuse\n";
+        File src=GimiPatternsTest.mod(base,"this-tex",text);GimiPatternsTest.put(src,"CitlaliHeadDiffuse.dds",new byte[]{11});GimiPatternsTest.put(src,"CitlaliBodyDiffuse.dds",new byte[]{22});
+        Map<String,List<String[]>> pc=new HashMap<>();pc.put("99999999",Collections.singletonList(new String[]{"44444444","3","diffuse"}));
+        File out=new File(base,"this-tex-out");StringBuilder log=new StringBuilder();
+        ModelConverter.convert(src,null,out,10000107,new ModelConverter.Options().variants(true).mapping("CitlaliHead=body;CitlaliBody=body").pcTextures(pc),DECODE,log);
+        List<Integer> mains=new ArrayList<>();for(Object raw:Fixtures.draws(out,0,new HashMap<>())){Map<String,Object> m=Fixtures.material(out,(String)Json.obj(raw,"draw").get("material"));mains.add(m.containsKey("main")?pixel(out,m,"main"):-1);}
+        ok(mains.equals(Arrays.asList(11,22))&&log.toString().contains("贴图替换 [TextureOverrideCitlaliHeadDiffuse]（this =）→ CitlaliHead 的颜色贴图（依据段名）")
+            &&log.toString().contains("贴图替换 [TextureOverrideBodyTexA]（this =）→ CitlaliBody 的颜色贴图（依据PC 数据库）"),"this = textures reach their parts: "+mains+" "+log);}
     private static String nativeChecker;   // tools/test_host.py passes build/host/core_test
     // The [Key] sections for the App's panel: every type with a key= or back= (the first type= counts, an unknown one is
     // activate, as 3DMigoto takes it); a section without a key, a commented-out type and a name 3DMigoto would not take are
@@ -381,7 +393,7 @@ public final class CompatibilityTest {
     }
     public static void main(String[] args)throws Exception{
         nativeChecker=args.length>0?args[0]:null;File base=Files.createTempDirectory("gibox-compatibility-").toFile();
-        try{logicKeys();legacy(base);hohe(base);animation(base);rehearsedAnimation(base);drivenOutfits(base);staticBackend(base);logicSignature(base);face(base);tolerance(base);System.out.println("Compatibility: PASS (unpaired if / endif, duplicate sections and auto draws on game geometry as 3DMigoto takes them, 3dm backend for static, outfit and animated models, logic core data for animations and outfits, rehearsed Present programs, driven outfits, switched-off schemes, App keys (every type, presets by position, special presets, back), face texture swap, layout precedence, variants, R16, main INI, duplicates, PC filename casing, TexFx ranges, ambiguity, INI schemes)");}
+        try{logicKeys();legacy(base);hohe(base);animation(base);rehearsedAnimation(base);drivenOutfits(base);staticBackend(base);logicSignature(base);face(base);tolerance(base);thisTextures(base);System.out.println("Compatibility: PASS (texture replacements (this =) by PC hash and section name, unpaired if / endif, duplicate sections and auto draws on game geometry as 3DMigoto takes them, 3dm backend for static, outfit and animated models, logic core data for animations and outfits, rehearsed Present programs, driven outfits, switched-off schemes, App keys (every type, presets by position, special presets, back), face texture swap, layout precedence, variants, R16, main INI, duplicates, PC filename casing, TexFx ranges, ambiguity, INI schemes)");}
         finally{ModelConverter.remove(base);}
     }
 }

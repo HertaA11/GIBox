@@ -50,6 +50,8 @@ public final class ModelConverter {
         final LinkedHashMap<String,TreeSet<Integer>> choices=new LinkedHashMap<>();
         final LinkedHashMap<String,TreeSet<Integer>> excludedChoices=new LinkedHashMap<>();
         final LinkedHashSet<String> compatibility=new LinkedHashSet<>();
+        /** PC texture hash -> {IB hash, match_first_index, role} of the draws that bind it (pc-hashes.json; Options.pcTextures). */
+        Map<String,List<String[]>> pcTextures=new HashMap<>();
         final File file;
         Ini(File root)throws Exception {this(root,null);}
         /** chosen: the INI scheme picked for a package with several model INIs; null picks the only one in root. */
@@ -619,7 +621,7 @@ public final class ModelConverter {
         // Reject a mod only after examining all available assignments, not before its active state is visited.
         List<Draw> core=ini.coreDraws==null?null:ini.coreDraws.get(vars);List<Draw> draws=new ArrayList<>();
         if(core!=null)for(Draw d:core){Draw x=new Draw(d.part,d.bindings,d.count,d.start);x.hash=d.hash;x.issuer=d.issuer;draws.add(x);}else draws=drawCalls(ini,vars,rs,mapping);
-        gimiTextures(ini,vars,draws);
+        gimiTextures(ini,vars,draws);thisTextures(ini,vars,draws,rs);
         if(draws.isEmpty())return new LinkedHashMap<>();
         LinkedHashMap<Draw,Bones> targets=new LinkedHashMap<>();Map<String,Bones> byHash=new HashMap<>();List<Draw> pending=new ArrayList<>();
         for(Draw d:draws){if("skip".equalsIgnoreCase(mapping.get(lower(d.part))))continue;try{Bones b=target(d.part,boneRecords,mapping);targets.put(d,b);if(!d.hash.isEmpty()){Bones prev=byHash.putIfAbsent(d.hash,b);check(prev==null||prev==b,"同一 IB hash 的部件映射到了不同渲染器："+d.hash);}}catch(IllegalArgumentException e){if(d.hash.isEmpty()||mapping.containsKey(lower(d.part)))throw e;pending.add(d);}}
@@ -644,7 +646,31 @@ public final class ModelConverter {
             if(role.contains("lightmap"))light=r;else if(role.contains("normal"))normal=r;else if(role.contains("diffuse"))diffuse=r;}
         Resource[] out={diffuse,light,normal};String[] gimi={"gimi:diffuse","gimi:lightmap","gimi:normalmap"};
         for(int k=0;k<3;k++)if(d.bindings.containsKey(gimi[k])){String v=d.bindings.get(gimi[k]);out[k]=unbound(v)?null:resource(rs,v);}
+        String[] viaThis={"this:diffuse","this:lightmap","this:normalmap"};
+        for(int k=0;k<3;k++)if(out[k]==null&&d.bindings.containsKey(viaThis[k]))out[k]=resource(rs,d.bindings.get(viaThis[k]));
         return out;}
+    /**
+     * Textures given as 3DMigoto texture replacements ("[TextureOverrideXBodyDiffuse] hash = <the game's texture>
+     * this = ResourceXBodyDiffuse"): on PC the game's draw of that part binds the game texture, and the override puts
+     * the mod's in its place. A part's draw takes such a texture in a role it does not bind itself (ps-t, GIMI) when
+     *  - the PC database names the texture hash as that role of this IB at this match_first_index, or
+     *  - the override's section is the part's section name plus Diffuse / LightMap / NormalMap.
+     * A face texture (Face has no IB of its own) stays the face texture swap.
+     */
+    private static void thisTextures(Ini ini,Map<String,Integer> vars,List<Draw> draws,Map<String,Resource> rs){
+        List<String[]> ov=new ArrayList<>();   // {texture hash, section name, resource}
+        for(Section s:ini.sections.values()){if(!lower(s.name).startsWith("textureoverride"))continue;Evaluated e=new Evaluated(ini,s,vars,rs);String t=e.bindings.get("this");
+            if(unbound(t)||e.declaresDraw||!e.draws.isEmpty())continue;boolean buffers=false;for(String k:e.bindings.keySet())buffers|=k.equals("ib")||k.matches("vb[0-9]+");if(buffers)continue;
+            ov.add(new String[]{lower(e.hash),s.name,t});}
+        if(ov.isEmpty())return;
+        for(Draw d:draws){Section s=ini.sections.get("textureoverride"+lower(d.part));if(s==null)continue;String first="";
+            for(String l:s.lines){String[] a=kv(l);if(a!=null&&a[0].equals("match_first_index"))first=a[1].trim();}
+            String stem=lower(d.part).replaceAll("[^a-z0-9]","");
+            for(String[] o:ov){String role=null,why=null;
+                List<String[]> hits=ini.pcTextures.get(o[0]);if(hits!=null&&!first.isEmpty())for(String[] h:hits)if(h[0].equals(lower(d.hash))&&h[1].equals(first)){role=h[2];why="PC 数据库";}
+                if(role==null){String on=lower(o[1].substring("textureoverride".length())).replaceAll("[^a-z0-9]","");for(String r:new String[]{"diffuse","lightmap","normalmap"})if(on.equals(stem+r)){role=r;why="段名";}}
+                if(role==null||d.bindings.containsKey("this:"+role))continue;
+                d.bindings.put("this:"+role,o[2]);ini.compatibility.add("贴图替换 ["+o[1]+"]（this =）→ "+d.part+" 的"+(role.equals("diffuse")?"颜色贴图":role.equals("lightmap")?"光照贴图":"法线贴图")+"（依据"+why+"）");}}}
     /**
      * GIMI's own way to give a draw its textures: Resource\GIMI\Diffuse / LightMap / NormalMap = ref ..., then
      * run = CommandList\GIMI\SetTextures, which GIMI's d3dx.ini (not the mod) binds to the shader's slots. The roles are
@@ -1165,6 +1191,9 @@ public final class ModelConverter {
         /** IB hash -> the game renderer it is on, for this character (DeviceHashes: this device's hash map): a part whose
          *  hash is here goes to that renderer whatever its name says; a manual mapping still wins. */
         public Map<String,String> deviceRenderers=new HashMap<>();
+        public Map<String,List<String[]>> pcTextures=new HashMap<>();
+        /** pc-hashes.json's texture hashes, for "this =" texture replacements (DeviceHashes.pcTextures). */
+        public Options pcTextures(Map<String,List<String[]>> m){pcTextures=m==null?new HashMap<>():m;return this;}
         public Options deviceRenderers(Map<String,String> m){deviceRenderers=new HashMap<>();if(m!=null)for(Map.Entry<String,String> e:m.entrySet())deviceRenderers.put(lower(e.getKey()),e.getValue());return this;}
         Map<String,Object> character(int id){Map<String,Object> c=Json.of("id",id,"names",new ArrayList<Object>(names));if(outfit!=null&&!outfit.isEmpty())c.put("outfit",outfit);return c;}
         /** Where a texture-only mod's read-only diagnostic goes (GIBox/texture-diag, TextureDiag); null: none. */
@@ -1184,7 +1213,7 @@ public final class ModelConverter {
     /** Converts one PC mod into one GIBox model folder. Variant combinations share the vertices; each has its own draws. */
     public static File convert(File src,File boneDir,File dest,int id,Options o,TextureDecoder decoder,StringBuilder log)throws Exception {
         synchronized(insideCache){insideCache.clear();}
-        Ini ini=new Ini(src,o.ini);List<Bones> bones;
+        Ini ini=new Ini(src,o.ini);ini.pcTextures=o.pcTextures;List<Bones> bones;
         // A mod that converts (or fails for another reason) leaves no texture-only diagnostic of an earlier import behind.
         if(o.textureDiag!=null&&(!textureOnly(ini)||o.textureMods))TextureDiag.remove(o.textureDiag,dest.getName());
         if(o.textureMods&&textureOnly(ini))return TextureMod.install(src,ini,id,dest,o,decoder,log);

@@ -40,6 +40,27 @@ public final class DeviceHashes {
         return d;
     }
 
+    /** pc-hashes.json: texture hash -> {IB hash, the draw's first index, role (diffuse / lightmap / normalmap)} of every
+     *  PC draw that binds it, for the converter's "this =" texture replacements. Empty when the file is missing. */
+    public static Map<String, List<String[]>> pcTextures(File sharedDir) {
+        Map<String, List<String[]>> out = new HashMap<>();
+        try { Map<String, Object> j = Json.obj(Json.read(new File(sharedDir, "pc-hashes.json"), 64L << 20), "pc-hashes.json");
+            for (Object c : Json.arr(j.get("characters"), "characters", 0, 1024)) { Map<String, Object> ch = Json.obj(c, "character");
+                if (!(ch.get("components") instanceof List)) continue;
+                for (Object p : (List<?>) ch.get("components")) { if (!(p instanceof Map)) continue; Map<?, ?> comp = (Map<?, ?>) p;
+                    Object ib = comp.get("ib"), idx = comp.get("indexes"), tex = comp.get("textures");
+                    if (!(ib instanceof String) || ((String) ib).isEmpty() || !(idx instanceof List) || !(tex instanceof List)) continue;
+                    List<?> indexes = (List<?>) idx, textures = (List<?>) tex;
+                    for (int k = 0; k < textures.size() && k < indexes.size(); k++) { if (!(textures.get(k) instanceof List) || !(indexes.get(k) instanceof Number)) continue;
+                        for (Object pair : (List<?>) textures.get(k)) { if (!(pair instanceof List) || ((List<?>) pair).size() != 2) continue; Object role = ((List<?>) pair).get(0), hash = ((List<?>) pair).get(1);
+                            if (!(role instanceof String) || !(hash instanceof String)) continue; String r = ((String) role).toLowerCase(Locale.ROOT);
+                            if (!r.equals("diffuse") && !r.equals("lightmap") && !r.equals("normalmap")) continue;
+                            out.computeIfAbsent(((String) hash).toLowerCase(Locale.ROOT), x -> new ArrayList<>())
+                                .add(new String[]{((String) ib).toLowerCase(Locale.ROOT), Long.toString(((Number) indexes.get(k)).longValue()), r}); } } } } }
+        catch (Exception ignored) {}
+        return out;
+    }
+
     public Mesh mesh(String ib) { return ib == null ? null : byIb.get(ib.toLowerCase(Locale.ROOT)); }
 
     /** The character a captured avatar prefab is: an outfit the table knows, else the character whose model name is

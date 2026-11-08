@@ -1,3 +1,10 @@
+# 1.0.1
+
+- 支持用 `this =` 写的贴图替换（例如 `[TextureOverrideXBodyDiffuse] hash = <游戏贴图> this = ResourceXBodyDiffuse`）：在 PC 上，游戏画这个部件时绑定的是那张游戏贴图，覆盖段把它换成 MOD 的贴图。现在转换时，部件自己没有绑定的颜色 / 光照 / 法线贴图，会按下面两种依据从这类覆盖段取：
+  - PC 数据库写明这个贴图 hash 是该 IB、该 match_first_index 那次绘制的哪种贴图；
+  - 覆盖段的名字是部件段名加 Diffuse / LightMap / NormalMap（如 TextureOverrideXBody → TextureOverrideXBodyDiffuse）。
+  - 部件自己用 ps-t 或 GIMI 方式绑定的贴图优先；脸部贴图仍按换脸处理。转换日志会逐条写出取用了哪个覆盖段。以前这类 MOD 的部件没有贴图，要先用 ModFix 改写。
+
 # 1.0.0
 
 第一个正式版：适配国服、B 服、国际服 7.2 版本。之后的非正式版只改小版本号（1.0.x），或不改版本号。

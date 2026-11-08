@@ -165,6 +165,7 @@ public final class Importer {
         String lodLibrary = recorded != null ? recorded.lodMesh : ""; if (!lodLibrary.isEmpty()) recorded = null;
         ModelConverter.Options opt = new ModelConverter.Options().mapping(o.containsKey("map") ? o.get("map") : "").variants(true).replace(true).fallback("Body").ini(ini);
         opt.deviceRenderers(DeviceHashes.load(boneRoot.getAbsoluteFile().getParentFile()).renderers(id, outfit != null ? outfit.prefab : null));
+        opt.pcTextures(DeviceHashes.pcTextures(boneRoot.getAbsoluteFile().getParentFile()));
         opt.animationBoneFallback(animationBoneFallback(mod)).textureDiag(textureDiagDir(modelsRoot)).textureMods(true);
         opt.core(request -> { try { return NativeBridge.draws(request); } catch (UnsatisfiedLinkError e) { throw new IllegalStateException("3dm 后端不可用：" + e.getMessage()); } });
         opt.rehearsal(request -> { try { return NativeBridge.rehearse(request); } catch (UnsatisfiedLinkError e) { throw new IllegalStateException("逻辑核心预演不可用：" + e.getMessage()); } });
