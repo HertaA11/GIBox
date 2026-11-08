@@ -132,6 +132,19 @@ fun DebugScreen(state: AppState) {
             }
             item {
                 val rev = state.revision
+                val pin = remember(rev) { state.lodPin() }
+                SettingsGroup(title = { SectionTitle("大世界 LOD") }, verticalArrangement = gap) {
+                    SettingsSwitch(
+                        state = pin,
+                        title = { Text("被替换的角色保持完整模型") },
+                        subtitle = { Text("让游戏对正在替换的角色不切换到低精度模型（LOD0），避免低精度模型骨骼不同导致变形或不生效；关闭后恢复游戏的切换") },
+                        shapes = ListItemDefaults.segmentedShapes(0, 1),
+                        onCheckedChange = { state.setLodPin(it) },
+                    )
+                }
+            }
+            item {
+                val rev = state.revision
                 val animation = remember(rev) { state.experimentInt("animationMode") }
                 val logic = remember(rev) { state.experiment("logicCore") }
                 val steps = remember(rev) { state.experiment("keySteps") }

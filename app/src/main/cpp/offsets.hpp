@@ -99,6 +99,10 @@ enum Offset:uintptr_t {
  findObjectsNative=0x5b540f0,
  // GameObject.GetComponentsInChildren(Type, bool includeInactive) -> Component[]; Component.get_gameObject.
  componentsInChildren=0x9577734,gameObject=0x80e5b50,
+ // LOD pin (0.7.103, gibox_check_lod): GameObject.GetComponentByName(string) (what GetComponent(string) calls) and
+ // MiHoYoLodLoader.PauseLodLoaderWithSpecificLodLevel(int) / ResumeLodLoader() / IsLodLoaderSelfPaused() /
+ // get_currentLodLevel(); each a single B into the engine, in both builds.
+ componentByName=0x9577674,lodPause=0x1352d114,lodResume=0x1352d11c,lodSelfPaused=0x1352d120,lodCurrent=0x1352d074,
  // JDIIHHFJKBM.AAKKKEMMMCA(this, ulong key, bool success, uint handle, GameObject asset, MethodInfo*): the game's async
  // model hand-off. In handoff-20377 (7 hand-offs, 5 characters, party screen / detail page) the asset arrived as an
  // inactive GameObject whose SkinnedMeshRenderers already had Mesh, materials and bones, on the Tick thread, and nothing
@@ -165,7 +169,7 @@ inline const Profile& globalProfile(){static const Profile p{"32f920af1fd831959a
   {meshFinish,0xabc5afc},{meshUpload,0xabc5d44},{meshDynamic,0xabc5d0c},{frameCount,0x97aa9c4},{textureType,0x8f688b0},{textureInit,0x8f687dc},
   {texturePixels,0x8f68c48},{textureApply,0x8f68d6c},{setHideFlags,0x91be344},{getHideFlags,0x91bf0d0},{mainTexture,0x80e9608},{newString,0x9079290},
   {hasProperty,0x80ea104},{setTexture,0x80eabf8},{getTexture,0x80e9b50},{getShader,0x80e9568},{getTextureIds,0x80e9ea8},{propertyToId,0xa7ed1c4},
-  {nativeAlloc,0x517af94},{nativeAllocator,0x15d5df20},{findObjectsOfType,0x91bef30},{findObjectsNative,0x5b53dcc},{componentsInChildren,0x97a7ec0},
+  {nativeAlloc,0x517af94},{nativeAllocator,0x15d5df20},{findObjectsOfType,0x91bef30},{findObjectsNative,0x5b53dcc},{componentsInChildren,0x97a7ec0},{componentByName,0x97a7e00},{lodPause,0x1369a604},{lodResume,0x1369a60c},{lodSelfPaused,0x1369a610},{lodCurrent,0x1369a564},
   {gameObject,0x80e898c},{receive,0x9798c6c},{lodBind,0x584fc98},{meshBones,0x579c768},{wrapperFor,0x5b4da54},{typeObject,0x43b1bbc},
   {classFromType,0x43b2868},{meshSubmeshes,0xabc45a0},{meshVertices,0xabc457c},{meshReadable,0xabc4570},{meshIndexStart,0xabc4414},{meshIndexCount,0xabc445c},
   {textureWidth,0xa865694},{textureHeight,0xa8656b8},{textureFormat,0x8f688ac},{textureMips,0x8f687b4}},

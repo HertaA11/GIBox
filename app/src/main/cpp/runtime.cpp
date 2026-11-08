@@ -56,13 +56,14 @@ struct KeyPress {long long seq=0;size_t file=0;std::string section;bool back=fal
 // auto (0.7.60): the game's own per-renderer instance is written in place (its effects keep running on it); a loaded asset
 // or a material another renderer shows is copied first, and the game's instance made from that copy is followed in place.
 struct TexModControl {std::string strategy="auto",lod="full";bool capture=false;long long testRequest=0;std::vector<std::string> testStrategies{"auto","direct","clone"};int observeMs=4000;};
-struct ControlState {TexModControl tex;Experiments exp;bool enabled=false;int logLevel=int(Level::Info);std::vector<std::string> selected;long long exportBones=0,refreshBones=0,renderMark=0;unsigned refreshBonesCharacter=0;std::map<std::string,std::map<std::string,int>> variables;std::map<std::string,std::vector<KeyPress>> keys;};
+struct ControlState {TexModControl tex;Experiments exp;bool enabled=false,lodPin=true;int logLevel=int(Level::Info);std::vector<std::string> selected;long long exportBones=0,refreshBones=0,renderMark=0;unsigned refreshBonesCharacter=0;std::map<std::string,std::map<std::string,int>> variables;std::map<std::string,std::vector<KeyPress>> keys;};
 ControlState parseControl(const std::string& raw){
  Json c=JsonParser(raw).parse();require(c.type==Json::Object,"control.json 不是对象");ControlState s;
  const auto& a=c.at("selected");require(a.type==Json::Array&&a.array.size()<=128,"selected 列表无效");
  for(auto& v:a.array){require(v.type==Json::String&&!v.string.empty()&&v.string.find('/')==v.string.npos&&v.string!="."&&v.string!="..","selected 名称无效");s.selected.push_back(v.string);}
  auto integerOf=[](const Json& j){if(j.type==Json::Null)return 0LL;require(j.type==Json::Number&&std::floor(j.number)==j.number&&std::abs(j.number)<=9007199254740991.,"control.json 计数值无效");return static_cast<long long>(j.number);};
  s.enabled=c.at("enabled").type==Json::Bool&&c.at("enabled").boolean;s.exportBones=integerOf(c.at("exportBones"));
+ s.lodPin=c.at("lodPin").type!=Json::Bool||c.at("lodPin").boolean;   // default on (0.7.103)
  s.renderMark=integerOf(c.at("renderMark"));require(s.renderMark>=0,"renderMark 计数值无效");
  s.refreshBones=integerOf(c.at("refreshBones"));auto refreshId=integerOf(c.at("refreshBonesCharacter"));
  require(s.refreshBones>=0&&(!s.refreshBones||(refreshId>=10000000&&refreshId<=10001999)),"骨骼重采的角色或请求无效");
@@ -2583,6 +2584,54 @@ struct Runtime::Impl {
    bool full=true;for(Ptr r:kv.second){Ptr m=originalMesh(r);if(!alive(m)||lowerLod(fingerprint(m,true).mesh)){full=false;break;}}if(!full)continue;
    try{captureBones(now,kv.second,true,a,&previewCaptures[a]);}catch(const std::exception& ex){log("bone-library-preview-error",a+"："+ex.what());}}}
 
+ // ---------------------------------------------------------------- LOD pin (0.7.103)
+ // The game's LOD (MiHoYoLodLoader, a native engine component) puts a lower-detail mesh with another bone list into the
+ // same renderer away from the camera (Alyosha's Body_LOD1: 149 bones, Body: 148). The loaders of a character GIBox
+ // replaces are held at level 0, the full mesh, so our model stays on the bone list it was built for; they are resumed
+ // when the character is no longer replaced (or the switch control.json "lodPin" is turned off). Only loaders the game
+ // has not paused itself are touched, and only those are resumed.
+ // Found by GameObject.GetComponent("MiHoYoLodLoader"), the engine's own name lookup (no Type needed): on the renderer's
+ // GameObject, then the avatar root's and its parent's. Calls: Pause/ResumeLodLoader, IsLodLoaderSelfPaused (component
+ // byte +0x93 != 0xff in both builds) and get_currentLodLevel, each a one-instruction B into the native code in both
+ // builds (gibox_check_lod); checked again here before the first call.
+ struct LodPin {uint32_t handle=0;std::string where;std::set<Ptr> renderers;};std::map<Ptr,LodPin> lodPins;std::map<Ptr,std::pair<Ptr,uint64_t>> lodSearched;std::set<Ptr> lodNoneSaid;  // renderer -> (native, search again at)
+ int lodApi=-1;uint64_t lodPinAt=0;
+ bool lodApiReady(){if(lodApi>=0)return lodApi==1;
+  // A wrapper that is a single B (0x14000000 | imm26) into the engine; the fake engine of the host tests has no code.
+  std::string bad;if(!e.resolver)for(abi::Offset o:{abi::componentByName,abi::lodPause,abi::lodResume,abi::lodSelfPaused,abi::lodCurrent}){uint32_t w=load<uint32_t>(e.base+abi::at(o));if((w&0xfc000000u)!=0x14000000u)bad+=(bad.empty()?"":"、")+hex(abi::at(o))+"="+hex(w);}
+  lodApi=bad.empty()?1:0;log(lodApi?"lod-pin-ready":"lod-pin-unavailable",lodApi?"LOD 固定接口可用（GetComponent(string)、Pause/ResumeLodLoader）":"LOD 固定接口的入口不是预期的跳转指令（"+bad+"），不固定 LOD");return lodApi==1;}
+ // Loaders near one renderer: its own GameObject first, then the avatar root and its parent.
+ std::vector<std::pair<Ptr,std::string>> lodLoadersOf(Ptr r){std::vector<std::pair<Ptr,std::string>> out;Owned tmp;Ptr lodName=managedName("MiHoYoLodLoader");pin(tmp,lodName);
+  auto look=[&](Ptr component,const std::string& where){if(!alive(component))return;Ptr go=e.get(abi::gameObject,component);if(!alive(go))return;
+   Ptr l=e.call<Ptr>(abi::componentByName,go,lodName,Ptr(0));if(alive(l)&&std::none_of(out.begin(),out.end(),[&](auto& x){return x.first==l;}))out.push_back({l,where});};
+  try{look(r,rendererName(r));if(out.empty()){Ptr root=avatarRoot(r);if(root){look(root,name(root));if(out.empty()){Ptr up=e.get(abi::getParent,root);look(up,up?name(up):"");}}}}
+  catch(...){freeOwned(tmp);throw;}freeOwned(tmp);return out;}
+ void lodUnpin(Ptr l,const char* why){auto it=lodPins.find(l);if(it==lodPins.end())return;
+  try{if(alive(l)&&(e.call<uint32_t>(abi::lodSelfPaused,l,Ptr(0))&1)){e.call<void>(abi::lodResume,l,Ptr(0));log("lod-unpin",it->second.where+"：恢复游戏的 LOD 切换（"+why+"）");}}catch(const std::exception& ex){log("lod-pin-error",it->second.where+"：恢复失败："+ex.what());}
+  e.call<void>(abi::unpin,it->second.handle);lodPins.erase(it);}
+ void lodUnpinAll(const char* why){std::vector<Ptr> all;for(auto& kv:lodPins)all.push_back(kv.first);for(Ptr l:all)lodUnpin(l,why);lodSearched.clear();lodNoneSaid.clear();}
+ void lodPinTick(uint64_t now,const std::vector<const ModelInfo*>& wanted){
+  if(!ctl.lodPin){if(!lodPins.empty())lodUnpinAll("LOD 固定已关闭");return;}
+  if(now<lodPinAt){return;}
+  lodPinAt=now+1000;
+  // Renderers of replaced characters: ours, and the controlled character's while one of its mods is wanted.
+  std::set<Ptr> renderers;for(auto& kv:attachments)if(alive(kv.first))renderers.insert(kv.first);
+  bool mine=false;for(auto* m:wanted)mine=mine||(ch.entity&&m->id==ch.config);
+  if(mine)try{for(Ptr r:worldRenderers())if(alive(r))renderers.insert(r);}catch(const std::exception&){}
+  if(!renderers.empty()&&lodApiReady())for(Ptr r:renderers){Ptr native=load<Ptr>(r+0x10);auto seen=lodSearched.find(r);if(seen!=lodSearched.end()&&seen->second.first==native&&now<seen->second.second)continue;
+   // Found: not searched again for this renderer; none yet (the loader may come with the model later): again in 30 s.
+   lodSearched[r]={native,~0ull};
+   try{auto loaders=lodLoadersOf(r);if(loaders.empty()){lodSearched[r].second=now+30000;if(lodNoneSaid.insert(r).second)log("lod-pin-none",rendererName(r)+"：渲染器、角色根节点上暂时没有 MiHoYoLodLoader，不固定（30 秒后再找）");continue;}
+    for(auto& [l,where]:loaders){auto pin=lodPins.find(l);if(pin!=lodPins.end()){pin->second.renderers.insert(r);continue;}
+     if(e.call<uint32_t>(abi::lodSelfPaused,l,Ptr(0))&1){log("lod-pin-skip",where+"：游戏已固定此 LOD，不改动");continue;}
+     unsigned before=e.call<uint32_t>(abi::lodCurrent,l,Ptr(0))&0xff;e.call<void>(abi::lodPause,l,int32_t(0),Ptr(0));
+     LodPin p;p.handle=e.call<uint32_t>(abi::pin,l,2,Ptr(0));p.where=where;p.renderers.insert(r);lodPins[l]=p;
+     log("lod-pin",where+"：固定在完整模型（LOD0，原为 LOD"+std::to_string(before)+"），"+rendererName(r)+" 不再切换到低精度网格");}}
+   catch(const std::exception& ex){log("lod-pin-error",rendererName(r)+"："+ex.what());}}
+  std::vector<Ptr> drop;for(auto& kv:lodPins){for(auto it=kv.second.renderers.begin();it!=kv.second.renderers.end();)if(!renderers.count(*it))it=kv.second.renderers.erase(it);else ++it;if(kv.second.renderers.empty())drop.push_back(kv.first);}
+  for(Ptr l:drop)lodUnpin(l,"该角色不再被替换");
+  for(auto it=lodSearched.begin();it!=lodSearched.end();)if(!renderers.count(it->first)){lodNoneSaid.erase(it->first);it=lodSearched.erase(it);}else ++it;}
+
  // ---------------------------------------------------------------- why a model waits
  // Its targets are known, but no renderer of the last scan shows that mesh. The status line says why in words; the log
  // ("wait-reason") gets the scan summary, each missing target and the renderers that come closest: the same mesh name
@@ -2720,7 +2769,7 @@ struct Runtime::Impl {
     catch(const std::exception& ex){libraryRetry[ch.config]=now+500;auto& last=libraryError[ch.config];if(last!=ex.what()){last=ex.what();log("bone-library-error",std::to_string(ch.config)+"："+ex.what()+"；自动重试");}}}
    if(ch.entity&&now>=previewScanAt){previewScanAt=now+2000;try{previewTick(now);}catch(const std::exception& ex){log("bone-library-preview-error",ex.what());}}
    if(now>=restorePruneAt){restorePruneAt=now+500;pruneRestoreBackups();}
-   if(!ctl.enabled){bool done=true;if(!sets.empty()||!attachments.empty())done=releaseAll();status(done?"disabled":"waiting",done?"":"正在恢复原模型；暂时失败的渲染器会单独重试",{},{});inTick=false;return;}
+   if(!ctl.enabled){if(!lodPins.empty())lodUnpinAll("模型替换已关闭");bool done=true;if(!sets.empty()||!attachments.empty())done=releaseAll();status(done?"disabled":"waiting",done?"":"正在恢复原模型；暂时失败的渲染器会单独重试",{},{});inTick=false;return;}
    auto wanted=chooseModels();wantedNow=wanted;std::set<std::string> wantedPaths;for(auto* m:wanted)wantedPaths.insert(m->path);
    preload(wanted,wantedPaths);processPendingBinds(now);saveVerified();
    for(auto& kv:attachments)if(wantedSet(*kv.second->set))guardMaterials(*kv.second,now);
@@ -2764,6 +2813,7 @@ struct Runtime::Impl {
      failed[m->path]={m->generation,ex.what()};log("model-error",m->name+"："+ex.what());errors.push_back(m->name+"："+ex.what());continue;}
     if(cur->built)promote(*cur,now);else building.push_back(m->name);
    }
+   lodPinTick(now,wanted);
    animationPrepare(now);for(auto& s:sets)if(wantedSet(*s)&&s->animation.stopped)errors.push_back(s->name+"：动画已暂停："+s->animation.error);
    for(auto& n:notes)errors.push_back(n);
    for(auto& kv:attachments){auto& n=kv.second->set->name;if(std::find(active.begin(),active.end(),n)==active.end())active.push_back(n);}
@@ -2786,5 +2836,5 @@ void Runtime::spawned(Ptr go)noexcept{try{p->spawned(go);}catch(...){}}
 void Runtime::spawnedAfter()noexcept{try{p->spawnedAfter();}catch(...){}}
 Ptr Runtime::bindMesh(Ptr renderer,Ptr mesh)noexcept{try{return p->bindMesh(renderer,mesh);}catch(...){return mesh;}}
 void Runtime::meshBound(Ptr renderer)noexcept{try{p->meshBound(renderer);}catch(...){}}
-void Runtime::shutdown(){try{p->texRestoreEverything("运行时关闭");}catch(const std::exception&){}if(p->releaseAll()){p->pruneRestoreBackups(true);}}
+void Runtime::shutdown(){try{p->lodUnpinAll("运行时关闭");}catch(const std::exception&){}try{p->texRestoreEverything("运行时关闭");}catch(const std::exception&){}if(p->releaseAll()){p->pruneRestoreBackups(true);}}
 }

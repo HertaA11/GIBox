@@ -67,6 +67,9 @@ public final class Control {
         JSONArray a = load(pkg).optJSONArray("selected"); if (a != null) for (int i = 0; i < a.length(); i++) if (model.equals(a.optString(i))) return true; return false;
     }
     public static boolean enabled(String pkg) { return load(pkg).optBoolean("enabled", false); }
+    /** Replaced characters held at the full model (LOD0) by the game's own LOD component (control.json "lodPin", default on). */
+    public static boolean lodPin(String pkg) { return load(pkg).optBoolean("lodPin", true); }
+    public static synchronized void setLodPin(String pkg, boolean on) throws Exception { JSONObject j = load(pkg); j.put("lodPin", on); save(pkg, j); }
     public static synchronized void setEnabled(String pkg, boolean on) throws Exception { JSONObject j = load(pkg); j.put("enabled", on); save(pkg, j); }
     /** Log file verbosity, as in XXMI: disabled / warning / info / debug (control.json "logLevel", read by the game too). */
     public static final String[] LOG_LEVELS = {"disabled", "warning", "info", "debug"};

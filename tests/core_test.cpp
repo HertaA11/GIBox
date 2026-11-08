@@ -311,6 +311,7 @@ int main(int argc,char**argv){
   assert(abi::select("32f920af1fd831959a440d294fa996a09657afb8")&&std::string(abi::buildId).substr(0,8)=="32f920af");
   assert(abi::at(abi::getMesh)==0x903ef50&&abi::at(abi::manager)==0x157d53a0&&abi::at(abi::nativeAlloc)==0x517af94&&abi::at(abi::receive)==0x9798c6c);
   // The allocator instance, not the storage pointer most calls read: CN's 0x15d92120 and the manager both 0x34200 lower.
+  assert(abi::at(abi::componentByName)==0x97a7e00&&abi::at(abi::lodPause)==0x1369a604&&abi::at(abi::lodResume)==0x1369a60c&&abi::at(abi::lodSelfPaused)==0x1369a610&&abi::at(abi::lodCurrent)==0x1369a564);
   assert(abi::at(abi::nativeAllocator)==0x15d5df20&&0x15d92120-abi::at(abi::nativeAllocator)==0x158095a0-abi::at(abi::manager));
   assert(abi::managerSlot==0x90e0&&abi::entityVisual==0xc8&&abi::visualRenderers==0x68&&abi::managerLists.size()==12&&abi::entityIds.front()==0x368);
   assert(*abi::pendingRequired==0&&abi::at(abi::typeObject)==0x43b1bbc&&abi::at(abi::lodBind)-abi::at(abi::meshBones)==0xb3530&&std::string(abi::handoffChecks[2].hex)=="fe4fbfa968ff0590e50304aae403032a");}

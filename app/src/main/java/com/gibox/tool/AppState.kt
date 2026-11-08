@@ -310,6 +310,12 @@ class AppState(private val activity: Activity) {
         Control.keyInput(game, mod.name, key.file, key.section, false, -1, if (down) "down" else "up")
         AppLog.info(game, LOGGER, "key-hold ${mod.name} ${key.section}：" + if (down) "按住" else "松开")
     }
+    /** Replaced characters kept on the full model in the world (the game's LOD held at level 0). */
+    fun lodPin(): Boolean = Control.lodPin(game)
+    fun setLodPin(on: Boolean) = save("保存") {
+        Control.setLodPin(game, on)
+        AppLog.info(game, LOGGER, "lod-pin " + if (on) "开启" else "关闭")
+    }
     /** Material experiments (debug): read back on every recomposition through `revision`. */
     fun experiment(key: String): Boolean = Control.experiment(game, key)
     fun experimentInt(key: String): Int = Control.experimentInt(game, key)
