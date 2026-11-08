@@ -51,10 +51,20 @@ inline std::string drawsJson(const std::string& request){
  try{Json j=JsonParser(request).parse();require(j.type==Json::Object,"绘制请求：不是对象");const auto& main=j.at("main");require(main.type==Json::String&&!main.string.empty(),"绘制请求：main 无效");
   std::vector<migoto::IniFile> files;const auto& list=j.at("files");require(list.type==Json::Array&&!list.array.empty()&&list.array.size()<=64,"绘制请求：files 无效");size_t total=0;
   for(auto& f:list.array){require(f.type==Json::Object&&f.at("namespace").type==Json::String&&f.at("text").type==Json::String,"绘制请求：file 无效");total+=f.at("text").string.size();require(total<=8u*1024*1024,"INI files over 8 MiB");files.push_back({f.at("namespace").string,f.at("text").string});}
+  const auto& passes=j.at("passes");require(passes.type==Json::Array&&!passes.array.empty()&&passes.array.size()<=256,"绘制请求：passes 无效");
+  // One assignment ("vars") or many ("assignments", 0.7.107: Varka's 4096 outfits were 4096 calls, each sending and
+  // parsing the whole INI again).
+  // The INIs are loaded once; before each assignment the engine is put back to what start() left: every global and
+  // ini param, the slots set outside a draw, and nothing pending (transitions, saves, post lists, notes).
   migoto::Engine e;e.load(files);e.start();
-  const auto& vars=j.at("vars");if(vars.type==Json::Object)for(auto& kv:vars.object){require(kv.second.type==Json::Number&&std::isfinite(kv.second.number),"绘制请求：变量值无效 "+kv.first);
-   if(migoto::Var* v=e.global(migoto::lower(kv.first),main.string))v->value=float(kv.second.number);}
-  std::string out="{\"ok\":true,\"passes\":[";const auto& passes=j.at("passes");require(passes.type==Json::Array&&!passes.array.empty()&&passes.array.size()<=256,"绘制请求：passes 无效");
+  const auto globals0=e.globals;const auto params0=e.params;const auto context0=e.contextBindings;const auto custom0=e.customResources;const auto notes0=e.diag.list;
+  auto one=[&](const Json& vars){
+   for(auto& kv:e.globals){auto it=globals0.find(kv.first);if(it!=globals0.end())kv.second=it->second;}
+   e.params=params0;e.contextBindings=context0;e.customResources=custom0;e.varTransitions.clear();e.paramTransitions.clear();
+   e.globalSaves.clear();e.globalParamSaves.clear();e.pendingPost.clear();e.queued.clear();e.persistDirty=false;e.diag.list=notes0;
+   if(vars.type==Json::Object)for(auto& kv:vars.object){require(kv.second.type==Json::Number&&std::isfinite(kv.second.number),"绘制请求：变量值无效 "+kv.first);
+    if(migoto::Var* v=e.global(migoto::lower(kv.first),main.string))v->value=float(kv.second.number);}
+   std::string out="{\"passes\":[";
   for(size_t i=0;i<passes.array.size();i++){const auto& p=passes.array[i];require(p.type==Json::Object&&p.at("name").type==Json::String,"绘制请求：pass 无效");migoto::DrawInfo d;
    const auto& b=p.at("bindings");if(b.type==Json::Object)for(auto& kv:b.object){require(kv.second.type==Json::String,"绘制请求：binding 无效");d.bindings[kv.first]=migoto::Ref::game(uint32_t(std::stoul(kv.second.string,nullptr,16)));}
    const auto& c=p.at("checks");if(c.type==Json::Array)for(auto& x:c.array){require(x.type==Json::String,"绘制请求：check 无效");d.checks.push_back(x.string);}
@@ -64,7 +74,12 @@ inline std::string drawsJson(const std::string& request){
     for(size_t a=0;a<x.args.size();a++){char n[32];std::snprintf(n,sizeof n,"%.9g",double(x.args[a]));out+=std::string(a?",":"")+n;}out+="],\"bindings\":"+slots(x.bindings)+"}";}
    out+="]}";}
   out+="],\"notes\":[";size_t n=0;for(auto& d:e.diag.list){if(d.level==migoto::Diagnostic::Notice)continue;if(n>=24)break;out+=(n++?",":"")+quote(d.where+": "+d.message);}
-  return out+"]}";}
+  return out+"]}";};
+  const auto& many=j.at("assignments");
+  if(many.type==Json::Array){require(!many.array.empty()&&many.array.size()<=4096,"绘制请求：assignments 无效");std::string out="{\"ok\":true,\"results\":[";
+   for(size_t k=0;k<many.array.size();k++){out+=(k?",":"")+one(many.array[k]);}
+   return out+"]}";}
+  auto r=one(j.at("vars"));return "{\"ok\":true,"+r.substr(1);}
  catch(const std::exception& ex){return "{\"ok\":false,\"reason\":"+quote(std::string("the INI could not be run: ")+ex.what())+"}";}}
 
 }  // namespace ms

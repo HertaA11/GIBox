@@ -548,7 +548,7 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
   on(true,true);Runtime lr(e,pkg,root+"/privatePin",mediaL,false);for(uint64_t t=1640000;t<1642000;t+=600)lr.tick(t);
   assert(meshOf(w)!=full&&meshOf(copy)!=full&&lodHeld[loader]==0xff&&text(sharedL+"/GIBox Log.txt").find("暂时没有 MiHoYoLodLoader")!=std::string::npos);
   lodOnGo[goOf(w,0)]=loader;lodOnGo[goOf(copy,0)]=held;lr.tick(1672000);auto log=text(sharedL+"/GIBox Log.txt");
-  assert(lodHeld[loader]==0&&lodHeld[held]==0&&log.find("固定在完整模型（LOD0，原为 LOD2）")!=std::string::npos&&log.find("（LOD0，原为 LOD1，由游戏固定，结束后恢复）")!=std::string::npos);
+  assert(lodHeld[loader]==0&&lodHeld[held]==0&&log.find("固定在完整模型（LOD0，原为自动切换，当前显示 LOD2）")!=std::string::npos&&log.find("（LOD0，游戏原固定在 LOD1，结束后恢复，当前显示 LOD1）")!=std::string::npos);
   unsigned looks=lodLookups;lr.tick(1673100);assert(lodLookups==looks&&lodHeld[loader]==0);   // found: not searched again
   on(false,true);lr.tick(1674200);log=text(sharedL+"/GIBox Log.txt");
   assert(lodHeld[loader]==0xff&&lodHeld[held]==1&&log.find("恢复游戏的 LOD 切换（模型替换已关闭）")!=std::string::npos&&log.find("恢复游戏原来固定的 LOD1（模型替换已关闭）")!=std::string::npos);

@@ -22,7 +22,13 @@ public final class ModelConverter {
     private static byte[] text(String s) { return s.getBytes(StandardCharsets.UTF_8); }
     private static void write(File d,String n,byte[] b)throws Exception { Files.write(new File(d,n).toPath(),b); }
     private static String safe(String s) { check(s.matches("[A-Za-z0-9_-]+"),"不支持的部件文件名："+s);return s; }
+    /** inside() results of the conversion running (0.7.107: every assignment resolved every [Resource] again through
+     *  canonical paths on disk, 4096 times over for Varka). Cleared when a conversion starts. */
+    private static final Map<String,File> insideCache=new HashMap<>();
     private static File inside(File root,String path)throws Exception {
+        String key=root.getPath()+"\0"+path;synchronized(insideCache){File hit=insideCache.get(key);if(hit!=null)return hit;}
+        File f=insideUncached(root,path);synchronized(insideCache){if(insideCache.size()>8192)insideCache.clear();insideCache.put(key,f);}return f;}
+    private static File insideUncached(File root,String path)throws Exception {
         path=path.replace('\\','/').replace("\"","");File f=new File(root,path).getCanonicalFile();String r=root.getCanonicalPath()+File.separator;
         check(f.getPath().startsWith(r),"资源超出 MOD 目录："+path);
         // PC archives commonly differ only in casing (TexCoord / Texcoord, Resources / resources). Resolve each
@@ -373,16 +379,19 @@ public final class ModelConverter {
     static final class Variation {
         final Ini ini;final List<String> names;final List<List<Integer>> values=new ArrayList<>();final List<List<Integer>> groups;
         final List<Map<String,Integer>> runs=new ArrayList<>();final List<int[]> runOf=new ArrayList<>();  // {group, local index}
+        // runAt[g][i]: the run of group g's local assignment i (0.7.107: run() searched every run, and drawTable asks it
+        // for every draw x variable x assignment, about 3e9 steps for Varka's 4096 outfits).
+        final int[][] runAt;
         Variation(Ini ini,List<String> names,List<List<Integer>> groups){this.ini=ini;this.names=names;this.groups=groups;for(String k:names)values.add(new ArrayList<>(ini.choices.get(k)));
-            runs.add(new LinkedHashMap<>(ini.vars));runOf.add(new int[]{-1,0});
-            for(int g=0;g<groups.size();g++){int n=size(g),d=local(g,ini.vars);for(int i=0;i<n;i++){if(i==d)continue;runs.add(assignment(g,i));runOf.add(new int[]{g,i});}}}
+            runs.add(new LinkedHashMap<>(ini.vars));runOf.add(new int[]{-1,0});runAt=new int[groups.size()][];
+            for(int g=0;g<groups.size();g++){int n=size(g),d=local(g,ini.vars);runAt[g]=new int[n];for(int i=0;i<n;i++){if(i==d)continue;runAt[g][i]=runs.size();runs.add(assignment(g,i));runOf.add(new int[]{g,i});}}}
         int size(int g){long t=1;for(int v:groups.get(g)){t*=values.get(v).size();if(t>Integer.MAX_VALUE/2)return Integer.MAX_VALUE/2;}return (int)t;}
         /** Value index of the k-th variable of group g in local assignment i (the group's first variable changes slowest). */
         int digit(int g,int i,int k){List<Integer> vs=groups.get(g);int stride=1;for(int j=vs.size()-1;j>k;j--)stride*=values.get(vs.get(j)).size();return i/stride%values.get(vs.get(k)).size();}
         int local(int g,Map<String,Integer> a){List<Integer> vs=groups.get(g);int i=0;for(int k=0;k<vs.size();k++){int v=vs.get(k);i=i*values.get(v).size()+values.get(v).indexOf(a.get(names.get(v)));}return i;}
         Map<String,Integer> assignment(int g,int i){Map<String,Integer> a=new LinkedHashMap<>(ini.vars);List<Integer> vs=groups.get(g);for(int k=0;k<vs.size();k++)a.put(names.get(vs.get(k)),values.get(vs.get(k)).get(digit(g,i,k)));return a;}
         /** The run of group g's local assignment i (its initial assignment is run 0). */
-        int run(int g,int i){if(i==local(g,ini.vars))return 0;for(int r=1;r<runs.size();r++)if(runOf.get(r)[0]==g&&runOf.get(r)[1]==i)return r;throw new IllegalStateException();}
+        int run(int g,int i){if(i<0||i>=runAt[g].length)throw new IllegalStateException();return runAt[g][i];}
     }
     private static Set<String> lines(String signature){Set<String> out=new HashSet<>();for(String l:signature.split("\n"))if(!l.isEmpty())out.add(l);return out;}
     interface Sig {String of(Map<String,Integer> assignment)throws Exception;}
@@ -922,8 +931,8 @@ public final class ModelConverter {
         if(L==null){log.append("3dm 后端未用于本次转换：").append(why).append("；按转换器自己的求值\n");return;}
         if(L.firstDraw.isEmpty()){log.append("3dm 后端未用于本次转换：INI 没有模型绘制（没有自己的 IB 和顶点缓冲），没有可运行的绘制\n");return;}
         Map<Map<String,Integer>,List<Draw>> out=new HashMap<>();List<String> differ=new ArrayList<>();int count=0;
-        for(int i=0;i<assignments.size();i++){Map<String,Integer> vars=assignments.get(i);List<Draw> ds;
-            try{ds=coreDrawsOf(L,vars,core);}catch(Exception ex){log.append("3dm 后端未用于本次转换：").append(ex.getMessage()).append("；按转换器自己的求值\n");return;}
+        List<List<Draw>> all;try{all=coreDrawsOf(L,assignments,core);}catch(Exception ex){log.append("3dm 后端未用于本次转换：").append(ex.getMessage()).append("；按转换器自己的求值\n");return;}
+        for(int i=0;i<assignments.size();i++){Map<String,Integer> vars=assignments.get(i);List<Draw> ds=all.get(i);
             for(Draw d:ds)if(!"skip".equalsIgnoreCase(mapping.get(lower(d.part))))count++;
             Map<String,Resource> rs=resources(ini,src,vars);List<String> mine=new ArrayList<>(),theirs=new ArrayList<>();
             for(Draw d:L.drawn.get(i))mine.add(drawText(d,rs));for(Draw d:ds)if(!"skip".equalsIgnoreCase(mapping.get(lower(d.part))))theirs.add(drawText(d,rs));
@@ -939,12 +948,20 @@ public final class ModelConverter {
         for(int k=0;k<4;k++){String v=d.bindings.get(keys[k]);t.append(' ').append(names[k]).append('=').append(unbound(v)?"-":resource(rs,v).file.getName());}
         for(int k=0;k<3;k++){String v=d.bindings.get("ps-t"+k);t.append(" ps-t").append(k).append('=').append(v==null?"-":unbound(v)?"null":resource(rs,v).file.getName());}
         return t.toString();}
-    @SuppressWarnings("unchecked")
-    private static List<Draw> coreDrawsOf(LogicLayout L,Map<String,Integer> vars,CoreDraws core)throws Exception{
+    /** The core's draws for every assignment: one request per 512 assignments (the INIs sent once), each run on its own
+     *  engine in the core. */
+    private static List<List<Draw>> coreDrawsOf(LogicLayout L,List<Map<String,Integer>> assignments,CoreDraws core)throws Exception{
         List<Object> files=new ArrayList<>();for(int i=0;i<L.files.size();i++)files.add(Json.of("namespace",L.namespaces.get(i),"text",L.texts.get(i)));
-        Map<String,Object> v=new LinkedHashMap<>();for(Map.Entry<String,Integer> e:vars.entrySet())v.put(e.getKey(),(long)e.getValue());
-        Map<String,Object> reply=Json.obj(Json.parse(core.run(Json.write(Json.of("main",L.mainNs,"files",files,"vars",v,"passes",L.passes)))),"3dm 后端结果");
-        check(Boolean.TRUE.equals(reply.get("ok")),"逻辑核心无法运行此 INI："+reply.get("reason"));
+        List<List<Draw>> out=new ArrayList<>();
+        for(int from=0;from<assignments.size();from+=512){List<Object> batch=new ArrayList<>();
+            for(Map<String,Integer> vars:assignments.subList(from,Math.min(assignments.size(),from+512))){Map<String,Object> v=new LinkedHashMap<>();for(Map.Entry<String,Integer> e:vars.entrySet())v.put(e.getKey(),(long)e.getValue());batch.add(v);}
+            Map<String,Object> reply=Json.obj(Json.parse(core.run(Json.write(Json.of("main",L.mainNs,"files",files,"assignments",batch,"passes",L.passes)))),"3dm 后端结果");
+            check(Boolean.TRUE.equals(reply.get("ok")),"逻辑核心无法运行此 INI："+reply.get("reason"));
+            List<Object> results=Json.arr(reply.get("results"),"results",batch.size(),batch.size());
+            for(Object r:results)out.add(coreDrawsOf(L,Json.obj(r,"3dm 后端结果")));}
+        return out;}
+    @SuppressWarnings("unchecked")
+    private static List<Draw> coreDrawsOf(LogicLayout L,Map<String,Object> reply)throws Exception{
         Map<String,Map<String,Object>> byName=new LinkedHashMap<>();for(Object x:Json.arr(reply.get("passes"),"passes",1,256)){Map<String,Object> p=Json.obj(x,"pass");byName.put((String)p.get("name"),p);}
         String prefix="resource\\"+lower(L.mainNs)+"\\";List<Draw> out=new ArrayList<>();
         for(Object raw:L.passes){Map<String,Object> pass=Json.obj(raw,"pass");String part=(String)pass.get("name");if(part.equals("skin"))continue;Map<String,Object> got=byName.get(part);check(got!=null,"缺少绘制结果："+part);
@@ -1151,6 +1168,7 @@ public final class ModelConverter {
     private static int generationCounter=0;
     /** Converts one PC mod into one GIBox model folder. Variant combinations share the vertices; each has its own draws. */
     public static File convert(File src,File boneDir,File dest,int id,Options o,TextureDecoder decoder,StringBuilder log)throws Exception {
+        synchronized(insideCache){insideCache.clear();}
         Ini ini=new Ini(src,o.ini);List<Bones> bones;
         // A mod that converts (or fails for another reason) leaves no texture-only diagnostic of an earlier import behind.
         if(o.textureDiag!=null&&(!textureOnly(ini)||o.textureMods))TextureDiag.remove(o.textureDiag,dest.getName());

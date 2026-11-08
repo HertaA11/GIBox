@@ -2306,7 +2306,8 @@ struct Runtime::Impl {
    if(!timelineMeshes.count(baseMesh(fp.mesh))){return;}bool world=false;for(Ptr w:worldRenderers()){world=world||w==r;}
    timeline(std::string("bind-")+phase,"渲染器 "+hex(native)+"，avatar "+avatarIdentity(r)+"，网格 "+fp.mesh+"（"+std::to_string(fp.vertices)+" 顶点），"+(world?"当前操控角色":"非当前操控角色")+(attachments.count(r)?"，已挂载":""));}
   catch(const std::exception&){}}
- void spawned(Ptr go){if(!onTickThread("hand-off"))return;spawnAttached.clear();
+ std::vector<Ptr> goRenderers;
+ void spawned(Ptr go){if(!onTickThread("hand-off"))return;spawnAttached.clear();goRenderers.clear();
   if(!inTick){inTick=true;texHanded.clear();texSpawn(go);inTick=false;}
   // Only character models: scene objects, monsters and effects filled the 300 lines before (0.7.18).
   if(timelineOn()&&!inTick){try{if(alive(go)){auto n=name(go);if(n.compare(0,7,"Avatar_")!=0){timelineOthers++;}
@@ -2317,8 +2318,8 @@ struct Runtime::Impl {
   inTick=true;Owned tmp;uint64_t now=clockMs();unsigned adopted=0,built=0;
   try{Ptr arr=e.call<Ptr>(abi::componentsInChildren,go,rendererTypeObject,uint32_t(1),Ptr(0));
    if(arr){pin(tmp,arr);std::map<Ptr,std::pair<Set*,size_t>> ours;for(auto& s:sets)for(size_t i=0;i<s->parts.size();i++){ours[s->parts[i].mesh]={s.get(),i};if(i<s->animation.owned.size())for(Ptr mesh:s->animation.owned[i])ours[mesh]={s.get(),i};}
-    std::vector<Seen> found;
-    for(Ptr r:pointers(arr,256)){if(!alive(r)||attachments.count(r)||skipped.count({r,load<Ptr>(r+0x10)}))continue;Ptr m=e.get(abi::getMesh,r);if(!alive(m))continue;
+    std::vector<Seen> found;goRenderers=pointers(arr,256);
+    for(Ptr r:goRenderers){if(!alive(r)||attachments.count(r)||skipped.count({r,load<Ptr>(r+0x10)}))continue;Ptr m=e.get(abi::getMesh,r);if(!alive(m))continue;
      auto o=ours.find(m);if(o!=ours.end()){adopt(r,*o->second.first,o->second.second,now);adopted++;continue;}found.push_back({r,m,fingerprint(m)});}
     if(!found.empty())for(auto* m:wantedNow){if(liveSet(*m)||shadowed(*m,wantedNow)||!lodTarget(*m).empty())continue;auto f=failed.find(m->path);if(f!=failed.end()&&f->second.first==m->generation)continue;
      std::vector<Fingerprint> targets;if(!targetsFor(*m,targets))continue;std::vector<Seen> tpl;
@@ -2334,6 +2335,9 @@ struct Runtime::Impl {
       for(size_t i=0;i<s->parts.size()&&!done;i++)if(matches(s->parts[i].target,sn.fp)){done=true;
        try{if(attach(sn.renderer,sn.mesh,*s,i,now))spawnAttached.push_back(sn.renderer);}catch(const std::exception& ex){skipped.insert({sn.renderer,load<Ptr>(sn.renderer+0x10)});note(s->name+"："+ex.what());}}
       if(done)break;}}}
+   // The face texture with the parts at once (0.7.107): the hand-off's model is still inactive, so the next scene scan
+   // would not see its Face for up to a second (device log: Varka's detail page, attach at +0, face at +1004 ms).
+   if(!spawnAttached.empty()){std::vector<Ptr> l=sceneCache;l.insert(l.end(),goRenderers.begin(),goRenderers.end());try{swapTick(l);}catch(const std::exception& ex){log("texture-swap-error",ex.what());}}
    if(!spawnAttached.empty()||adopted||built)log("spawn",name(go)+"：挂载 "+std::to_string(spawnAttached.size())+"，接管 "+std::to_string(adopted)+"，构建 "+std::to_string(built));}
   catch(const std::exception& ex){log("spawn-error",ex.what());}
   freeOwned(tmp);inTick=false;}
@@ -2409,7 +2413,7 @@ struct Runtime::Impl {
       bindingDeferred(m->name,ex.what());return true;}
      promote(*cur,clockMs());s=cur;}
     if(!attachments.count(r))attachSeen({s},clockMs());
-    if(attachments.count(r)){pendingBinds.erase(r);if(++bindAfterHits<=20)log("bind-attached",m->name+"：在游戏绑定网格和骨骼后立即接管渲染器");}
+    if(attachments.count(r)){pendingBinds.erase(r);discoverAt=0;if(++bindAfterHits<=20)log("bind-attached",m->name+"：在游戏绑定网格和骨骼后立即接管渲染器");}   // the face texture on the next tick
     else bindingDeferred(m->name,"渲染器的骨骼或材质尚未就绪");
     return true;}
  // Renderers whose model files were not read when the game bound them: taken over on the first tick after the read.
@@ -2437,7 +2441,7 @@ struct Runtime::Impl {
    if(skipped.count({r,native})){inTick=false;return;}
    // A game-instantiated copy may already carry our mesh. Register it before the set can be disabled/released.
    for(auto& s:sets)for(size_t i=0;i<s->parts.size();i++)if(mesh==s->parts[i].mesh||animationMesh(*s,i,mesh)){adopt(r,*s,i,clockMs());
-    if(++bindAfterHits<=20){log("bind-attached",s->name+"：在网格和骨骼绑定后接管游戏的副本");}
+    discoverAt=0;if(++bindAfterHits<=20){log("bind-attached",s->name+"：在网格和骨骼绑定后接管游戏的副本");}
     inTick=false;return;}
    Ptr meshNative=load<Ptr>(mesh+0x10),data=load<Ptr>(meshNative+0x48);if(!data){inTick=false;return;}
    unsigned vertices=load<uint32_t>(data+0x74),submeshes=load<uint32_t>(data+0xc0),bones=uint32_t(load<uint64_t>(data+0xe0));
@@ -2629,11 +2633,15 @@ struct Runtime::Impl {
    lodSearched[r]={native,~0ull};
    try{auto loaders=lodLoadersOf(r);if(loaders.empty()){lodSearched[r].second=now+30000;if(lodNoneSaid.insert(r).second)log("lod-pin-none",rendererName(r)+"：渲染器、角色根节点上暂时没有 MiHoYoLodLoader，不固定（30 秒后再找）");continue;}
     for(auto& [l,where]:loaders){auto pin=lodPins.find(l);if(pin!=lodPins.end()){pin->second.renderers.insert(r);continue;}
+     // The level the game holds it at: the native loader's byte +0x93 (0xff: none), what IsLodLoaderSelfPaused and both
+     // Pause calls read and write in both builds; get_currentLodLevel (+0x90) reads 0xff before any level is shown
+     // (device log 0.7.105: "原为 LOD255"), so it only goes to the log.
      bool gameHeld=e.call<uint32_t>(abi::lodSelfPaused,l,Ptr(0))&1;unsigned before=e.call<uint32_t>(abi::lodCurrent,l,Ptr(0))&0xff;
-     LodPin p;p.held=gameHeld&&before<=7?int(before):-1;
+     Ptr native=load<Ptr>(l+0x10);unsigned heldAt=native&&!e.resolver?load<uint8_t>(native+0x93):(gameHeld?before:0xffu);
+     LodPin p;p.held=gameHeld&&heldAt<=7?int(heldAt):-1;
      if(p.held==0){log("lod-pin-skip",where+"：游戏已固定在完整模型（LOD0），不改动");lodSearched[r].second=now+30000;continue;}
      e.call<void>(abi::lodPause,l,int32_t(0),Ptr(0));p.handle=e.call<uint32_t>(abi::pin,l,2,Ptr(0));p.where=where;p.renderers.insert(r);lodPins[l]=p;
-     log("lod-pin",where+"：固定在完整模型（LOD0，原为 LOD"+std::to_string(before)+(gameHeld?"，由游戏固定，结束后恢复":"")+"），"+rendererName(r)+" 不再切换到低精度网格");}}
+     log("lod-pin",where+"：固定在完整模型（LOD0，"+(gameHeld?(p.held>=0?"游戏原固定在 LOD"+std::to_string(p.held)+"，结束后恢复":"游戏原已固定，结束后恢复自动切换"):"原为自动切换")+(before<=7?"，当前显示 LOD"+std::to_string(before):"")+"），"+rendererName(r)+" 不再切换到低精度网格");}}
    catch(const std::exception& ex){log("lod-pin-error",rendererName(r)+"："+ex.what());}}
   std::vector<Ptr> drop;for(auto& kv:lodPins){for(auto it=kv.second.renderers.begin();it!=kv.second.renderers.end();)if(!renderers.count(*it))it=kv.second.renderers.erase(it);else ++it;if(kv.second.renderers.empty())drop.push_back(kv.first);}
   for(Ptr l:drop)lodUnpin(l,"该角色不再被替换");

@@ -308,6 +308,14 @@ int main(int argc,char**argv){
  std::filesystem::remove_all(root);
  // The global client's build picks its own table: Unity methods by MethodIndex, the game's fields, the native finds;
  // nothing pending. Another build ID picks nothing.
+ // The 3DMigoto backend in one request for many assignments gives what one request per assignment gives, also when a
+// draw sets a global ($active) that a later draw reads, and in any order of the assignments.
+ {std::string ini="[Constants]\nglobal $active = 0\nglobal $x = 0\n[Present]\npost $active = 0\n[TextureOverrideTex]\nhash = 11111111\n$active = 1\n"
+   "[TextureOverrideBody]\nhash = 22222222\nib = ResourceIB\nif $active == 1 && $x == 1\ndrawindexed = 6, 0, 0\nelse\ndrawindexed = 3, 0, 0\nendif\n$x = 2\n[ResourceIB]\nfilename = a.ib\n";
+  std::string head="{\"main\":\"m\",\"files\":[{\"namespace\":\"m\",\"text\":"+quote(ini)+"}],\"passes\":[{\"name\":\"skin\",\"bindings\":{\"vb0\":\"11111111\"},\"checks\":[\"vb0\"]},{\"name\":\"Body\",\"bindings\":{\"ib\":\"22222222\"},\"checks\":[\"vb0\",\"vb1\",\"vb2\",\"ib\"],\"call\":{\"first_index\":0}}]";
+  auto single=[&](int x){auto r=drawsJson(head+",\"vars\":{\"$x\":"+std::to_string(x)+"}}");assert(r.find("\"ok\":true")!=std::string::npos);return r.substr(r.find("\"passes\""));};
+  auto batch=drawsJson(head+",\"assignments\":[{\"$x\":1},{\"$x\":0},{\"$x\":1}]}");assert(batch.find("{\"ok\":true,\"results\":[")==0);
+  std::string want="{"+single(1)+",{"+single(0)+",{"+single(1);assert(batch.find(want)!=std::string::npos&&single(1)!=single(0)&&single(1).find("[6,0,0]")!=std::string::npos&&single(0).find("[3,0,0]")!=std::string::npos);}
  // UID hiding: the label with 4+ digits or alone, either colon, any case; not GUID, not short numbers, not other words.
  {auto uid=[](const std::u16string& s){return uid::looksLikeUid(s.data(),int32_t(s.size()));};
   assert(uid(u"UID:123456789")&&uid(u"uid : 1234")&&uid(u"UID\uff1a800000001")&&uid(u"UID:")&&uid(u"Lv.60 UID: 1234567"));
