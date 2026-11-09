@@ -168,18 +168,26 @@ public final class Characters {
     };
 
     public static List<Avatar> all() { return Collections.unmodifiableList(Arrays.asList(ALL)); }
-    public static Avatar byId(int id) { for (Avatar a : ALL) if (a.id == id) return a; return null; }
+    /** Not a character (1.0.3): a texture-only mod for NPCs and monsters, whose meshes the game side finds anywhere in the
+     *  scene by the index-buffer hashes its rules name (texture_diag.hpp kScene). Listed last in the picker. */
+    public static final int SCENE = 1;
+    public static final Avatar SCENE_AVATAR = new Avatar(SCENE, "NPC / 怪物", "", "npc monster monsters enemy enemies 怪物 敌人");
+    public static boolean isScene(int id) { return id == SCENE; }
+    public static Avatar byId(int id) { if (id == SCENE) return SCENE_AVATAR; for (Avatar a : ALL) if (a.id == id) return a; return null; }
     public static String nameOf(int id) { Avatar a = byId(id); return a != null ? a.name : id == 0 ? "未指定角色" : "角色 " + id; }
 
     /** By ID or by name (Chinese, English or internal), in list order. An empty query lists everyone. */
     public static List<Avatar> search(String query) {
-        String q = query == null ? "" : query.trim().toLowerCase(Locale.ROOT); if (q.isEmpty()) return all();
+        String q = query == null ? "" : query.trim().toLowerCase(Locale.ROOT);
+        if (q.isEmpty()) { List<Avatar> out = new ArrayList<>(all()); out.add(SCENE_AVATAR); return out; }
         String compact = q.replaceAll("[^a-z0-9]", ""); List<Avatar> out = new ArrayList<>();
         for (Avatar a : ALL) {
             boolean hit = Integer.toString(a.id).contains(q) || a.name.toLowerCase(Locale.ROOT).contains(q);
             if (!hit && compact.length() >= 2 && !compact.matches("[0-9]+")) for (String s : a.aliases) if (s.contains(compact)) { hit = true; break; }
             if (hit) out.add(a);
         }
+        boolean scene = SCENE_AVATAR.name.toLowerCase(Locale.ROOT).contains(q); for (String s : SCENE_AVATAR.aliases) scene = scene || s.contains(q);
+        if (scene) out.add(SCENE_AVATAR);
         return out;
     }
 

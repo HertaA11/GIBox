@@ -13,6 +13,11 @@
 // UNORDERED_ACCESS (0x8A, Linnea: head/body/dress, bangs, eyes, book, crystal) or INDEX_BUFFER alone (0x2, the
 // Traveler), CPU access, misc flags and stride 0. Both are hashed, IMMUTABLE too, for the data as uploaded, widened from
 // 16 to 32 bit, or narrowed from 32 to 16 bit.
+//
+// Modes (1.0.3, control.json textureMods.hashMode, read at the game's start), after XXMI's normal play and its hunting /
+// frame analysis: "match" hashes each upload once, as uploaded (every hash this device ever tied to a PC one was that
+// form), and checks it against the mods' rules; "collect" also ties every shown mesh (characters, NPCs, monsters) to
+// its upload for hash-map.json; "full" is the old diagnostic: every form, ib-hashes.txt, per-mesh candidate lines.
 #include <array>
 #include <atomic>
 #include <cstdint>
@@ -27,6 +32,12 @@
 #endif
 
 namespace ms::vkcap {
+enum class Mode {Off=0,Match=1,Collect=2,Full=3};
+// hashMode when given; else the switches of 1.0.2 and earlier: capture -> collect, ibHash -> match.
+inline Mode modeFrom(const std::string& mode,bool ibHash,bool capture){
+ if(mode=="off"){return Mode::Off;}if(mode=="match"){return Mode::Match;}if(mode=="collect"){return Mode::Collect;}if(mode=="full"){return Mode::Full;}
+ return capture?Mode::Collect:ibHash?Mode::Match:Mode::Off;}
+inline const char* modeName(Mode m){return m==Mode::Match?"匹配":m==Mode::Collect?"采集":m==Mode::Full?"完整诊断":"关闭";}
 inline const std::array<uint32_t,256>& crcTable(){static const auto table=[]{std::array<uint32_t,256> t{};
   for(uint32_t i=0;i<256;i++){uint32_t c=i;for(int k=0;k<8;k++)c=(c&1)?(c>>1)^0x82F63B78u:c>>1;t[i]=c;}return t;}();return table;}
 #if defined(__aarch64__)
@@ -78,12 +89,13 @@ class Tracker {
   if(from<x->second.offset||(x->second.size!=~0ull&&from+size>x->second.offset+x->second.size)){return nullptr;}return x->second.base+(from-x->second.offset);}
  // Under the lock: an unmap waits until the bytes are read.
  void add(const uint8_t* p,uint64_t n,uint64_t buffer,uint64_t offset,const char* via){st.uploads++;st.bytes+=n;if(out.size()>=maxQueue){st.dropped++;return;}
-  Blob b;b.seq=++seq;b.buffer=buffer;b.offset=offset;b.bytes=uint32_t(n);b.via=via;b.hashes=ibHashes(p,size_t(n));
+  Blob b;b.seq=++seq;b.buffer=buffer;b.offset=offset;b.bytes=uint32_t(n);b.via=via;if(allForms)b.hashes=ibHashes(p,size_t(n));else hashFormat(p,size_t(n),0,b.hashes);
   for(size_t i=0;i<n/2;i++){uint16_t v;std::memcpy(&v,p+2*i,2);if(i<8)b.head16.push_back(v);if(v>b.max16)b.max16=v;}
   if(n%4==0)for(size_t i=0;i<n/4;i++){uint32_t v;std::memcpy(&v,p+4*i,4);if(v>b.max32)b.max32=v;}
   out.push_back(std::move(b));}
 public:
  std::atomic<bool> enabled{false};
+ std::atomic<bool> allForms{true};   // false (match / collect): the data as uploaded only, one pass over it
  void created(uint64_t buffer,uint64_t size,uint32_t usage){if(!(usage&(indexUsage|transferSrc)))return;std::lock_guard<std::mutex> l(m);Buffer b;b.size=size;b.usage=usage;buffers[buffer]=b;}
  void destroyed(uint64_t buffer){std::lock_guard<std::mutex> l(m);buffers.erase(buffer);}
  void bound(uint64_t buffer,uint64_t memory,uint64_t offset){std::lock_guard<std::mutex> l(m);auto b=buffers.find(buffer);if(b==buffers.end())return;b->second.memory=memory;b->second.memoryOffset=offset;b->second.bound=true;}

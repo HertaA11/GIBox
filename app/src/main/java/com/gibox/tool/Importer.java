@@ -142,7 +142,7 @@ public final class Importer {
     public static boolean animationBoneFallback(File mod) { return "retain-valid".equals(ModLibrary.overrides(mod).get("animationbones")); }
     public static void setAnimationBoneFallback(File mod, boolean enabled) throws Exception { ModLibrary.setOverride(mod, "animationbones", enabled ? "retain-valid" : null); }
     public static Result convert(File mod, int id, File modelsRoot, File boneRoot, ModelConverter.TextureDecoder decoder, StringBuilder log) throws Exception {
-        if (id < 10000000 || id > 10001999) throw new IllegalArgumentException("角色 ID 无效：" + id);
+        if (!Characters.isScene(id) && (id < 10000000 || id > 10001999)) throw new IllegalArgumentException("角色 ID 无效：" + id);
         File ini = ModLibrary.mainIni(mod), src = ModConfig.switchedOn(mod, ini); ModLibrary.setOverride(mod, "id", Integer.toString(id));
         Map<String, String> o = ModLibrary.overrides(mod); String name = ModLibrary.modelName(o.containsKey("name") ? o.get("name") : mod.getName());
         // The outfit (Outfits, 0.7.94): the one chosen with the character (modelswap.txt "outfit"), else the one the INI's
@@ -176,6 +176,7 @@ public final class Importer {
         log.append("角色：").append(Characters.nameOf(id)).append("（").append(id).append("）").append(r.library ? "，使用骨骼库：" + recorded.bones : lodLibrary.isEmpty() ? (outfit != null ? "，骨骼库中尚无此外观" : "，骨骼库中尚无此角色") + "：按游戏原骨骼顺序转换" : "，骨骼库中此角色的记录为低精度模型 " + lodLibrary + "，不使用：按游戏原骨骼顺序转换").append('\n');
         if (!r.library && avatar != null && !avatar.model.isEmpty()) opt.names(avatar.model);
         r.model = ModelConverter.convert(src, r.library ? recorded.bones : null, new File(modelsRoot, name), id, opt, decoder, log);
+        if (TextureMod.is(r.model) && Characters.isScene(id)) { r.summary = "NPC / 怪物：纯贴图 MOD，按索引缓冲 hash 在场景里找对应的网格。本机 hash 表里还没有的网格，把调试页的 hash 模式设为“匹配”或“采集”并重启游戏，让这个 NPC / 怪物出现一次"; return r; }
         if (TextureMod.is(r.model)) { r.summary = Characters.nameOf(id) + "（" + id + "）：纯贴图 MOD，只换游戏模型上的贴图。进游戏后自动替换确认过的部件（调试页里可换替换方式）；匹配不上的显示“等待映射”"; return r; }
         String who = Characters.nameOf(id) + (outfit != null ? "·" + outfit.name : "");
         r.summary = who + "（" + id + "）" + (r.library ? "：骨骼库已有" + (outfit != null ? "此外观" : "该角色") + "，进入游戏即可替换" : opt.reusedSkeleton ? "：复用本 MOD 已有骨骼记录，目标网格信息已保留"

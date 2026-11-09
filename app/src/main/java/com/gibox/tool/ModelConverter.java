@@ -1217,6 +1217,7 @@ public final class ModelConverter {
         // A mod that converts (or fails for another reason) leaves no texture-only diagnostic of an earlier import behind.
         if(o.textureDiag!=null&&(!textureOnly(ini)||o.textureMods))TextureDiag.remove(o.textureDiag,dest.getName());
         if(o.textureMods&&textureOnly(ini))return TextureMod.install(src,ini,id,dest,o,decoder,log);
+        check(!Characters.isScene(id),"NPC / 怪物只支持纯贴图 MOD：这个 MOD 带有自己的网格，替换网格需要该 NPC / 怪物的骨骼库，目前只有可操控的角色有");
         log.append("模型主 INI：").append(ini.file.getName()).append('\n');
         for(File sibling:ModConfig.allInis(src))if(!sibling.getCanonicalFile().equals(ini.file.getCanonicalFile()))log.append("未导入辅助 INI：").append(src.toPath().relativize(sibling.toPath())).append("（帮助、菜单或独立贴图配置；不包含在本次模型转换中）\n");
         if(o.variants)for(Map.Entry<String,TreeSet<Integer>> e:ini.excludedChoices.entrySet())

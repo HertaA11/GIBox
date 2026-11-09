@@ -28,7 +28,7 @@ final class TextureMod {
     static boolean is(File dir) { return new File(dir, FILE).isFile() && !new File(dir, "model.json").isFile(); }
 
     static File install(File src, ModelConverter.Ini ini, int id, File dest, ModelConverter.Options o, ModelConverter.TextureDecoder decoder, StringBuilder log) throws Exception {
-        check(id >= 10000000 && id <= 10001999, "纯贴图 MOD 需要选择角色");
+        check(Characters.isScene(id) || (id >= 10000000 && id <= 10001999), "纯贴图 MOD 需要选择角色，或选择“NPC / 怪物”");
         log.append("纯贴图 MOD：").append(ini.file.getName()).append("（只换游戏模型上的贴图，不需要网格和骨骼）\n");
         Map<String, Object> doc = TextureDiag.analyze(src, ini.file, id, dest.getName(), log);
         File base = ini.file.getAbsoluteFile().getParentFile();

@@ -45,9 +45,13 @@ struct Doc {std::string path,stamp,name,ini,characterName,pc;unsigned character=
 inline std::string str(const Json& j,const char* k){const auto& v=j.at(k);return v.type==Json::String?v.string:std::string();}
 inline long long num(const Json& j,const char* k,long long fallback){const auto& v=j.at(k);return v.type==Json::Number&&std::isfinite(v.number)&&std::floor(v.number)==v.number&&std::fabs(v.number)<9e15?(long long)v.number:fallback;}
 // The App's document (version 1); anything it cannot use is an error naming the field, never a silent skip.
+// The "character" of a mod for NPCs and monsters (1.0.3): no AvatarId; its meshes are found anywhere in the scene by the
+// index-buffer hashes its rules name (hash-map.json), not among the controlled character's renderers.
+constexpr unsigned kScene=1;
+inline bool validCharacter(long long c){return c==kScene||(c>=10000000&&c<=10001999);}
 inline Doc parseDoc(const Json& j,const std::string& path){Doc d;d.path=path;
  require(j.type==Json::Object&&str(j,"format")=="gibox-texture-diag","不是 GIBox 贴图诊断文件");require(num(j,"version",0)==1,"贴图诊断文件版本 "+std::to_string(num(j,"version",0))+" 不受支持");
- d.name=str(j,"name");d.ini=str(j,"ini");d.characterName=str(j,"characterName");auto c=num(j,"character",0);require(c==0||(c>=10000000&&c<=10001999),"贴图诊断文件的角色无效");d.character=unsigned(c);
+ d.name=str(j,"name");d.ini=str(j,"ini");d.characterName=str(j,"characterName");auto c=num(j,"character",0);require(c==0||validCharacter(c),"贴图诊断文件的角色无效");d.character=unsigned(c);
  const auto& rules=j.at("rules");require(rules.type==Json::Array&&rules.array.size()<=4096,"贴图诊断文件的规则列表无效");
  for(auto& r:rules.array){require(r.type==Json::Object,"贴图诊断文件的规则无效");Rule x;x.section=str(r,"section");x.part=str(r,"part");x.hint=str(r,"hint");x.hash=str(r,"hash");x.kind=str(r,"kind");x.evidence=str(r,"hashEvidence");
   x.slotLetter=int(num(r,"slotLetter",-1));x.first=num(r,"first",-1);x.priority=int(num(r,"priority",0));x.textureName=r.at("textureName").type==Json::Bool&&r.at("textureName").boolean;
@@ -341,7 +345,7 @@ struct TextureMod {std::string name,generation;unsigned character=0;std::map<std
 inline TextureMod parseMod(const std::string& text,const std::string& dir){Json j=JsonParser(text).parse();
  require(j.type==Json::Object&&str(j,"format")=="gibox-texture-mod","不是 GIBox 纯贴图 MOD");require(num(j,"version",0)==1,"纯贴图 MOD 版本 "+std::to_string(num(j,"version",0))+" 不受支持");
  TextureMod m;m.name=str(j,"name");m.generation=str(j,"generation");require(!m.name.empty()&&!m.generation.empty(),"纯贴图 MOD 的名称或生成号无效");
- auto c=num(j.at("character"),"id",0);require(c>=10000000&&c<=10001999,"纯贴图 MOD 的角色无效");m.character=unsigned(c);
+ auto c=num(j.at("character"),"id",0);require(validCharacter(c),"纯贴图 MOD 的角色无效");m.character=unsigned(c);
  const auto& v=j.at("variants");require(v.type==Json::Object,"纯贴图 MOD 的款式无效");const auto& d=v.at("default");
  if(v.at("vars").type==Json::Array)for(auto& x:v.at("vars").array){auto n=str(x,"name");require(n.size()>1&&n[0]=='$'&&!m.vars.count(n),"纯贴图 MOD 的变量无效");auto& vals=m.vars[n];
   const auto& a=x.at("values");require(a.type==Json::Array&&!a.array.empty()&&a.array.size()<=64,"纯贴图 MOD 的取值无效："+n);for(auto& k:a.array){require(k.type==Json::Number&&std::floor(k.number)==k.number&&std::fabs(k.number)<=1000000,"纯贴图 MOD 的值无效："+n);vals.push_back(int(k.number));}

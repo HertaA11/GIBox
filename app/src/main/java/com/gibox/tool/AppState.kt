@@ -340,6 +340,11 @@ class AppState(private val activity: Activity) {
         Control.setTextureMods(game, key, value)
         AppLog.info(game, LOGGER, "texture-option $key = $value")
     }
+    fun hashMode(): String = Control.hashMode(game)
+    fun setHashMode(mode: String) = save("保存 hash 模式") {
+        Control.setHashMode(game, mode)
+        AppLog.info(game, LOGGER, "hash-mode $mode（重启游戏后生效）")
+    }
     fun startTextureTest() = save("开始轮测") {
         val n = Control.requestTextureTest(game, 4000)
         AppLog.info(game, LOGGER, "texture-cycle #$n：自动 → 直接改材质 → 克隆材质，各观察 4 秒")
@@ -410,7 +415,7 @@ class AppState(private val activity: Activity) {
         try { Importer.setScheme(source, rel); AppLog.info(game, LOGGER, "ini-scheme ${mod.name} → $rel") }
         catch (e: Throwable) { fail("选择 INI 方案", e, null); return }
         refresh()
-        if (mod.converted && mod.id in 10000000..10001999) convert(source, mod.id)
+        if (mod.converted && (mod.id in 10000000..10001999 || Characters.isScene(mod.id))) convert(source, mod.id)
     }
     /** Confirmed on the character page; `scheme` is the INI chosen there for a package with several. */
     fun confirm(pick: Screen.Pick, avatar: Characters.Avatar, scheme: String? = null, outfit: String? = null) {
@@ -658,7 +663,7 @@ class AppState(private val activity: Activity) {
     /** The hash comparison report the game writes in capture mode (GIBox/hash-report.txt). */
     fun shareHashReport() {
         val file = File(Control.shared(game), "hash-report.txt")
-        if (!file.isFile) { toast("还没有报告：打开“采集所有角色的 hash”，重启游戏，在图鉴里点一下角色"); return }
+        if (!file.isFile) { toast("还没有报告：把 hash 模式改为“采集”，重启游戏，在图鉴里点一下角色，或在大世界靠近 NPC、怪物"); return }
         try {
             val uri = DocumentsContract.buildDocumentUri(DirectoryProvider.AUTHORITY, "$game:shared/${file.name}")
             fun grant(i: Intent) = i.apply { clipData = ClipData.newRawUri("hash 对比报告", uri); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION) }

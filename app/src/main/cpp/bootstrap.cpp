@@ -84,12 +84,13 @@ void bootStatus(const std::string& pkg,const std::string& state,const std::strin
 }
 extern "C" JNIEXPORT void JNICALL Java_com_gibox_tool_NativeBridge_start(JNIEnv* env,jclass,jstring jp,jstring jd){try{
  auto pkg=jstringValue(env,jp),priv=jstringValue(env,jd);ms::require(pkg=="com.miHoYo.Yuanshen"||pkg=="com.miHoYo.ys.bilibili"||pkg=="com.miHoYo.GenshinImpact","不支持的包名");if(started.exchange(true))return;
- // The index-buffer hash diagnostic (vk_capture.hpp) hooks the Vulkan loader now, before the game makes its device;
- // only when control.json textureMods.ibHash or capture (every character against the PC) is true at this start
- // (switching it later takes a restart).
- {bool on=false;try{auto c=ms::JsonParser(ms::text(sharedDir(pkg)+"/control.json")).parse();const auto& t=c.at("textureMods");
-   for(auto* k:{"ibHash","capture"})on=on||(t.type==ms::Json::Object&&t.at(k).type==ms::Json::Bool&&t.at(k).boolean);}catch(const std::exception&){}
-  if(on){std::string detail;bool ok=false;try{ok=ms::vkhook::install(detail);}catch(const std::exception& e){detail=e.what();}bootLog(pkg,ok?"vulkan-capture":"vulkan-capture-disabled",ok?"已安装："+detail+"（只读索引缓冲 hash）":detail);}}
+ // The index-buffer hashes (vk_capture.hpp) hook the Vulkan loader now, before the game makes its device; only when
+ // control.json textureMods.hashMode (or the older ibHash / capture switches) is on at this start (a change takes a restart).
+ {auto mode=ms::vkcap::Mode::Off;try{auto c=ms::JsonParser(ms::text(sharedDir(pkg)+"/control.json")).parse();const auto& t=c.at("textureMods");
+   if(t.type==ms::Json::Object){auto flag=[&](const char* k){return t.at(k).type==ms::Json::Bool&&t.at(k).boolean;};
+    mode=ms::vkcap::modeFrom(t.at("hashMode").type==ms::Json::String?t.at("hashMode").string:std::string(),flag("ibHash"),flag("capture"));}}catch(const std::exception&){}
+  if(mode!=ms::vkcap::Mode::Off){ms::vkcap::tracker().allForms=mode==ms::vkcap::Mode::Full;std::string detail;bool ok=false;try{ok=ms::vkhook::install(detail);}catch(const std::exception& e){detail=e.what();}
+   bootLog(pkg,ok?"vulkan-capture":"vulkan-capture-disabled",ok?"已安装："+detail+"（只读索引缓冲 hash，模式 "+ms::vkcap::modeName(mode)+(mode==ms::vkcap::Mode::Full?"，每次上传计算全部 12 种":"，每次上传只按原样计算一次")+"）":detail);}}
  std::thread([pkg,priv]{try{bootStatus(pkg,"waiting","等待 libyuanshen.so");Image image;for(unsigned n=0;n<480&&!image.base;n++){dl_iterate_phdr(findImage,&image);if(!image.base)std::this_thread::sleep_for(std::chrono::milliseconds(500));}ms::require(image.base!=0,"等待 libyuanshen.so 加载超时");
  auto actual=ms::loadedBuildId(image.base,image.ph,image.count,sizeof(ElfW(Phdr)));if(!ms::abi::select(actual)){bootStatus(pkg,"buildid-mismatch","实际 Build ID："+actual);return;}
  // UID hiding: hooked only when "hideUid" is on at this start. Each address must be inside an executable segment and

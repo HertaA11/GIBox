@@ -33,7 +33,10 @@ def entries(path):
         if not ok:
             print("%s: skipped a malformed entry %r" % (path, e.get("ib")))
             continue
-        yield {k: (ib if k == "ib" else e.get(k, 0 if k in ("vertices", "bones") else "")) for k in KEYS}
+        out = {k: (ib if k == "ib" else e.get(k, 0 if k in ("vertices", "bones") else "")) for k in KEYS}
+        if isinstance(e.get("owner"), str) and e["owner"]:
+            out["owner"] = e["owner"]  # 1.0.3: an NPC's or monster's object name, for reading only
+        yield out
 
 
 def main():

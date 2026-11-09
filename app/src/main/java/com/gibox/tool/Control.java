@@ -110,6 +110,20 @@ public final class Control {
      *  PC database (hash-report.txt, hash-map.json), also read only at the game's start. */
     public static String textureMods(String pkg, String key, String fallback) { JSONObject x = load(pkg).optJSONObject("textureMods"); return x == null ? fallback : x.optString(key, fallback); }
     public static boolean textureModsFlag(String pkg, String key) { JSONObject x = load(pkg).optJSONObject("textureMods"); return x != null && x.optBoolean(key, false); }
+    /** "hashMode" (1.0.3, read by the game at its start): off / match (each index upload hashed once, as uploaded, against
+     *  the mods' rules, like XXMI in normal play) / collect (also every shown mesh, characters, NPCs and monsters, into
+     *  hash-map.json and hash-report.txt) / full (every hash form, ib-hashes.txt, per-mesh candidates). Without it, the
+     *  switches of 1.0.2: "capture" is collect, "ibHash" match. */
+    public static String hashMode(String pkg) {
+        JSONObject x = load(pkg).optJSONObject("textureMods"); if (x == null) return "off";
+        String m = x.optString("hashMode", ""); if (m.equals("off") || m.equals("match") || m.equals("collect") || m.equals("full")) return m;
+        return x.optBoolean("capture", false) ? "collect" : x.optBoolean("ibHash", false) ? "match" : "off";
+    }
+    public static synchronized void setHashMode(String pkg, String mode) throws Exception {
+        if (!(mode.equals("off") || mode.equals("match") || mode.equals("collect") || mode.equals("full"))) throw new IllegalArgumentException("hash 模式无效：" + mode);
+        JSONObject j = load(pkg); JSONObject x = j.optJSONObject("textureMods"); if (x == null) x = new JSONObject();
+        x.put("hashMode", mode); x.remove("ibHash"); x.remove("capture"); j.put("textureMods", x); save(pkg, j);
+    }
     public static synchronized void setTextureMods(String pkg, String key, Object value) throws Exception {
         JSONObject j = load(pkg); JSONObject x = j.optJSONObject("textureMods"); if (x == null) x = new JSONObject(); x.put(key, value); j.put("textureMods", x); save(pkg, j);
     }

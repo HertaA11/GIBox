@@ -22,20 +22,24 @@ public class ImporterTest {
   // 2. Search by ID, Chinese name, English or internal name.
   ok(ids(Characters.search("10000107")).equals(Collections.singletonList(10000107))&&ids(Characters.search("茜特")).equals(Collections.singletonList(10000107)),"search id/name");
   ok(ids(Characters.search("旅行者")).equals(Arrays.asList(10000005,10000007))&&ids(Characters.search("Raiden")).equals(Collections.singletonList(10000052))&&ids(Characters.search("shougun")).equals(Collections.singletonList(10000052)),"search aliases");
-  ok(Characters.search("1000010").size()==10&&Characters.search(" ").size()==130&&Characters.search("没有这个人").isEmpty(),"search edge cases");
+  ok(Characters.search("1000010").size()==10&&Characters.search(" ").size()==131&&Characters.search("没有这个人").isEmpty(),"search edge cases");
   ok(Characters.words("TextureOverrideHuTaoBody2").equals(Arrays.asList("texture","override","hu","tao","body","2")),"words: "+Characters.words("TextureOverrideHuTaoBody2"));
   // 3. The recommended character: from the import name, folder, INI sections and resource names.
   character(bones,"10000107",10000107,"Avatar_Girl_Catalyst_Citlali");character(bones,"10000150",10000150,"Avatar_Girl_Sword_Odette(Clone)");character(bones,"10000107-123",10000107,"Old_Export");
   ok(ModLibrary.library(bones).size()==2&&ModLibrary.recorded(bones,10000107).bones.getName().equals("10000107"),"library prefers the per-character folder");
   File citlali=GimiPatternsTest.mod(download,"Citlali Summer",GimiPatternsTest.ini("global $creditinfo = 0\n","","",""));
   Characters.Guess g=Characters.guess(citlali,"Citlali Summer",ModLibrary.library(bones));
-  ok(ids(g.recommended).equals(Collections.singletonList(10000107))&&Characters.ordered(g,"").get(0).id==10000107&&Characters.ordered(g,"").size()==130,"citlali recommended first: "+g.evidence);
+  ok(ids(g.recommended).equals(Collections.singletonList(10000107))&&Characters.ordered(g,"").get(0).id==10000107&&Characters.ordered(g,"").size()==131,"citlali recommended first: "+g.evidence);
   ok(Characters.ordered(g,"琴").get(0).id==10000003,"a search keeps only matches");
   File raiden=renamed(download,"RaidenShogun Kimono","RaidenShogun"),hutao=renamed(download,"hu tao","HuTao"),odette=renamed(download,"odette_v2","Odette"),hero=renamed(download,"Mystery","Hero");
   ok(ids(Characters.guess(raiden,"RaidenShogun Kimono",null).recommended).equals(Collections.singletonList(10000052)),"raiden");
   ok(ids(Characters.guess(hutao,"hu tao",null).recommended).equals(Collections.singletonList(10000046)),"hu tao joined");
   ok(ids(Characters.guess(odette,"odette_v2",ModLibrary.library(bones)).recommended).equals(Collections.singletonList(10000150)),"a character known only to the bone library");
   ok(Characters.guess(hero,"Mystery",ModLibrary.library(bones)).recommended.isEmpty()&&Characters.ordered(new Characters.Guess(),"").get(0).id==10000002,"no guess: plain list");
+  // NPC / monster (1.0.3): last in the plain list, found by its words, never a character's alias or recommendation.
+  {List<Characters.Avatar> plain=Characters.ordered(new Characters.Guess(),"");ok(plain.get(plain.size()-1)==Characters.SCENE_AVATAR&&Characters.byId(Characters.SCENE)==Characters.SCENE_AVATAR
+    &&ids(Characters.search("怪物")).equals(Collections.singletonList(Characters.SCENE))&&ids(Characters.search("npc")).equals(Collections.singletonList(Characters.SCENE))
+    &&!Characters.all().contains(Characters.SCENE_AVATAR)&&"NPC / 怪物".equals(Characters.nameOf(Characters.SCENE)),"NPC / monster choice");}
   File lumine=renamed(download,"Traveler","TravelerGirl"),both=renamed(download,"traveler x","Traveler");
   ok(ids(Characters.guess(lumine,"Traveler",null).recommended).equals(Collections.singletonList(10000007))&&ids(Characters.guess(both,"traveler x",null).recommended).equals(Arrays.asList(10000005,10000007)),"traveler: girl wins, plain is a tie");
   // 4. Staging: a folder is copied (one extra level is fine), a zip unpacked; unsafe archives leave nothing behind.

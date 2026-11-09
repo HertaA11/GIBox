@@ -56,7 +56,7 @@ struct KeyPress {long long seq=0;size_t file=0;std::string section;bool back=fal
 // full / migrate, test rounds.
 // auto (0.7.60): the game's own per-renderer instance is written in place (its effects keep running on it); a loaded asset
 // or a material another renderer shows is copied first, and the game's instance made from that copy is followed in place.
-struct TexModControl {std::string strategy="auto",lod="full";bool capture=false;long long testRequest=0;std::vector<std::string> testStrategies{"auto","direct","clone"};int observeMs=4000;};
+struct TexModControl {std::string strategy="auto",lod="full";bool capture=false;vkcap::Mode hash=vkcap::Mode::Off;long long testRequest=0;std::vector<std::string> testStrategies{"auto","direct","clone"};int observeMs=4000;};
 struct ControlState {TexModControl tex;Experiments exp;bool enabled=false,lodPin=true,hideUid=false;int logLevel=int(Level::Info);std::vector<std::string> selected;long long exportBones=0,refreshBones=0,renderMark=0;unsigned refreshBonesCharacter=0;std::map<std::string,std::map<std::string,int>> variables;std::map<std::string,std::vector<KeyPress>> keys;};
 ControlState parseControl(const std::string& raw){
  Json c=JsonParser(raw).parse();require(c.type==Json::Object,"control.json 不是对象");ControlState s;
@@ -81,7 +81,7 @@ ControlState parseControl(const std::string& raw){
    s.keys[model.first].push_back(x);}}
  s.logLevel=logThreshold(c);
  const auto& t=c.at("textureMods");if(t.type==Json::Object){auto text=[&](const char* k,const char* fallback,std::initializer_list<const char*> allowed){const auto& v=t.at(k);if(v.type!=Json::String)return std::string(fallback);for(auto* a:allowed)if(v.string==a)return v.string;return std::string(fallback);};
-  s.tex.capture=t.at("capture").type==Json::Bool&&t.at("capture").boolean;s.tex.strategy=text("strategy","auto",{"diagnose","auto","direct","clone"});s.tex.lod=text("lod","full",{"full","migrate"});s.tex.testRequest=integerOf(t.at("testRequest"));require(s.tex.testRequest>=0,"textureMods.testRequest");
+  s.tex.hash=vkcap::modeFrom(t.at("hashMode").type==Json::String?t.at("hashMode").string:std::string(),t.at("ibHash").type==Json::Bool&&t.at("ibHash").boolean,t.at("capture").type==Json::Bool&&t.at("capture").boolean);s.tex.capture=s.tex.hash>=vkcap::Mode::Collect;s.tex.strategy=text("strategy","auto",{"diagnose","auto","direct","clone"});s.tex.lod=text("lod","full",{"full","migrate"});s.tex.testRequest=integerOf(t.at("testRequest"));require(s.tex.testRequest>=0,"textureMods.testRequest");
   const auto& ts=t.at("testStrategies");if(ts.type==Json::Array){s.tex.testStrategies.clear();for(auto& v:ts.array)if(v.type==Json::String&&(v.string=="auto"||v.string=="direct"||v.string=="clone")&&s.tex.testStrategies.size()<4)s.tex.testStrategies.push_back(v.string);if(s.tex.testStrategies.empty())s.tex.testStrategies={"auto","direct","clone"};}
   auto ms=integerOf(t.at("observeMs"));if(ms)s.tex.observeMs=int(std::min<long long>(60000,std::max<long long>(1000,ms)));}
  const auto& x=c.at("experiments");if(x.type==Json::Object){auto flag=[&](const char* k){return x.at(k).type==Json::Bool&&x.at(k).boolean;};
@@ -452,7 +452,7 @@ struct Runtime::Impl {
   if(texDiagDocs.empty()){texDiagSeen.clear();return;}
   if(now<texDiagAt){return;}texDiagAt=now+1000;
   if(!ch.entity){return;}
-  std::vector<const texdiag::Doc*> docs;std::string waiting;for(auto& kv:texDiagDocs)if(kv.second.doc){auto& d=*kv.second.doc;if(kv.second.mod&&!texModOn(kv.second.mod->name))continue;if(!d.character||d.character==ch.config)docs.push_back(&d);else waiting+=(waiting.empty()?"":", ")+d.name+" ("+std::to_string(d.character)+")";}
+  std::vector<const texdiag::Doc*> docs;std::string waiting;for(auto& kv:texDiagDocs)if(kv.second.doc){auto& d=*kv.second.doc;if(kv.second.mod&&!texModOn(kv.second.mod->name))continue;if(d.character==texdiag::kScene)continue;if(!d.character||d.character==ch.config)docs.push_back(&d);else waiting+=(waiting.empty()?"":", ")+d.name+" ("+std::to_string(d.character)+")";}
   if(docs.empty()&&waiting.empty())return;
   if(docs.empty()){texDiagLog("texture-diag-wait","wait","当前操控角色 "+std::to_string(ch.config)+"，贴图诊断等待："+waiting);return;}
   std::vector<Ptr> world;try{world=worldRenderers();}catch(const std::exception& ex){texDiagLog("texture-diag-unsupported","world",std::string("无法读取角色渲染器：")+ex.what());return;}
@@ -714,11 +714,50 @@ struct Runtime::Impl {
    if(L&&!why.empty())texSay(*L,"wait|"+hex(r)+"|"+why,"texture-wait",texTag(*L)+"："+rendererName(r)+"#"+hex(load<Ptr>(r+0x10))+" 等待，原因："+why);}
   texShare(m,L,pool,out,taken);
   return out;}
+ // ---------------------------------------------------------------- NPC / monster texture mods (texdiag::kScene, 1.0.3)
+ // No character and no hand-off: a rule's index-buffer hash names a mesh in this device's hash table (hash-map.json, the
+ // bundled one, or tied here while the hashes are read), and every active skinned renderer of the scene showing that
+ // mesh (name, vertex count, submesh starts and counts all equal) has its slot written: the submesh starting at the
+ // rule's match_first_index, or every submesh for a rule without one (3DMigoto applies it to every draw of the hash).
+ // Rules on texture hashes only cannot be matched here (the game's textures are compressed differently on Android).
+ struct SceneMesh {std::string mesh,renderer,owner;unsigned vertices=0;std::vector<std::pair<uint32_t,uint32_t>> subs;bool known=false;};
+ std::map<std::pair<Ptr,uint32_t>,SceneMesh> sceneMeshes;std::map<std::string,SceneMesh> sceneByKey;std::multimap<std::pair<uint64_t,uint64_t>,std::string> sceneShapes;std::string sceneWhy;
+ const SceneMesh& sceneMeshOf(Ptr r,Ptr mesh){Ptr native=load<Ptr>(mesh+0x10);auto key=std::make_pair(native,load<uint32_t>(native+8));auto it=sceneMeshes.find(key);if(it!=sceneMeshes.end())return it->second;
+  if(sceneMeshes.size()>20000)sceneMeshes.clear();
+  SceneMesh m;auto fp=fingerprint(mesh);m.mesh=fp.mesh;m.vertices=fp.vertices;m.renderer=rendererName(r);texdiag::MeshLayout l;texDiagMesh(mesh,l);bool all=!l.subs.empty();
+  for(auto& sb:l.subs){all=all&&sb.known;m.subs.push_back({uint32_t(sb.start),uint32_t(sb.count)});}m.known=all;
+  if(all){auto n=pcdb::indices(m.subs);auto k=capKey(m.mesh,m.vertices,n);
+   if(!sceneByKey.count(k)){try{m.owner=avatarIdentity(r);if(m.owner.empty())m.owner=ownerOf(r);}catch(const std::exception&){}sceneByKey[k]=m;sceneShapes.insert({{n,uint64_t(m.vertices)},k});}}
+  return sceneMeshes[key]=m;}
+ std::vector<TexTarget> texSceneTargets(const texdiag::TextureMod& m,TexLive* L){std::vector<TexTarget> out;sceneWhy.clear();texDeferred.clear();
+  const pcdb::DeviceMap* dm=deviceMap();std::vector<std::pair<size_t,const pcdb::Mesh*>> want;std::string missing;unsigned usable=0;
+  for(size_t k=0;k<m.doc.rules.size();k++){const auto& r=m.doc.rules[k];if((r.kind!="segment"&&r.kind!="whole-ib")||r.hash.size()!=8)continue;usable++;
+   const pcdb::Mesh* ent=nullptr;if(dm){auto it=dm->byIb.find(pcdb::lower(r.hash));if(it!=dm->byIb.end())ent=&it->second;}
+   if(ent)want.push_back({k,ent});else if(missing.find(r.hash)==std::string::npos)missing+=(missing.empty()?"":"、")+r.hash;}
+  if(!usable){sceneWhy="没有按索引缓冲 hash 写的规则；只按贴图 hash 的规则在安卓上对不上（游戏贴图的压缩格式不同）";return out;}
+  // While the hashes are read, every scene mesh is read once so that an upload of a missing hash can be tied to it.
+  const bool learn=!missing.empty()&&vkcap::tracker().enabled;
+  if(want.empty()&&!learn){sceneWhy="hash 表里还没有 "+missing+" 对应的网格：把 hash 模式设为“匹配”或“采集”并重启游戏，再让这个 NPC / 怪物出现一次";return out;}
+  std::vector<Ptr> pool=sceneRenderers(texClock());if(L)for(auto& x:L->slots)pool.push_back(x.renderer);
+  std::set<Ptr> once;std::set<std::pair<Ptr,int>> taken;unsigned shown=0;
+  for(Ptr r:pool){if(!once.insert(r).second)continue;
+   try{if(!alive(r)||attachments.count(r)||swapped.count(r))continue;Ptr mesh=e.get(abi::getMesh,r);if(!alive(mesh))continue;auto fp=fingerprint(mesh);
+    bool any=false;for(auto& w:want)any=any||(w.second->mesh==fp.mesh&&w.second->vertices==fp.vertices);if(!any&&!learn)continue;
+    const auto& sm=sceneMeshOf(r,mesh);if(!any||!sm.known)continue;
+    Ptr arr=e.get(abi::getMaterials,r);size_t mats=arr?pointers(arr,64).size():0;Ptr native=load<Ptr>(r+0x10);std::string label=rendererName(r)+"#"+hex(native);
+    for(auto& w:want){const auto& d=*w.second;if(d.mesh!=sm.mesh||d.vertices!=sm.vertices||d.subs!=sm.subs)continue;shown++;const auto& rule=m.doc.rules[w.first];
+     std::vector<int> slots;for(size_t i=0;i<sm.subs.size()&&i<mats;i++)if(rule.kind=="whole-ib"||(long long)sm.subs[i].first==rule.first)slots.push_back(int(i));
+     for(int sl:slots){if(!taken.insert({r,sl}).second){for(auto& o:out)if(o.renderer==r&&o.slot==sl&&std::find(o.rules.begin(),o.rules.end(),w.first)==o.rules.end())o.rules.push_back(w.first);continue;}
+      out.push_back({r,native,sl,{w.first},"索引缓冲 hash "+d.ib+" = 网格 "+d.mesh+"（"+std::to_string(d.vertices)+" 顶点"+(d.owner.empty()?std::string():"，"+d.owner)+"，本机 hash 表）；"
+       +(rule.kind=="whole-ib"?std::string("没有 match_first_index：整个网格"):"子网格起点 "+std::to_string(rule.first)+" = 材质槽 "+std::to_string(sl)),label,sm.mesh,false});}}}
+   catch(const std::exception&){}}
+  if(out.empty())sceneWhy=shown?std::string("网格已出现，但规则的 match_first_index 不是它的子网格起点"):want.empty()?"等待 "+missing+" 的上传与场景里的网格对上（让这个 NPC / 怪物出现一次）":std::string("场景里暂时没有这些网格（靠近这个 NPC / 怪物）");
+  return out;}
  // One slot: what the strategy writes, read back at once; the log line names everything needed to follow it.
  bool texApply(TexLive& L,const texdiag::TextureMod& m,const std::map<std::string,Texture>& px,const TexTarget& t,TexSlot& s){
   std::vector<std::string> skipped;auto plan=texdiag::writesFor(m.doc,t.rules,texVars(m),skipped);
   s=TexSlot{};s.rule=texdiag::sections(m.doc,t.rules);s.rules=t.rules;s.evidence=t.evidence;s.label=t.label;s.mesh=t.mesh;s.renderer=t.renderer;s.native=t.native;s.slot=t.slot;s.lod=t.lod;for(auto& w:plan)s.plan+=w.property+"="+w.resource+";";
-  std::string line=texTag(L)+"：规则 "+s.rule+" → 角色 "+std::to_string(ch.config)+"，"+t.label+"，网格 "+t.mesh+"，精度 "+(t.lod?"低精度":"完整")+"，槽 "+std::to_string(t.slot)+"，依据 "+t.evidence;
+  std::string line=texTag(L)+"：规则 "+s.rule+" → "+(m.character==texdiag::kScene?std::string("NPC / 怪物"):"角色 "+std::to_string(ch.config))+"，"+t.label+"，网格 "+t.mesh+"，精度 "+(t.lod?"低精度":"完整")+"，槽 "+std::to_string(t.slot)+"，依据 "+t.evidence;
   Ptr arr=e.get(abi::getMaterials,t.renderer);require(arr!=0,"没有材质数组");auto current=pointers(arr,64);require(size_t(t.slot)<current.size(),"槽 "+std::to_string(t.slot)+" 超出材质数 "+std::to_string(current.size()));
   Ptr mat=current[size_t(t.slot)];require(alive(mat),"槽位材质已销毁");line+="，材质 "+texMaterial(mat);
   std::string shared;for(auto& kv:texDiagSeen){if(kv.first==t.renderer||!alive(kv.first))continue;for(auto& x:kv.second.info.materials)if(x.material==mat)shared+=(shared.empty()?"":", ")+texdiag::label(kv.second.info);}
@@ -854,7 +893,7 @@ struct Runtime::Impl {
   std::string goName;try{goName=name(go);}catch(const std::exception&){return;}if(goName.compare(0,7,"Avatar_")!=0)return;   // character models only, as the hand-off timeline
   Owned tmp;
   try{Ptr arr=e.call<Ptr>(abi::componentsInChildren,go,rendererTypeObject,uint32_t(1),Ptr(0));if(!arr){freeOwned(tmp);return;}pin(tmp,arr);auto list=pointers(arr,256);uint64_t t0=texClock();
-   for(auto& kv:texDiagDocs){auto& f=kv.second;if(!f.mod||!texModOn(f.mod->name))continue;const auto& m=*f.mod;
+   for(auto& kv:texDiagDocs){auto& f=kv.second;if(!f.mod||!texModOn(f.mod->name)||f.mod->character==texdiag::kScene)continue;const auto& m=*f.mod;
     std::vector<texdiag::Renderer> infos;for(Ptr r:list)if(alive(r)&&!attachments.count(r)){try{infos.push_back(texLightRead(r));texSeen(infos.back().native,"交接");}catch(const std::exception& ex){log("texture-error",m.name+"：读取交接渲染器 "+hex(r)+" 失败："+ex.what());}}
     if(infos.empty()){continue;}
     // Whose model this is, by its own renderers' avatar (0.7.109): the controlled character's when the mod is for it,
@@ -925,12 +964,13 @@ struct Runtime::Impl {
    log("texture-test",test+" "+strategy+" 基准："+list);texTest.phase=2;texTest.until=now+uint64_t(texTest.observeMs);}
   std::string status;
   for(auto& kv:texDiagDocs){auto& f=kv.second;if(!f.mod||!texModOn(f.mod->name))continue;const auto& m=*f.mod;std::string who=m.name+"：";
-   if(!ch.entity||m.character!=ch.config){status+=(status.empty()?"":"；")+who+"等待角色 "+std::to_string(m.character);continue;}
+   const bool scene=m.character==texdiag::kScene;
+   if(!scene&&(!ch.entity||m.character!=ch.config)){status+=(status.empty()?"":"；")+who+"等待角色 "+std::to_string(m.character);continue;}
    if(strategy=="diagnose"){status+=(status.empty()?"":"；")+who+"只诊断，不写入（调试页里可换替换方式）";continue;}
    TexLive* L=nullptr;std::shared_ptr<std::map<std::string,Texture>> px;std::string why;
    if(!texLiveFor(kv.first,f,strategy,test,L,px,why)){status+=(status.empty()?"":"；")+who+"贴图读取中";if(why!="正在读取贴图"&&why!="正在先还原上一种替换方式")log("texture-error",m.name+"："+why);continue;}
    if(!texStoreReady(kv.first,why)){status+=(status.empty()?"":"；")+who+"贴图准备中（"+why+"）";continue;}
-   auto targets=texTargets(kv.first,m,L);
+   auto targets=scene?texSceneTargets(m,L):texTargets(kv.first,m,L);
    // Slots no longer targeted (renderer gone, mapping lost) go back; a changed variant is written again.
    std::set<Ptr> deferred=texDeferred;
    bool failed=false;for(auto it=L->slots.begin();it!=L->slots.end();){bool still=false;for(auto& t:targets)still=still||(t.renderer==it->renderer&&t.slot==it->slot);
@@ -942,7 +982,8 @@ struct Runtime::Impl {
    size_t done=0;for(auto& t:targets){TexSlot* s=nullptr;for(auto& x:L->slots)if(x.renderer==t.renderer&&x.slot==t.slot)s=&x;
     try{if(s){if(!s->gaveUp)done++;continue;}if(texAssetWait(*L,t,"扫描"))continue;texSeen(t.native,"扫描");auto& tt=texTimes[t.native];if(!tt.matched)tt.matched=texClock();TexSlot fresh;bool ok=texApply(*L,m,*px,t,fresh);L->slots.push_back(std::move(fresh));if(ok)done++;}
     catch(const std::exception& ex){texSay(*L,"err|"+hex(t.renderer)+"|"+std::to_string(t.slot)+"|"+ex.what(),"texture-error",texTag(*L)+"："+t.label+" 槽位 "+std::to_string(t.slot)+"："+ex.what());}}
-   if(targets.empty())status+=(status.empty()?"":"；")+who+"等待映射（没有确定匹配的槽位："+(ctl.tex.lod=="migrate"?"打开队伍预览或角色详情让完整模型出现一次":"大世界多为低精度模型；打开队伍预览或角色详情，或允许迁移到 LOD")+"）";
+   if(targets.empty()&&scene){status+=(status.empty()?"":"；")+who+"NPC / 怪物：等待（"+sceneWhy+"）";texSay(*L,"scene|"+sceneWhy,"texture-wait",texTag(*L)+"：NPC / 怪物 MOD 等待："+sceneWhy);}
+   else if(targets.empty())status+=(status.empty()?"":"；")+who+"等待映射（没有确定匹配的槽位："+(ctl.tex.lod=="migrate"?"打开队伍预览或角色详情让完整模型出现一次":"大世界多为低精度模型；打开队伍预览或角色详情，或允许迁移到 LOD")+"）";
    else{status+=(status.empty()?"":"；")+who+(strategy=="auto"?"自动":strategy=="direct"?"直接改材质":"克隆材质")+"，"+std::to_string(done)+" / "+std::to_string(targets.size())+" 个槽位已写入";texApplied=texApplied||done>0;}}
   texStatus=status;
   if(texTest.active&&texTest.phase==2&&now>=texTest.until)texTest.phase=3;}
@@ -954,7 +995,7 @@ struct Runtime::Impl {
  // equal or not, so the comparison can be read either way. Every upload also goes to ib-hashes.txt (20000 lines at most).
  // An upload whose hash a rule names, until it is tied to one mesh of the mod's character (or said why not).
  struct IbHit {uint64_t seq=0;uint32_t value=0,bytes=0,max16=0,max32=0;uint8_t variant=0;std::string via;bool done=false;};std::vector<IbHit> ibHits;
- std::vector<vkcap::Blob> ibBlobs;uint64_t ibAt=0,ibSince=0,ibReported=0,ibFileLines=0;std::string ibWantedKey;bool ibSaidNothing=false,ibFileStarted=false;std::set<std::string> ibSaid;
+ std::vector<vkcap::Blob> ibBlobs;uint64_t ibAt=0,ibSince=0,ibReported=0,ibFileLines=0;std::string ibWantedKey;std::set<std::string> ibWanted;bool devMapRelevant=false;uint64_t ibReportAt=0;bool ibSaidNothing=false,ibFileStarted=false;std::set<std::string> ibSaid;
  static std::string hex8(uint32_t v){char b[12];std::snprintf(b,sizeof b,"%08x",v);return b;}
  static uint64_t meshIndices(const std::vector<std::pair<uint32_t,uint32_t>>& subs){uint64_t n=0;for(auto& s:subs)n=std::max<uint64_t>(n,uint64_t(s.first)+s.second);return n;}
  std::string ibDescribe(const vkcap::Blob& b){std::string head;for(auto v:b.head16)head+=(head.empty()?"":" ")+std::to_string(v);
@@ -968,10 +1009,21 @@ struct Runtime::Impl {
  // index count and vertex count (largest index + 1) it has, then each rule with that hash to the submesh starting at its
  // match_first_index, the material slot of that submesh. The record is saved like one confirmed by submesh starts and
  // written by the same paths (strategy, LOD option, restore); two meshes with those counts leave it waiting, said why.
+ // An upload of a hash an NPC / monster mod names, tied to the one scene mesh with its index and vertex counts.
+ bool sceneConfirm(const IbHit& h,const texdiag::TextureMod& m){auto ib=hex8(h.value);if(const auto* dm=deviceMap())if(dm->byIb.count(ib))return true;
+  uint8_t format=h.variant>>2;std::set<std::string> keys;auto look=[&](uint64_t n,uint64_t v){auto r=sceneShapes.equal_range({n,v});for(auto it=r.first;it!=r.second;++it)keys.insert(it->second);};
+  if(format!=2){look(h.bytes/2,uint64_t(h.max16)+1);}if(format!=1&&h.bytes%4==0){look(h.bytes/4,uint64_t(h.max32)+1);}
+  std::string what=m.name+"："+ib+"（上传 #"+std::to_string(h.seq)+"，"+vkcap::variantName(h.variant)+"）";
+  if(keys.empty()){texSay0("scwait|"+m.name+"|"+ib,"texture-hash-wait",what+"：场景里还没有索引数和顶点数都相符的网格（靠近这个 NPC / 怪物）");return false;}
+  if(keys.size()>1){std::string list;for(auto& k:keys)list+=(list.empty()?"":"，")+sceneByKey.at(k).mesh;texSay0("scamb|"+m.name+"|"+ib,"texture-hash-wait",what+"：网格 "+list+" 的索引数和顶点数都相符，无法确定，不关联");return false;}
+  const auto& sm=sceneByKey.at(*keys.begin());CapMesh c;c.renderer=sm.renderer;c.mesh=sm.mesh;c.owner=sm.owner;c.vertices=sm.vertices;c.subs=sm.subs;c.indices=pcdb::indices(sm.subs);
+  if(!devMap){devMap=std::make_shared<pcdb::DeviceMap>();}devMapPut(ib,vkcap::variantName(h.variant),"","",c);
+  texSay0("scok|"+m.name+"|"+ib,"texture-hash-confirm",what+" = 网格 "+sm.mesh+"（"+std::to_string(sm.vertices)+" 顶点，"+std::to_string(c.indices)+" 索引"+(sm.owner.empty()?std::string():"，"+sm.owner)+"；场景里唯一索引数和顶点数都相符的），已记入本机 hash 表");return true;}
  bool ibConfirm(const IbHit& h){bool tied=false;
   for(auto& kv:texDiagDocs){if(!kv.second.mod)continue;auto& m=*kv.second.mod;std::vector<size_t> rules;
    for(size_t i=0;i<m.doc.rules.size();i++){std::string x=m.doc.rules[i].hash;for(auto& c:x)c=char(std::tolower(uint8_t(c)));if(x==hex8(h.value)&&m.doc.rules[i].first>=0)rules.push_back(i);}
    if(rules.empty())continue;
+   if(m.character==texdiag::kScene){tied=sceneConfirm(h,m)||tied;continue;}
    // The index width the hash was read with: widened data was 16-bit, narrowed data 32-bit, as uploaded either.
    uint8_t format=h.variant>>2;std::vector<std::pair<uint64_t,uint64_t>> shapes;   // index count, vertex count
    if(format!=2){shapes.push_back({h.bytes/2,uint64_t(h.max16)+1});}if(format!=1&&h.bytes%4==0)shapes.push_back({h.bytes/4,uint64_t(h.max32)+1});
@@ -1004,17 +1056,18 @@ struct Runtime::Impl {
   return tied;}
  void texSay0(const std::string& key,const std::string& state,const std::string& line){if(ibSaid.insert(key).second)log(state,line);}
  void ibHashTick(uint64_t now){auto& T=vkcap::tracker();if(!T.enabled)return;if(!ibSince)ibSince=now;if(now<ibAt)return;ibAt=now+1000;
-  auto fresh=T.take();std::string dump;
-  for(auto& b:fresh){if(ibFileLines>=20000)break;ibFileLines++;dump+="#"+std::to_string(b.seq)+" "+std::to_string(b.bytes)+" bytes via "+b.via+" buffer "+hex(b.buffer)+"+"+std::to_string(b.offset)+" max16 "+std::to_string(b.max16)+" |";
+  auto fresh=T.take();std::string dump;const bool full=ctl.tex.hash==vkcap::Mode::Full;
+  for(auto& b:fresh){if(!full||ibFileLines>=20000)break;ibFileLines++;dump+="#"+std::to_string(b.seq)+" "+std::to_string(b.bytes)+" bytes via "+b.via+" buffer "+hex(b.buffer)+"+"+std::to_string(b.offset)+" max16 "+std::to_string(b.max16)+" |";
    for(auto& h:b.hashes){dump+=" "+std::to_string(h.variant)+"="+hex8(h.value);}dump+="\n";}
   if(!dump.empty()){auto file=shared+"/ib-hashes.txt";bool start=!ibFileStarted;ibFileStarted=true;
    worker.post([file,dump,start]{std::ofstream o(file,start?std::ios::trunc:std::ios::app);if(start)o<<"# Vulkan 包装函数读到的索引上传；variant = format*4+kind（见 vk_capture.hpp）\n";o<<dump;});}
-  for(auto& b:fresh){if(ibBlobs.size()>=50000)ibBlobs.erase(ibBlobs.begin(),ibBlobs.begin()+10000);ibBlobs.push_back(std::move(b));}
+  // Kept for rules switched on later and for uploads that come before their mesh: 50000 in full, 20000 otherwise.
+  {size_t cap=full?50000:20000;for(auto& b:fresh){if(ibBlobs.size()>=cap)ibBlobs.erase(ibBlobs.begin(),ibBlobs.begin()+cap/5);ibBlobs.push_back(std::move(b));}}
   // What the mods ask for: rule hash -> the rules naming it.
   std::map<uint32_t,std::string> wanted;std::string key;
   for(auto& kv:texDiagDocs){if(!kv.second.mod)continue;auto& m=*kv.second.mod;for(auto& r:m.doc.rules){if(r.hash.size()!=8)continue;uint32_t v=0;bool ok=true;for(char c:r.hash){int d=std::isdigit(uint8_t(c))?c-'0':(c>='a'&&c<='f')?c-'a'+10:(c>='A'&&c<='F')?c-'A'+10:-1;ok=ok&&d>=0;v=v*16+uint32_t(d<0?0:d);}
     if(!ok){continue;}auto& w=wanted[v];if(w.find(m.name+"/"+r.section)==std::string::npos)w+=(w.empty()?"":", ")+m.name+"/"+r.section;}}
-  for(auto& kv:wanted){key+=hex8(kv.first)+kv.second;}bool all=key!=ibWantedKey;ibWantedKey=key;   // new rules: every upload kept is checked again
+  ibWanted.clear();for(auto& kv:wanted){key+=hex8(kv.first)+kv.second;ibWanted.insert(hex8(kv.first));}bool all=key!=ibWantedKey;ibWantedKey=key;   // new rules: every upload kept is checked again
   size_t from=all?0:ibBlobs.size()-std::min(ibBlobs.size(),fresh.size());
   for(size_t i=from;i<ibBlobs.size();i++){auto& b=ibBlobs[i];for(auto& h:b.hashes){auto w=wanted.find(h.value);if(w==wanted.end())continue;
     if(!ibSaid.insert("hit|"+std::to_string(b.seq)+"|"+std::to_string(h.variant)).second)continue;
@@ -1022,14 +1075,15 @@ struct Runtime::Impl {
     if(ibHits.size()<4096)ibHits.push_back({b.seq,h.value,b.bytes,b.max16,b.max32,h.variant,b.via,false});}}
   for(auto& h:ibHits)if(!h.done)h.done=ibConfirm(h);
   devMapSave(now);
-  // A mesh confirmed by its submesh starts: the uploads of its index count, with every hash, against its rules' hashes.
-  for(auto& kv:texRecords){auto f=texDiagDocs.find(kv.first);if(f==texDiagDocs.end()||!f->second.mod)continue;auto& m=*f->second.mod;
+  // A mesh confirmed by its submesh starts: the uploads of its index count, with every hash, against its rules' hashes
+  // (full only: every record against every upload kept, every second).
+  if(full)for(auto& kv:texRecords){auto f=texDiagDocs.find(kv.first);if(f==texDiagDocs.end()||!f->second.mod)continue;auto& m=*f->second.mod;
    for(auto& rec:kv.second){uint64_t n=meshIndices(rec.subs);if(!n)continue;std::string want;for(auto& sl:rec.slots)for(auto& r:m.doc.rules){std::string h=r.hash;for(auto& c:h)c=char(std::tolower(uint8_t(c)));if(r.section==sl.second&&want.find(h)==std::string::npos)want+=(want.empty()?"":" ")+h;}
     unsigned shown=0;for(auto& b:ibBlobs){if(b.bytes!=n*2&&b.bytes!=n*4)continue;auto k="rec|"+m.name+"|"+rec.mesh+"|"+std::to_string(b.seq);if(ibSaid.count(k)){shown++;continue;}if(shown>=8)break;shown++;ibSaid.insert(k);
      std::string hs;bool equal=false;for(auto& h:b.hashes){hs+=(hs.empty()?"":"；")+vkcap::variantName(h.variant)+" "+hex8(h.value);equal=equal||want.find(hex8(h.value))!=std::string::npos;}
      log("ib-candidate",m.name+"："+rec.from+" 网格 "+rec.mesh+"（"+std::to_string(n)+" 个索引，已按子网格起点确认；规则 hash "+want+"）与"+ibDescribe(b)+"："+(equal?"有 hash 相同":"没有相同的 hash")+"；"+hs);}}}
   auto st=T.stats();
-  if(st.uploads!=ibReported&&(now-ibSince>=10000||ibReported==0)){ibReported=st.uploads;
+  if(st.uploads!=ibReported&&(ibReported==0||now>=ibReportAt)){ibReported=st.uploads;ibReportAt=now+(full?10000:60000);
    log("ib-capture","已读取索引上传 "+std::to_string(st.uploads)+" 次（"+std::to_string(st.bytes>>20)+" MiB）：复制到索引缓冲 "+std::to_string(st.copies)+"，映射缓冲首次绑定 "+std::to_string(st.mappedBinds)+"；未读取：源未映射 "+std::to_string(st.notMapped)+"，越界 "+std::to_string(st.outOfRange)+"，超过 64 MiB "+std::to_string(st.tooLarge)+"，队列已满 "+std::to_string(st.dropped)+"；已包装的 Vulkan 查询 "+std::to_string(st.wrapped)+"，未包装（加载器未导出）"+std::to_string(st.resolved-st.wrapped));}
   if(!ibSaidNothing&&st.wrapped==0&&now-ibSince>=60000){ibSaidNothing=true;log("ib-capture","GIBox 启动以来游戏没有查询任何已包装的 Vulkan 函数：可能使用 OpenGL ES 绘制，或在 GIBox 加载前已完成查询；没有可读取的内容");}}
 
@@ -1041,7 +1095,7 @@ struct Runtime::Impl {
  // starts in hash-report.txt); any other with its as-uploaded hashes, since Android's index data is the PC's byte for
  // byte and a mod for a character the database lacks names one of them. The matcher finds the mesh by it in later
  // sessions, without the capture. Read-only: nothing is written to the game.
- struct CapMesh {std::string renderer,mesh,avatar;unsigned vertices=0,bones=0;bool lod=false;std::vector<std::pair<uint32_t,uint32_t>> subs;uint64_t indices=0;std::vector<std::string> hashes;};
+ struct CapMesh {std::string renderer,mesh,avatar,owner;unsigned vertices=0,bones=0;bool lod=false;std::vector<std::pair<uint32_t,uint32_t>> subs;uint64_t indices=0;std::vector<std::string> hashes;};
  struct CapTie {std::string ib,variant,character,component,meshKey,note;uint64_t seq=0;uint32_t bytes=0,max16=0,max32=0;uint8_t form=0;std::vector<std::string> meshes;};
  std::map<std::string,CapMesh> capMeshes;std::multimap<std::pair<uint64_t,uint64_t>,std::string> capShape;std::set<std::pair<Ptr,Ptr>> capRead;std::map<std::string,CapTie> capTies,capOpen;
  std::set<uint64_t> capPending;std::set<Ptr> capMeshRead;std::string capAllKey;uint64_t capAllLast=0,capAllMeshes=0,capAllAdded=0,capClones=0;uint64_t capSeq=0,capAt=0,capReportAt=0,capOther=0;unsigned capSkippedOurs=0;bool capDirty=false,capSaid=false;std::string capLast;
@@ -1054,10 +1108,14 @@ struct Runtime::Impl {
   std::vector<CapMesh*> out;for(auto& sh:shapes){auto r=capShape.equal_range(sh);for(auto it=r.first;it!=r.second;++it){auto m=capMeshes.find(it->second);if(m!=capMeshes.end()&&std::find(out.begin(),out.end(),&m->second)==out.end())out.push_back(&m->second);}}return out;}
  // hash-map.json: at most every 5 s; what is matched is matched again with it.
  void devMapSave(uint64_t now){if(!devMap||!devMapDirty||now<devMapSaveAt)return;devMapDirty=false;devMapSaveAt=now+5000;auto file=shared+"/hash-map.json",body=pcdb::writeMap(*devMap);
-  worker.post([file,body]{try{writeAtomic(file,body);}catch(...){}});texQuickNo.clear();texWaitUntil.clear();texDiagMatched.clear();}
+  worker.post([file,body]{try{writeAtomic(file,body);}catch(...){}});
+  // Matching again only when a hash a mod's rule names was added (1.0.3): collecting a hundred other meshes used to
+  // re-diagnose every texture mod each time the file was saved.
+  if(devMapRelevant){devMapRelevant=false;texQuickNo.clear();texWaitUntil.clear();texDiagMatched.clear();}}
  void devMapPut(const std::string& ib,const std::string& variant,const std::string& character,const std::string& component,const CapMesh& m){auto& e=devMap->byIb[ib];
   if(e.mesh==m.mesh&&e.vertices==m.vertices&&e.subs==m.subs&&e.character==character)return;
-  e=pcdb::Mesh{};e.ib=ib;e.variant=variant;e.character=character;e.component=component;e.renderer=normalize(m.renderer);e.mesh=m.mesh;e.avatar=m.avatar;e.build=abi::buildId;e.vertices=m.vertices;e.bones=m.bones;e.subs=m.subs;devMapDirty=true;matchDirty=true;}
+  if(ibWanted.count(ib))devMapRelevant=true;
+  e=pcdb::Mesh{};e.ib=ib;e.variant=variant;e.character=character;e.component=component;e.renderer=normalize(m.renderer);e.mesh=m.mesh;e.avatar=m.avatar;e.owner=m.owner;e.build=abi::buildId;e.vertices=m.vertices;e.bones=m.bones;e.subs=m.subs;devMapDirty=true;matchDirty=true;}
  // One upload: tied to its mesh when exactly one read mesh has its counts; false while it is not (tried again later).
  bool capTie(const vkcap::Blob& b){const vkcap::Hash* pc=nullptr;const pcdb::Component* comp=nullptr;
   if(pcDb)for(auto& h:b.hashes){auto it=pcDb->byIb.find(hex8(h.value));if(it!=pcDb->byIb.end()){pc=&h;comp=&pcDb->comps[it->second[0]];break;}}
@@ -1105,14 +1163,17 @@ struct Runtime::Impl {
   capAllMeshes=looked;capAllAdded+=added;
   log("hash-capture","为 "+std::to_string(capOpen.size())+" 个未显示网格的 PC 上传扫描已加载网格：共 "+std::to_string(looked)+" 个，索引数和顶点数相符 "+std::to_string(added)+" 个");}
  void captureTick(uint64_t now){auto& T=vkcap::tracker();if(!ctl.tex.capture||!T.enabled)return;if(now<capAt)return;capAt=now+1000;
-  if(!capSaid){capSaid=true;log("hash-capture","已开启：读取显示中的每个角色网格并关联索引上传，与 PC 数据库（"+(pcDb?pcDb->commit.substr(0,7):std::string("未安装"))+"）对比，写入 "+shared+"/hash-report.txt 和 hash-map.json"+(ctl.enabled?std::string():"；模型替换已关闭，只读取当前操控角色的渲染器（开启后读取整个场景）"));}
+  if(!capSaid){capSaid=true;log("hash-capture","已开启：读取显示中的每个角色、NPC、怪物网格并关联索引上传，与 PC 数据库（"+(pcDb?pcDb->commit.substr(0,7):std::string("未安装"))+"）对比，写入 "+shared+"/hash-report.txt 和 hash-map.json"+(ctl.enabled?std::string():"；模型替换已关闭，只读取当前操控角色的渲染器（开启后读取整个场景）"));}
   if(!devMap)devMap=std::make_shared<pcdb::DeviceMap>();
   // 1. Meshes: what discovery and the controlled character show, at most 32 new ones a second; not a renderer GIBox
   //    has taken over (its mesh is GIBox's, not the game's upload).
-  std::vector<Ptr> pool;try{pool=worldRenderers();}catch(const std::exception&){}for(auto& sn:seen)if(seenLive(sn))pool.push_back(sn.renderer);unsigned reads=0;size_t before=capMeshes.size();
+  // Every active skinned renderer of the scene too (1.0.3): NPCs and monsters, whose mods name their own hashes.
+  std::vector<Ptr> pool;try{pool=worldRenderers();}catch(const std::exception&){}for(auto& sn:seen)if(seenLive(sn))pool.push_back(sn.renderer);
+  {auto& sc=sceneRenderers(now);pool.insert(pool.end(),sc.begin(),sc.end());}unsigned reads=0;size_t before=capMeshes.size();
   for(Ptr r:pool){if(reads>=32)break;try{if(!alive(r))continue;if(attachments.count(r)){if(capRead.insert({load<Ptr>(r+0x10),0}).second)capSkippedOurs++;continue;}
     Ptr native=load<Ptr>(r+0x10);Ptr mesh=e.get(abi::getMesh,r);if(!alive(mesh))continue;if(!capRead.insert({native,load<Ptr>(mesh+0x10)}).second)continue;reads++;
-    auto info=texLightRead(r);if(info.avatar.empty()||!info.known())continue;CapMesh c;c.renderer=info.name;c.mesh=info.meshName;c.avatar=info.avatar;c.vertices=info.vertices;c.bones=info.bones;c.lod=info.lod;
+    auto info=texLightRead(r);if(!info.known())continue;CapMesh c;c.renderer=info.name;c.mesh=info.meshName;c.avatar=info.avatar;c.vertices=info.vertices;c.bones=info.bones;c.lod=info.lod;
+    if(c.avatar.empty()){try{c.owner=ownerOf(r);}catch(const std::exception&){}if(c.owner.empty())continue;}
     for(auto& sb:info.layout.subs){c.subs.push_back({uint32_t(sb.start),uint32_t(sb.count)});}c.indices=pcdb::indices(c.subs);if(!c.indices)continue;
     auto key=capKey(c.mesh,c.vertices,c.indices);if(capMeshes.emplace(key,c).second)capShape.insert({{c.indices,uint64_t(c.vertices)},key});}
    catch(const std::exception&){}}
@@ -1160,7 +1221,8 @@ struct Runtime::Impl {
    if(!open.empty())o+="\n== 上传的 hash 和 PC 相同、但没读到对应网格的（hash 相同已说明数据一致；没读到网格多半是角色只被预加载没显示、显示太短，或正被 GIBox 的模型 MOD 替换）\n"+open;}
   // Character meshes with no PC hash, per character: their own hashes (in hash-map.json, so a mod naming one is found).
   std::map<uint32_t,std::vector<const vkcap::Blob*>> bySize;for(auto& b:ibBlobs)bySize[b.bytes].push_back(&b);
-  std::map<std::string,std::vector<const CapMesh*>> byAvatar;unsigned lods=0;for(auto& kv:capMeshes){if(tiedMeshes.count(kv.first))continue;if(kv.second.lod){lods++;continue;}byAvatar[kv.second.avatar].push_back(&kv.second);}
+  std::map<std::string,std::vector<const CapMesh*>> byAvatar;unsigned lods=0;for(auto& kv:capMeshes){if(tiedMeshes.count(kv.first))continue;if(kv.second.lod){lods++;continue;}
+   byAvatar[kv.second.avatar.empty()&&!kv.second.owner.empty()?"NPC / 怪物 / 其他："+kv.second.owner:kv.second.avatar].push_back(&kv.second);}
   std::string rest;unsigned n=0,recorded=0;
   for(auto& av:byAvatar){rest+=(av.first.empty()?std::string("（已加载、未显示的网格）"):av.first)+"\n";for(auto* x:av.second){if(n>=600)break;n++;
     rest+="  "+x->renderer+" / 网格 "+x->mesh+"（"+std::to_string(x->vertices)+" 顶点，"+std::to_string(x->indices)+" 索引，起点 "+capStarts(x->subs)+"）";
@@ -1169,7 +1231,7 @@ struct Runtime::Impl {
       for(auto& h:b->hashes){if((h.variant>>2)==0)hs+=(hs.empty()?"":"，")+capKind(h.variant)+" "+hex8(h.value);}break;}if(!hs.empty())break;}
     if(!x->hashes.empty())recorded++;
     rest+=hs.empty()?"：没见到它的上传\n":"：hash "+hs+(x->hashes.empty()?"（同样大小的网格不止一个，没记入 hash-map）\n":"（已记入 hash-map）\n");}}
-  o+="\n== 安卓角色网格里 PC 数据库没有的（"+std::to_string(byAvatar.size())+" 个角色，"+std::to_string(n)+" 个完整模型，"+std::to_string(recorded)+" 个已按自己的 hash 记入 hash-map："
+  o+="\n== 安卓网格（角色、NPC、怪物）里 PC 数据库没有的（"+std::to_string(byAvatar.size())+" 个角色或对象，"+std::to_string(n)+" 个完整模型，"+std::to_string(recorded)+" 个已按自己的 hash 记入 hash-map："
    +"MOD 用到这些 hash 时直接认出网格）"+(lods?"；另有 "+std::to_string(lods)+" 个低精度 LOD 未列出":"")+(capSkippedOurs?"；跳过 "+std::to_string(capSkippedOurs)+" 个正被 GIBox 模型替换的渲染器":"")+"\n"+rest;
   return o;}
 
@@ -1446,6 +1508,18 @@ struct Runtime::Impl {
   // World character first: it is the preferred template for builds.
   std::vector<Ptr> unique;std::set<Ptr> once;for(Ptr r:out)if(once.insert(r).second)unique.push_back(r);sceneCache=unique;sceneCacheAt=now;return unique;}
  std::vector<Ptr> sceneCache;uint64_t sceneCacheAt=0;   // the last scene scan, for previewTick (no scan of its own)
+ // Every active skinned renderer (FindObjectsOfType) for the hash collection and the NPC / monster texture mods (1.0.3):
+ // the last scan of allRenderers when it is under a second old, else a scan of its own, at most every 2 s.
+ std::vector<Ptr> sceneList;uint64_t sceneListAt=0;
+ const std::vector<Ptr>& sceneRenderers(uint64_t now){if(now<sceneListAt)return sceneList;sceneListAt=now+2000;
+  if(sceneCacheAt&&now>=sceneCacheAt&&now-sceneCacheAt<1000&&!sceneCache.empty()){sceneList=sceneCache;return sceneList;}
+  if(findOff){return sceneList;}Ptr sample=0;try{for(Ptr r:worldRenderers())if(alive(r)){sample=r;break;}}catch(const std::exception&){}if(!sample&&!rendererTypeObject)return sceneList;
+  Owned tmp;try{Ptr found=e.call<Ptr>(abi::findObjectsOfType,rendererType(sample),Ptr(0));sceneList.clear();if(found){pin(tmp,found);for(Ptr r:pointers(found,8192))sceneList.push_back(r);}}
+  catch(const std::exception& ex){log("find-error",std::string("场景渲染器：")+ex.what());sceneListAt=now+10000;}freeOwned(tmp);return sceneList;}
+ // A renderer of no avatar: the name at the top of its skeleton (the NPC's or monster's object), "(Clone)" dropped.
+ std::string ownerOf(Ptr renderer){Owned tmp;std::string top;
+  try{Ptr ba=e.get(abi::getBones,renderer);if(ba){pin(tmp,ba);auto bones=pointers(ba,512);Ptr t=bones.empty()?0:bones[0];for(unsigned i=0;i<32&&alive(t);i++){top=name(t);t=e.get(abi::getParent,t);}}}
+  catch(...){freeOwned(tmp);throw;}freeOwned(tmp);auto c=top.find("(Clone)");if(c!=std::string::npos)top.erase(c);while(!top.empty()&&top.back()==' ')top.pop_back();return top;}
 
  // ---------------------------------------------------------------- models
  // Every selected model, in the order it was switched on (control.json "selected"). When two of them replace the same

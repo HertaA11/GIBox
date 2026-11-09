@@ -146,7 +146,8 @@ public final class ModelManifest {
         long version = Json.integer(m.get("version"), "version", 1, 1000000); Json.check(version == 1, "纯贴图格式版本 " + version + " 不支持（新版 GIBox 转换的？）：" + dir.getName());
         ModelManifest r = new ModelManifest(); r.version = 2; r.textureMod = true;
         r.name = Json.str(m.get("name"), "name", 512); r.generation = Json.str(m.get("generation"), "generation", 64);
-        r.id = (int) Json.integer(Json.obj(m.get("character"), "character").get("id"), "character.id", 10000000, 10001999);
+        r.id = (int) Json.integer(Json.obj(m.get("character"), "character").get("id"), "character.id", Characters.SCENE, 10001999);
+        Json.check(Characters.isScene(r.id) || r.id >= 10000000, "角色 ID 越界");
         Map<String, Object> vo = Json.obj(m.get("variants"), "variants"); Map<String, Object> d = Json.obj(vo.get("default"), "variants.default");
         for (Object x : Json.arr(vo.get("vars"), "variants.vars", 0, 16)) {
             Map<String, Object> e = Json.obj(x, "variants.vars"); String n = Json.str(e.get("name"), "variants.vars.name", 64); Json.check(n.length() > 1 && n.startsWith("$") && !r.vars.containsKey(n), "款式变量：" + n);

@@ -1325,6 +1325,7 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
   store<Ptr>(mat+0x10,nat);
   // Index-buffer hashes (vk_capture.hpp): an upload whose hash a rule names is logged with the meshes of its index count;
   // the Body mesh confirmed by its submesh starts (3 indices) is shown next to the uploads of that count, every hash listed.
+  control("diagnose",true,",\"hashMode\":\"full\"");   // ib-hashes.txt and the per-mesh candidates: full only (1.0.3)
   {auto& T=ms::vkcap::tracker();T.installed(true,"");uint16_t idx[3]={0,1,2};uint8_t staging[6];std::memcpy(staging,idx,6);
    T.created(0x100,6,0x40);T.created(0x200,6,0x1);T.bound(0x200,0x300,0);T.mapped(0x300,0,6,staging);ms::vkcap::Copy c{0,0,6};T.copied(0x200,0x100,&c,1);
    char hx[12];std::snprintf(hx,sizeof hx,"%08x",ms::vkcap::ibHashes(staging,6)[1].value);std::filesystem::create_directories(sharedTex+"/models/IbMod");
@@ -1409,6 +1410,60 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
   destroy(handed,0);f->scene={body,twin};run(2000);
   assert(f->diffuse[mat]==ours&&count("TexMod：Body#")>=1&&text(logC).find("不再是替换目标")==std::string::npos);
   c.shutdown();assert(f->diffuse[mat]==gameTex&&f->diffuse[tmat]==gameTex&&f->handles.size()==handles0);}   // earlier blocks leave their own handles
+ // 42c. NPC / monster texture mods (1.0.3): "character" 1, no AvatarId. A rule's index-buffer hash names a mesh in this
+ //      device's hash table; every active renderer of the scene showing it has the submesh at match_first_index written,
+ //      whoever is controlled; a renderer that goes is put back. With the hashes read ("match"), an upload of a hash not
+ //      in the table yet is tied to the one scene mesh with its counts, and kept in hash-map.json with the owner's name.
+ {size_t handles0=f->handles.size();std::string mediaS=root+"/mediaScene",sharedS=mediaS+"/"+pkg+"/GIBox",modS=sharedS+"/models/Slime",logS=sharedS+"/GIBox Log.txt";
+  std::filesystem::create_directories(modS+"/textures");
+  Ptr entity=load<Ptr>(load<Ptr>(load<Ptr>(f->manager+kList)+0x10)+0x20);store<uint32_t>(entity+kConfig,10000107);
+  Ptr body=f->renderer(f->mesh("Body",3));f->world(body);
+  Ptr monster=f->object("transform","Monster_Slime_Water(Clone)");Ptr smesh=f->mesh("Slime_Body",4);texRanges[smesh]={{0,3},{3,3}};
+  auto slime=[&]{Ptr r=f->renderer(smesh,"Bip001","Slime",monster);Ptr m0=load<Ptr>(f->obj[r].materials+0x20),m1=f->object("material","Material");Ptr ms2[2]={m0,m1};Ptr arr=f->array(8,2,ms2);store<Ptr>(arr,load<Ptr>(f->obj[r].materials));f->obj[r].materials=arr;
+   Ptr gameTex=f->object("texture","Monster_Slime_Tex_Diffuse");for(Ptr m:{m0,m1}){f->diffuse[m]=gameTex;store<uint32_t>(load<Ptr>(m+0x10)+8,uint32_t(-31));}return std::make_tuple(r,m0,m1,gameTex);};
+  auto [s1,s1m0,s1m1,slimeTex]=slime();f->scene={body,s1};
+  uint16_t idx[6]={0,1,2,1,2,3};char hs[12];std::snprintf(hs,sizeof hs,"%08x",ms::vkcap::ibHashes(reinterpret_cast<const uint8_t*>(idx),12)[2].value);
+  Bytes px(16,0x7f);write(modS+"/textures/0.rgba",px.data(),px.size());
+  write(modS+"/texture.json",std::string(R"J({"format":"gibox-texture-mod","version":1,"name":"Slime","generation":"s1","character":{"id":1},"variants":{"vars":[],"default":{}},
+   "textures":[{"resource":"rslime","file":"textures/0.rgba","width":2,"height":2}],
+   "diag":{"format":"gibox-texture-diag","version":1,"name":"Slime","character":1,"rules":[
+    {"section":"TextureOverrideSlimeB","part":"SlimeB","hint":"slime","hash":")J")+hs+R"J(","first":3,"kind":"segment","textures":[{"slot":"ps-t0","resource":"rslime","role":"diffuse","condition":"","via":""}]}],"resources":[]}})J");
+  auto count=[&](const std::string& x){auto l=text(logS);size_t n=0;for(size_t p=l.find(x);p!=std::string::npos;p=l.find(x,p+1))n++;return n;};
+  auto print=[&]{if(std::getenv("SCENE_PRINT")){auto l=text(logS);size_t p=0;while((p=l.find("texture-",p))!=std::string::npos){auto e2=l.find('\n',p);std::cerr<<"S| "<<l.substr(p,std::min<size_t>(e2-p,300))<<"\n";p=e2;}}};
+  // 1. Hashes off, the hash not in any table: the mod waits and says how to get it.
+  write(sharedS+"/control.json","{\"enabled\":true,\"selected\":[\"Slime\"],\"textureMods\":{\"strategy\":\"direct\",\"hashMode\":\"off\"}}");
+  {Runtime c(e,pkg,root+"/privateScene",mediaS,false);uint64_t t=7900000;for(uint64_t end=t+2000;t<end;t+=100){c.tick(t);}
+   print();assert(f->diffuse[s1m1]==slimeTex&&count(std::string("NPC / 怪物 MOD 等待：hash 表里还没有 ")+hs)==1);c.shutdown();}
+  // 2. "match": the upload is tied to the slime's mesh (6 indices, 4 vertices), kept, and slot 1 (start 3) written.
+  write(sharedS+"/control.json","{\"enabled\":true,\"selected\":[\"Slime\"],\"textureMods\":{\"strategy\":\"direct\",\"hashMode\":\"match\"}}");
+  auto& T=ms::vkcap::tracker();T.allForms=false;
+  {Runtime c(e,pkg,root+"/privateScene",mediaS,false);uint64_t t=8000000;auto run=[&](uint64_t ms){for(uint64_t end=t+ms;t<end;t+=100)c.tick(t);};
+   T.installed(true,"");uint8_t host[12];std::memcpy(host,idx,12);T.created(0x900,12,0x40);T.bound(0x900,0xa00,0);T.mapped(0xa00,0,12,host);T.indexBound(0x900,0);
+   run(3000);print();
+   assert(count(std::string("texture-hash-confirm Slime：")+hs)==1&&count("= 网格 Slime_Body（4 顶点，6 索引，Monster_Slime_Water；场景里唯一索引数和顶点数都相符的）")==1);
+   assert(f->diffuse[s1m1]!=slimeTex&&f->diffuse[s1m0]==slimeTex&&count("规则 TextureOverrideSlimeB → NPC / 怪物，Slime#")==1&&count("子网格起点 3 = 材质槽 1")==1);
+   // A second slime of the same mesh: written too.
+   auto [s2,s2m0,s2m1,tex2]=slime();f->scene={body,s1,s2};run(2500);assert(f->diffuse[s2m1]!=tex2&&f->diffuse[s2m0]==tex2);
+   // Another character controlled: the slimes keep theirs.
+   store<uint32_t>(entity+kConfig,10000089);run(1000);assert(f->diffuse[s1m1]!=slimeTex&&f->diffuse[s2m1]!=slimeTex);
+   // One slime gone: its slot goes back, the other stays.
+   destroy(s2,0);f->scene={body,s1};run(1000);assert(f->diffuse[s2m1]==tex2&&f->diffuse[s1m1]!=slimeTex);
+   T.installed(false,"");c.shutdown();assert(f->diffuse[s1m1]==slimeTex);}
+  {auto map=text(sharedS+"/hash-map.json");assert(map.find(std::string("\"ib\":\"")+hs+"\"")!=std::string::npos&&map.find("\"mesh\":\"Slime_Body\"")!=std::string::npos&&map.find("\"owner\":\"Monster_Slime_Water\"")!=std::string::npos);}
+  // 3. A restart with the hashes off: the table now names the mesh, the slot is written at once.
+  write(sharedS+"/control.json","{\"enabled\":true,\"selected\":[\"Slime\"],\"textureMods\":{\"strategy\":\"direct\",\"hashMode\":\"off\"}}");
+  {Runtime c(e,pkg,root+"/privateScene",mediaS,false);uint64_t t=8200000;for(uint64_t end=t+2000;t<end;t+=100){c.tick(t);}
+   assert(f->diffuse[s1m1]!=slimeTex&&f->diffuse[s1m0]==slimeTex);c.shutdown();assert(f->diffuse[s1m1]==slimeTex);}
+  // 4. "collect": an NPC's mesh no mod names is kept in hash-map.json with its own hash and owner.
+  write(sharedS+"/control.json","{\"enabled\":true,\"selected\":[],\"textureMods\":{\"hashMode\":\"collect\"}}");
+  {Ptr npcRoot=f->object("transform","NPC_Katheryne(Clone)");Ptr nmesh=f->mesh("Katheryne_Body",5);texRanges[nmesh]={{0,9}};Ptr npc=f->renderer(nmesh,"Bip001","Body",npcRoot);f->scene={body,s1,npc};
+   uint16_t ni[9]={0,1,2,2,3,4,0,2,4};char hn[12];std::snprintf(hn,sizeof hn,"%08x",ms::vkcap::ibHashes(reinterpret_cast<const uint8_t*>(ni),18)[1].value);
+   Runtime c(e,pkg,root+"/privateScene",mediaS,false);uint64_t t=8300000;
+   T.installed(true,"");uint8_t host[18];std::memcpy(host,ni,18);T.created(0xb00,18,0x40);T.bound(0xb00,0xc00,0);T.mapped(0xc00,0,18,host);T.indexBound(0xb00,0);
+   for(uint64_t end=t+8000;t<end;t+=100){c.tick(t);}T.installed(false,"");c.shutdown();
+   auto map=text(sharedS+"/hash-map.json");assert(map.find(std::string("\"ib\":\"")+hn+"\"")!=std::string::npos&&map.find("\"owner\":\"NPC_Katheryne\"")!=std::string::npos);
+   assert(text(sharedS+"/hash-report.txt").find("NPC / 怪物 / 其他：NPC_Katheryne")!=std::string::npos);}
+  T.allForms=true;store<uint32_t>(entity+kConfig,10000107);f->world(0);f->scene={};assert(f->handles.size()==handles0);}
  // 43. The first match at the game's hand-off: no earlier confirmation, the model not yet in the world; the textures were
  //     prepared once the mod was on, so the hand-off only checks and binds. The mapping is saved and, after a restart,
  //     used for this build and these rules only; a lower LOD without migration waits and says why; a material the game
@@ -1580,5 +1635,5 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
   for(uint64_t now=9100000;now<9110000;now+=200){lr2.tick(now);}
   l=text(ll2);assert(l.find("layout-wait 仍有 2 种字段组合符合")!=std::string::npos&&l.find("runtime ID 字段 0x3f4、0x464 在每个实体上连续 30 次取值相同，按同一字段处理（0x3f4）")!=std::string::npos);
   lr2.shutdown();store<uint32_t>(ent+0x3f4,0);store<uint32_t>(ent+kConfig,was);}
- std::cout<<"Native runtime: PASS (LOD pin: the replaced character held at LOD0 by GetComponent(\"MiHoYoLodLoader\"), searched again, game-held loaders taken over and put back at their level, resumed on every off switch; outfits: a bone library folder per outfit, a skin never written over the original (also next session), an old skin record moved out, previews recorded, models only on their outfit; 7.2 entity fields found by what they hold, waiting while two fit; texture-only diagnostics read-only and cached; logic core: outfits by what the logic selects, App value as input, off, not finite and missing variable refused; App key presses as core key events (cycle, toggle, back, taken once, not replayed at start, refused when not a cycle/toggle key or the core is off), persist saved atomically per model and restored over the App table, not for another INI; driven outfit models (the program picks by clock and keys, the App table not pushed); frames by what the draws select, as FrameLoop, a selection no frame has keeps the frame, no match at the start keeps FrameLoop, switch off; face texture swaps: written, copies tracked, fresh materials, restored, assets copied; direct textures: written, put back, game copies tracked, assets and shared materials copied; merged draws: hidden and non-contiguous ranges, variant switches, separateDraws rebuild; structural capture exit after 30 s preserved, replacement-off restores originals and says so, missing renderer logged once, preload and per-variant textures, material experiments, appearance timeline, hidden party members by library identity, model.bin checked once per file, extra material slots borrow a shader, paired restoration after game material copies, clean palette backups, inherited refresh schedule, temporary material readiness, clones retaken after switch-in, lower-LOD world mesh with the same bones (attach, and build checked against the bone library), indexed skeleton bounds and retry, idle sets released after a minute, version 2 conditional draws switched in place, unverified lower LODs never recorded or built against, bone export only on request, wait reasons in status and log, GIBox model folders and learned.json, skeleton.json library (quiet while loading, reasons once), first-switched-on precedence for two mods of one character, manual import by ID + model name, re-import for another character, XXMI log lines and levels,fingerprint matching, detail-page/asset-reload followers, NPC/skeleton guards, multi-model, idle cache, hot reload, broken-edit fallback, variants, name-matched models, async hand-off attach/build, game mesh put back (hand-off, LOD), game rebinding answered with ours, no magenta after drops, adoption, clone hand-over, update retargeting, bone library, Type from this_arg pairs or array classes, scan-off fallback, failure latch, rollback, GC release, threaded worker)\n";
+ std::cout<<"Native runtime: PASS (NPC / monster texture mods: found in the scene by an index-buffer hash, tied from an upload in match mode, kept with the owner in collect mode; LOD pin: the replaced character held at LOD0 by GetComponent(\"MiHoYoLodLoader\"), searched again, game-held loaders taken over and put back at their level, resumed on every off switch; outfits: a bone library folder per outfit, a skin never written over the original (also next session), an old skin record moved out, previews recorded, models only on their outfit; 7.2 entity fields found by what they hold, waiting while two fit; texture-only diagnostics read-only and cached; logic core: outfits by what the logic selects, App value as input, off, not finite and missing variable refused; App key presses as core key events (cycle, toggle, back, taken once, not replayed at start, refused when not a cycle/toggle key or the core is off), persist saved atomically per model and restored over the App table, not for another INI; driven outfit models (the program picks by clock and keys, the App table not pushed); frames by what the draws select, as FrameLoop, a selection no frame has keeps the frame, no match at the start keeps FrameLoop, switch off; face texture swaps: written, copies tracked, fresh materials, restored, assets copied; direct textures: written, put back, game copies tracked, assets and shared materials copied; merged draws: hidden and non-contiguous ranges, variant switches, separateDraws rebuild; structural capture exit after 30 s preserved, replacement-off restores originals and says so, missing renderer logged once, preload and per-variant textures, material experiments, appearance timeline, hidden party members by library identity, model.bin checked once per file, extra material slots borrow a shader, paired restoration after game material copies, clean palette backups, inherited refresh schedule, temporary material readiness, clones retaken after switch-in, lower-LOD world mesh with the same bones (attach, and build checked against the bone library), indexed skeleton bounds and retry, idle sets released after a minute, version 2 conditional draws switched in place, unverified lower LODs never recorded or built against, bone export only on request, wait reasons in status and log, GIBox model folders and learned.json, skeleton.json library (quiet while loading, reasons once), first-switched-on precedence for two mods of one character, manual import by ID + model name, re-import for another character, XXMI log lines and levels,fingerprint matching, detail-page/asset-reload followers, NPC/skeleton guards, multi-model, idle cache, hot reload, broken-edit fallback, variants, name-matched models, async hand-off attach/build, game mesh put back (hand-off, LOD), game rebinding answered with ours, no magenta after drops, adoption, clone hand-over, update retargeting, bone library, Type from this_arg pairs or array classes, scan-off fallback, failure latch, rollback, GC release, threaded worker)\n";
 }

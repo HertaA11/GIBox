@@ -75,10 +75,9 @@ fun DebugScreen(state: AppState) {
                 val rev = state.revision
                 val strategy = remember(rev) { state.textureMods("strategy", "auto") }
                 val lod = remember(rev) { state.textureMods("lod", "full") }
-                val ibHash = remember(rev) { state.textureModsFlag("ibHash") }
-                val capture = remember(rev) { state.textureModsFlag("capture") }
+                val hashMode = remember(rev) { state.hashMode() }
                 SettingsGroup(title = { SectionTitle("纯贴图 MOD") }, verticalArrangement = gap) {
-                    SegmentedListItem(shapes = ListItemDefaults.segmentedShapes(0, 6)) {
+                    SegmentedListItem(shapes = ListItemDefaults.segmentedShapes(0, 5)) {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text("替换方式", style = MaterialTheme.typography.titleSmall)
                             Text("其他方式只用于对比排查，切换前会先还原。", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -89,7 +88,7 @@ fun DebugScreen(state: AppState) {
                             }
                         }
                     }
-                    SegmentedListItem(shapes = ListItemDefaults.segmentedShapes(1, 6)) {
+                    SegmentedListItem(shapes = ListItemDefaults.segmentedShapes(1, 5)) {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text("远处的简化模型", style = MaterialTheme.typography.titleSmall)
                             Text("大世界里角色常用简化模型。默认只换完整模型；也可以换到核对一致的简化模型上。", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -100,32 +99,34 @@ fun DebugScreen(state: AppState) {
                             }
                         }
                     }
-                    SettingsSwitch(
-                        state = ibHash,
-                        title = { Text("用 hash 找部件") },
-                        subtitle = { Text("重启游戏后生效。像 PC 一样按 hash 找到刘海、眼睛等部件，找到后可关掉") },
-                        shapes = ListItemDefaults.segmentedShapes(2, 6),
-                        onCheckedChange = { state.setTextureModsFlag("ibHash", it) },
-                    )
-                    SettingsSwitch(
-                        state = capture,
-                        title = { Text("采集所有角色的 hash") },
-                        subtitle = { Text("重启游戏后生效。在图鉴里点过的角色都会采到，用于以后自动识别；采完可关掉") },
-                        shapes = ListItemDefaults.segmentedShapes(3, 6),
-                        onCheckedChange = { state.setTextureModsFlag("capture", it) },
-                    )
+                    SegmentedListItem(shapes = ListItemDefaults.segmentedShapes(2, 5)) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("hash 模式", style = MaterialTheme.typography.titleSmall)
+                            Text(when (hashMode) {
+                                "match" -> "像 XXMI 平时一样：游戏上传模型时算一次 hash，和 MOD 的规则对比，找刘海、眼睛、NPC 和怪物的部件。开销小，可以一直开着"
+                                "collect" -> "在匹配的基础上，把出现过的角色、NPC、怪物的网格都记进本机 hash 表（hash-map.json）和对比报告。在图鉴里点角色、在大世界靠近 NPC 和怪物；采完改回匹配"
+                                "full" -> "排查问题用：每次上传算全部 12 种 hash，逐条写进 ib-hashes.txt 并逐个网格对比。很耗性能，查完就关"
+                                else -> "不读取游戏的索引上传。只靠 PC 数据库、随 App 附带的 hash 表和本机已采集的表找部件"
+                            } + "。重启游戏后生效", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                for ((value, label) in listOf("off" to "关闭", "match" to "匹配", "collect" to "采集", "full" to "完整诊断")) {
+                                    FilterChip(selected = hashMode == value, onClick = { state.setHashMode(value) }, label = { Text(label) })
+                                }
+                            }
+                        }
+                    }
                     SettingsMenuLink(
                         title = { Text("hash 对比报告") },
                         subtitle = { Text("安卓与 PC 逐个部件对比") },
                         icon = { Icon(Icons.Filled.Share, contentDescription = null) },
-                        shapes = ListItemDefaults.segmentedShapes(4, 6),
+                        shapes = ListItemDefaults.segmentedShapes(3, 5),
                         onClick = { state.shareHashReport() },
                     )
                     SettingsMenuLink(
                         title = { Text("轮流测试替换方式") },
                         subtitle = { Text("依次试三种方式，每轮观察 4 秒后还原核对") },
                         icon = { Icon(Icons.Filled.Build, contentDescription = null) },
-                        shapes = ListItemDefaults.segmentedShapes(5, 6),
+                        shapes = ListItemDefaults.segmentedShapes(4, 5),
                         onClick = { state.startTextureTest() },
                     )
                 }

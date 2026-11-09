@@ -64,13 +64,14 @@ inline std::set<std::string> charactersFor(const Db& d,unsigned avatar,const std
  return out;}
 
 // ---------------------------------------------------------------- this device's index uploads (hash-map.json)
-struct Mesh {std::string ib,variant,character,component,renderer,mesh,avatar,build;unsigned vertices=0,bones=0;std::vector<std::pair<uint32_t,uint32_t>> subs;};
+// owner (1.0.3): for a mesh of no avatar (an NPC, a monster), the name at the top of its skeleton, for reading only.
+struct Mesh {std::string ib,variant,character,component,renderer,mesh,avatar,build,owner;unsigned vertices=0,bones=0;std::vector<std::pair<uint32_t,uint32_t>> subs;};
 struct DeviceMap {std::map<std::string,Mesh> byIb;};
 inline DeviceMap parseMap(const std::string& text){Json j=JsonParser(text).parse();DeviceMap m;
  require(j.type==Json::Object&&j.at("format").string=="gibox-hash-map"&&j.at("version").type==Json::Number&&j.at("version").number==1,"不是 GIBox 的设备 hash 表");
  const auto& a=j.at("meshes");require(a.type==Json::Array&&a.array.size()<=65536,"设备 hash 表：meshes 无效");
  for(auto& x:a.array){require(x.type==Json::Object,"设备 hash 表：mesh 无效");Mesh e;e.ib=lower(x.at("ib").string);require(hex8(e.ib),"设备 hash 表：ib 无效");
-  e.variant=x.at("variant").string;e.character=x.at("character").string;e.component=x.at("component").string;e.renderer=x.at("renderer").string;e.mesh=x.at("mesh").string;e.avatar=x.at("avatar").string;e.build=x.at("build").string;
+  e.variant=x.at("variant").string;e.character=x.at("character").string;e.component=x.at("component").string;e.renderer=x.at("renderer").string;e.mesh=x.at("mesh").string;e.avatar=x.at("avatar").string;e.build=x.at("build").string;e.owner=x.at("owner").type==Json::String?x.at("owner").string:std::string();
   e.vertices=unsigned(count(x.at("vertices"),"vertices"));e.bones=x.at("bones").type==Json::Number?unsigned(count(x.at("bones"),"bones")):0;require(!e.mesh.empty()&&e.vertices>0,"设备 hash 表：网格信息无效："+e.ib);
   const auto& s=x.at("submeshes");require(s.type==Json::Array&&!s.array.empty()&&s.array.size()<=64,"设备 hash 表：submeshes 无效");
   for(auto& p:s.array){require(p.type==Json::Array&&p.array.size()==2,"设备 hash 表：submesh 无效");e.subs.push_back({uint32_t(count(p.array[0],"start")),uint32_t(count(p.array[1],"count"))});}
@@ -78,7 +79,7 @@ inline DeviceMap parseMap(const std::string& text){Json j=JsonParser(text).parse
  return m;}
 inline std::string writeMap(const DeviceMap& m){std::string o="{\"format\":\"gibox-hash-map\",\"version\":1,\"meshes\":[";bool first=true;
  for(auto& kv:m.byIb){auto& e=kv.second;o+=std::string(first?"":",")+"\n{\"ib\":"+quote(e.ib)+",\"variant\":"+quote(e.variant)+",\"character\":"+quote(e.character)+",\"component\":"+quote(e.component)+",\"renderer\":"+quote(e.renderer)
-   +",\"mesh\":"+quote(e.mesh)+",\"avatar\":"+quote(e.avatar)+",\"build\":"+quote(e.build)+",\"vertices\":"+std::to_string(e.vertices)+",\"bones\":"+std::to_string(e.bones)+",\"submeshes\":[";
+   +",\"mesh\":"+quote(e.mesh)+",\"avatar\":"+quote(e.avatar)+(e.owner.empty()?std::string():",\"owner\":"+quote(e.owner))+",\"build\":"+quote(e.build)+",\"vertices\":"+std::to_string(e.vertices)+",\"bones\":"+std::to_string(e.bones)+",\"submeshes\":[";
   for(size_t i=0;i<e.subs.size();i++){o+=std::string(i?",":"")+"["+std::to_string(e.subs[i].first)+","+std::to_string(e.subs[i].second)+"]";}o+="]}";first=false;}
  return o+"\n]}\n";}
 inline uint64_t indices(const std::vector<std::pair<uint32_t,uint32_t>>& subs){uint64_t n=0;for(auto& s:subs)n=std::max<uint64_t>(n,uint64_t(s.first)+s.second);return n;}

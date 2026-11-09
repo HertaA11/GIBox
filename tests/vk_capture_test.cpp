@@ -35,4 +35,9 @@ int main(){
  t.indexBound(5,4);t.indexBound(5,4);blobs=t.take();assert(blobs.size()==1&&blobs[0].bytes==12&&blobs[0].hashes[1].value==hs[1].value&&t.stats().mappedBinds==1);
  // A filled-by-copy index buffer is not read again at its bind; an unmapped memory is no longer read.
  t.indexBound(1,0);t.unmapped(11);t.created(6,16,0x40);t.bound(6,11,16);t.indexBound(6,0);assert(t.take().empty()&&t.stats().notMapped==2);
- std::cout<<"Vulkan index-buffer hashes: PASS (CRC-32C append, 3DMigoto buffer desc variants, staging copy, mapped bind)\n";}
+ // Modes (1.0.3): hashMode first, else the old switches; match / collect hash the data as uploaded only (4 values, the
+ // same as the full set's first four).
+ assert(modeFrom("full",false,false)==Mode::Full&&modeFrom("off",true,true)==Mode::Off&&modeFrom("",false,true)==Mode::Collect&&modeFrom("",true,false)==Mode::Match&&modeFrom("x",false,false)==Mode::Off);
+ {Tracker one;one.allForms=false;uint8_t h2[12];std::memcpy(h2,idx,12);one.created(7,12,0x40);one.bound(7,12,0);one.mapped(12,0,12,h2);one.indexBound(7,0);auto b=one.take();
+  assert(b.size()==1&&b[0].hashes.size()==4);for(size_t i=0;i<4;i++)assert(b[0].hashes[i].value==hs[i].value&&b[0].hashes[i].variant==hs[i].variant);}
+ std::cout<<"Vulkan index-buffer hashes: PASS (CRC-32C append, 3DMigoto buffer desc variants, staging copy, mapped bind, modes: as uploaded only outside full)\n";}
