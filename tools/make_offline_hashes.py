@@ -15,11 +15,17 @@ Extracting them (decrypting the game's files) is not part of GIBox.
 
 The hash is 3DMigoto's (vk_capture.hpp): CRC-32C of the data, then of a D3D11_BUFFER_DESC with ByteWidth = the data's
 size, in the three forms PC mods were made with (DEFAULT + IB, DEFAULT + IB|SRV|UAV, IMMUTABLE + IB). A hash two
-different meshes give (the same index data) is left out and reported. The result is checked against a table captured
-on a device (the bundled device-hashes.json by default): every mesh both have must give the same hashes.
+different meshes give (the same index data, e.g. a character's Pupil and an effect's sphere) goes to the one most
+likely to be modded: a character's (avatar), an NPC's or monster's (owner), a weapon's (Equip_ / MonEquip_), then the
+rest; two of the same kind leave it out. Only those kinds are written unless --keep all (scenery, effects and props
+are most of the game's meshes and almost never modded). The result is checked against a table captured on a device
+(the bundled device-hashes.json by default): a hash both have must name a mesh with the same vertex count; another
+mesh name there is index data two meshes share, reported, not an error.
 
     python3 tools/make_offline_hashes.py --build <game Build ID> export-folder [more ...] [-o hash-map.json]
-        [--check other-map.json] [--pc app/src/main/assets/pc-hashes.json]
+        [--keep characters|all] [--check other-map.json] [--pc app/src/main/assets/pc-hashes.json]
+    python3 tools/make_offline_hashes.py --from hash-map.json [-o out.json] [--keep characters|all] [--check ...]
+        (a map this tool wrote: filtered and checked again, no hashing)
     python3 tools/make_offline_hashes.py --self-test
 """
 import json
@@ -144,6 +150,31 @@ def same_mesh(a, b):
     return a["mesh"] == b["mesh"] and a["vertices"] == b["vertices"] and a["submeshes"] == b["submeshes"]
 
 
+def rank(e):
+    """0 a character's mesh, 1 an NPC's or monster's, 2 a weapon's, 3 anything else."""
+    if e.get("avatar") or e.get("shared"):
+        return 0
+    if e.get("owner"):
+        return 1
+    return 2 if re.match(r"(Equip|MonEquip)_", e["mesh"]) else 3
+
+
+def choose(candidates):
+    """One entry per hash: the best-ranked mesh, or None when two different meshes share the best rank. The same mesh
+    under two avatars or owners (a character's original look and a skin with the same Body, Xingqiu's 76df4025) names
+    neither: the App would otherwise take the hash for one outfit's and convert against the wrong skeleton."""
+    best = min(rank(e) for e in candidates)
+    top = [e for e in candidates if rank(e) == best]
+    first = top[0]
+    if not all(same_mesh(first, e) for e in top[1:]):
+        return None
+    if len({e.get("avatar", "") for e in top}) > 1 or len({e.get("owner", "") for e in top}) > 1:
+        first = dict(first, avatar="")
+        first.pop("owner", None)
+        first["shared"] = sorted({e.get("avatar") or e.get("owner") or "" for e in top} - {""})[:8]
+    return first
+
+
 def self_test():
     assert hashes(struct.pack("<6H", 0, 1, 2, 2, 1, 3)) == [("c33fba30", KINDS[0][2]), ("fbebd0ef", KINDS[1][2]), ("f47c4d8d", KINDS[2][2])]
     assert hashes(struct.pack("<3I", 0, 1, 2))[1][0] == "7da3cfcd"
@@ -154,6 +185,14 @@ def self_test():
     assert crc32c(0, big) == ~slow & 0xFFFFFFFF
     assert avatar_of({"path_evidence": ["Avatar_Girl_Catalyst_CitlaliCostumeXia_ModelAvatar"]}) == "avatar_girl_catalyst_citlalicostumexia"
     assert normalize("Body_LOD1") == "body" and normalize("Face_Eye") == "face_eye"
+    pupil = {"mesh": "Pupil", "vertices": 120, "submeshes": [[0, 300]], "avatar": "avatar_girl_sword_x"}
+    sphere = {"mesh": "Eff_Sphere", "vertices": 120, "submeshes": [[0, 300]], "avatar": ""}
+    npc = {"mesh": "Eye", "vertices": 120, "submeshes": [[0, 300]], "avatar": "", "owner": "NPC_Boy"}
+    assert choose([sphere, pupil]) is pupil and choose([sphere, npc]) is npc and choose([pupil, dict(pupil, mesh="Eye")]) is None
+    assert rank({"mesh": "Equip_Sword_Foo", "avatar": ""}) == 2 and rank(sphere) == 3
+    skin = dict(pupil, avatar="avatar_girl_sword_xcostume")
+    both = choose([pupil, skin])
+    assert both["avatar"] == "" and both["shared"] == ["avatar_girl_sword_x", "avatar_girl_sword_xcostume"] and pupil["avatar"]
     print("Offline hashes: PASS (3DMigoto CRC-32C and buffer desc forms, 16/32-bit index data, avatar from the path, renderer name)")
 
 
@@ -172,12 +211,18 @@ def main():
         return default
     out = take("-o", "hash-map.json")
     build = take("--build")
+    source = take("--from")
+    keep = take("--keep", "characters")
     check = take("--check", os.path.join(ASSETS, "device-hashes.json"))
     pc = pc_table(take("--pc", os.path.join(ASSETS, "pc-hashes.json")))
-    if not args or not build or not re.fullmatch(r"[0-9a-f]{40}", build):
+    if keep not in ("characters", "all") or (not source and (not args or not build or not re.fullmatch(r"[0-9a-f]{40}", build))):
         print(__doc__)
         sys.exit(2)
-    by_ib, conflicts, failed, meshes = {}, set(), 0, 0
+    candidates, failed, meshes = {}, 0, 0
+    if source:
+        for e in json.load(open(source, encoding="utf-8"))["meshes"]:
+            candidates.setdefault(e["ib"], []).append(e)
+            meshes += 1
     for meta, data in exported(args):
         try:
             entries = entry(meta, data, build, pc)
@@ -187,38 +232,44 @@ def main():
             continue
         meshes += 1
         for e in entries:
-            old = by_ib.get(e["ib"])
-            if old is None:
-                by_ib[e["ib"]] = e
-            elif not same_mesh(old, e):
-                conflicts.add(e["ib"])
-    for ib in conflicts:
-        by_ib.pop(ib, None)
-    # Against a device capture: a mesh both have gives the same hash, and a hash both have names the same mesh.
-    agree = differ = 0
+            candidates.setdefault(e["ib"], []).append(e)
+    by_ib, shared, ambiguous, dropped = {}, 0, 0, 0
+    for ib, cs in candidates.items():
+        e = choose(cs)
+        if e is None:
+            ambiguous += 1
+            continue
+        shared += any(not same_mesh(e, x) for x in cs)
+        if keep == "all" or rank(e) < 3:
+            by_ib[ib] = e
+        else:
+            dropped += 1
+    # Against a device capture: a hash both have names a mesh with the same vertex count (the same index data).
+    agree = other = differ = 0
     if check and os.path.isfile(check):
-        dev = {m["ib"]: m for m in json.load(open(check, encoding="utf-8")).get("meshes", [])}
-        for ib, e in by_ib.items():
-            d = dev.get(ib)
-            if d is None:
+        for d in json.load(open(check, encoding="utf-8")).get("meshes", []):
+            e = by_ib.get(d["ib"])
+            if e is None:
                 continue
             if same_mesh(d, e):
                 agree += 1
+            elif d["vertices"] == e["vertices"]:
+                other += 1
+                print("shared index data: %s is %s there, %s (%s) here" % (d["ib"], d["mesh"], e["mesh"], e.get("avatar") or e.get("owner") or "-"))
             else:
                 differ += 1
-                print("differs from %s: %s is %s/%d here, %s/%d there" % (check, ib, e["mesh"], e["vertices"], d["mesh"], d["vertices"]))
-        offline = {(e["mesh"], e["vertices"], json.dumps(e["submeshes"]), e["variant"]): ib for ib, e in by_ib.items()}
-        for ib, d in dev.items():
-            k = (d["mesh"], d["vertices"], json.dumps(d["submeshes"]), d["variant"])
-            if k in offline and offline[k] != ib:
-                differ += 1
-                print("differs from %s: %s %s/%d has %s there, %s here" % (check, d["variant"], d["mesh"], d["vertices"], ib, offline[k]))
+                print("DIFFERS from %s: %s is %s/%d here, %s/%d there" % (check, d["ib"], e["mesh"], e["vertices"], d["mesh"], d["vertices"]))
     body = '{"format":"gibox-hash-map","version":1,"meshes":[' + ",".join(
         "\n" + json.dumps(by_ib[k], ensure_ascii=False, separators=(",", ":")) for k in sorted(by_ib)) + "\n]}\n"
     with open(out, "w", encoding="utf-8") as f:
         f.write(body)
-    print("%d meshes read (%d skipped), %d hashes written to %s; %d left out (two meshes, one hash); against %s: %d the same, %d different"
-          % (meshes, failed, len(by_ib), out, len(conflicts), check, agree, differ))
+    kinds = [0, 0, 0, 0]
+    for e in by_ib.values():
+        kinds[rank(e)] += 1
+    print("%d meshes read (%d skipped); %d hashes written to %s (characters %d, NPCs / monsters %d, weapons %d, other %d); "
+          "%d other (--keep all to write them), %d shared by meshes of different kinds (the likelier kept), %d left out (two meshes of one kind); "
+          "against %s: %d the same, %d shared index data, %d different"
+          % (meshes, failed, len(by_ib), out, kinds[0], kinds[1], kinds[2], kinds[3], dropped, shared, ambiguous, check, agree, other, differ))
     if differ:
         sys.exit(1)
 

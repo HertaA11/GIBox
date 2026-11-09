@@ -66,16 +66,35 @@ inline std::set<std::string> charactersFor(const Db& d,unsigned avatar,const std
 // ---------------------------------------------------------------- this device's index uploads (hash-map.json)
 // owner (1.0.3): for a mesh of no avatar (an NPC, a monster), the name at the top of its skeleton, for reading only.
 struct Mesh {std::string ib,variant,character,component,renderer,mesh,avatar,build,owner;unsigned vertices=0,bones=0;std::vector<std::pair<uint32_t,uint32_t>> subs;};
-struct DeviceMap {std::map<std::string,Mesh> byIb;};
-inline DeviceMap parseMap(const std::string& text){Json j=JsonParser(text).parse();DeviceMap m;
+// base (1.0.3): a table this one overlays (the bundled one under this device's), looked up when byIb has no entry, so
+// that the ~30000 bundled entries are not copied each time a capture adds one.
+struct DeviceMap {std::map<std::string,Mesh> byIb;const DeviceMap* base=nullptr;
+ const Mesh* find(const std::string& ib)const{auto it=byIb.find(ib);if(it!=byIb.end())return &it->second;return base?base->find(ib):nullptr;}
+ template<class F> void each(F f)const{for(auto& kv:byIb)f(kv.second);
+  for(const DeviceMap* b=base;b;b=b->base)for(auto& kv:b->byIb){bool over=false;for(const DeviceMap* u=this;u!=b;u=u->base)over=over||u->byIb.count(kv.first);if(!over)f(kv.second);}}
+ bool empty()const{return byIb.empty()&&(!base||base->empty());}};
+// One mesh entry of a hash map.
+inline Mesh parseMesh(const Json& x){require(x.type==Json::Object,"设备 hash 表：mesh 无效");Mesh e;e.ib=lower(x.at("ib").string);require(hex8(e.ib),"设备 hash 表：ib 无效");
+ e.variant=x.at("variant").string;e.character=x.at("character").string;e.component=x.at("component").string;e.renderer=x.at("renderer").string;e.mesh=x.at("mesh").string;e.avatar=x.at("avatar").string;e.build=x.at("build").string;e.owner=x.at("owner").type==Json::String?x.at("owner").string:std::string();
+ e.vertices=unsigned(count(x.at("vertices"),"vertices"));e.bones=x.at("bones").type==Json::Number?unsigned(count(x.at("bones"),"bones")):0;require(!e.mesh.empty()&&e.vertices>0,"设备 hash 表：网格信息无效："+e.ib);
+ const auto& s=x.at("submeshes");require(s.type==Json::Array&&!s.array.empty()&&s.array.size()<=64,"设备 hash 表：submeshes 无效");
+ for(auto& p:s.array){require(p.type==Json::Array&&p.array.size()==2,"设备 hash 表：submesh 无效");e.subs.push_back({uint32_t(count(p.array[0],"start")),uint32_t(count(p.array[1],"count"))});}
+ return e;}
+// The tools and the runtime write one mesh per line after the header line (1.0.3): read so, one small document at a
+// time (the bundled table of characters, NPCs and monsters is ~30000 entries; a whole document of it took ~120 MiB);
+// any other layout as one document.
+inline DeviceMap parseMap(const std::string& text){DeviceMap m;
+ static const std::string head="{\"format\":\"gibox-hash-map\",\"version\":1,\"meshes\":[";
+ if(text.compare(0,head.size(),head)==0&&text.size()>head.size()&&text[head.size()]=='\n'){size_t at=head.size()+1;bool closed=false;
+  while(at<text.size()){size_t nl=text.find('\n',at);if(nl==std::string::npos)nl=text.size();std::string line=text.substr(at,nl-at);at=nl+1;
+   while(!line.empty()&&(line.back()=='\r'||line.back()==' ')){line.pop_back();}if(line.empty())continue;
+   if(line=="]}"){closed=true;break;}if(line.back()==',')line.pop_back();
+   require(m.byIb.size()<262144,"设备 hash 表：meshes 过多");Mesh e=parseMesh(JsonParser(line).parse());m.byIb[e.ib]=std::move(e);}
+  require(closed,"设备 hash 表：没有结尾");return m;}
+ Json j=JsonParser(text).parse();
  require(j.type==Json::Object&&j.at("format").string=="gibox-hash-map"&&j.at("version").type==Json::Number&&j.at("version").number==1,"不是 GIBox 的设备 hash 表");
- const auto& a=j.at("meshes");require(a.type==Json::Array&&a.array.size()<=65536,"设备 hash 表：meshes 无效");
- for(auto& x:a.array){require(x.type==Json::Object,"设备 hash 表：mesh 无效");Mesh e;e.ib=lower(x.at("ib").string);require(hex8(e.ib),"设备 hash 表：ib 无效");
-  e.variant=x.at("variant").string;e.character=x.at("character").string;e.component=x.at("component").string;e.renderer=x.at("renderer").string;e.mesh=x.at("mesh").string;e.avatar=x.at("avatar").string;e.build=x.at("build").string;e.owner=x.at("owner").type==Json::String?x.at("owner").string:std::string();
-  e.vertices=unsigned(count(x.at("vertices"),"vertices"));e.bones=x.at("bones").type==Json::Number?unsigned(count(x.at("bones"),"bones")):0;require(!e.mesh.empty()&&e.vertices>0,"设备 hash 表：网格信息无效："+e.ib);
-  const auto& s=x.at("submeshes");require(s.type==Json::Array&&!s.array.empty()&&s.array.size()<=64,"设备 hash 表：submeshes 无效");
-  for(auto& p:s.array){require(p.type==Json::Array&&p.array.size()==2,"设备 hash 表：submesh 无效");e.subs.push_back({uint32_t(count(p.array[0],"start")),uint32_t(count(p.array[1],"count"))});}
-  m.byIb[e.ib]=std::move(e);}
+ const auto& a=j.at("meshes");require(a.type==Json::Array&&a.array.size()<=262144,"设备 hash 表：meshes 无效");
+ for(auto& x:a.array){Mesh e=parseMesh(x);m.byIb[e.ib]=std::move(e);}
  return m;}
 inline std::string writeMap(const DeviceMap& m){std::string o="{\"format\":\"gibox-hash-map\",\"version\":1,\"meshes\":[";bool first=true;
  for(auto& kv:m.byIb){auto& e=kv.second;o+=std::string(first?"":",")+"\n{\"ib\":"+quote(e.ib)+",\"variant\":"+quote(e.variant)+",\"character\":"+quote(e.character)+",\"component\":"+quote(e.component)+",\"renderer\":"+quote(e.renderer)

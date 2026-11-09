@@ -21,7 +21,7 @@ public final class DeviceHashes {
         DeviceHashes d = new DeviceHashes();
         for (String f : new String[]{"device-hashes.json", "hash-map.json"}) {   // this device's own map wins
             try { Map<String, Object> j = Json.obj(Json.read(new File(sharedDir, f), 64L << 20), f);
-                for (Object m : Json.arr(j.get("meshes"), "meshes", 0, 65536)) { Map<String, Object> e = Json.obj(m, "mesh");
+                for (Object m : Json.arr(j.get("meshes"), "meshes", 0, 262144)) { Map<String, Object> e = Json.obj(m, "mesh");
                     if (!(e.get("ib") instanceof String) || !(e.get("avatar") instanceof String) || ((String) e.get("avatar")).isEmpty()) continue;
                     String renderer = e.get("renderer") instanceof String ? (String) e.get("renderer") : "", mesh = e.get("mesh") instanceof String ? (String) e.get("mesh") : "";
                     if (renderer.isEmpty()) continue;

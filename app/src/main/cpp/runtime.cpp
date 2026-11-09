@@ -266,8 +266,8 @@ struct Runtime::Impl {
  // maintainer's device tied, the same on every device since Android's index data is the PC's): read by the worker when
  // its stamp changes; matching and the report use it under this device's own map (an entry of this device wins).
  std::string bundledStamp="?",bundledNote;std::shared_ptr<const pcdb::DeviceMap> bundledWorker,bundledScanned,bundledMap;std::shared_ptr<pcdb::DeviceMap> matchMap;bool matchDirty=true;
- const pcdb::DeviceMap* deviceMap(){if(matchDirty){matchDirty=false;auto m=std::make_shared<pcdb::DeviceMap>();if(bundledMap)*m=*bundledMap;if(devMap)for(auto& kv:devMap->byIb)m->byIb[kv.first]=kv.second;matchMap=m;}
-  return matchMap&&!matchMap->byIb.empty()?matchMap.get():nullptr;}
+ const pcdb::DeviceMap* deviceMap(){if(matchDirty){matchDirty=false;auto m=std::make_shared<pcdb::DeviceMap>();m->base=bundledMap.get();if(devMap)for(auto& kv:devMap->byIb)m->byIb[kv.first]=kv.second;matchMap=m;}
+  return matchMap&&!matchMap->empty()?matchMap.get():nullptr;}
  struct TexDiagSeen {std::string key;texdiag::Renderer info;};std::map<Ptr,TexDiagSeen> texDiagSeen;std::map<std::string,std::string> texDiagLogged,texDiagMatched;
  Worker worker;  // last member: destroyed (joined) first, while everything it touches still exists
 
@@ -732,7 +732,7 @@ struct Runtime::Impl {
  std::vector<TexTarget> texSceneTargets(const texdiag::TextureMod& m,TexLive* L){std::vector<TexTarget> out;sceneWhy.clear();texDeferred.clear();
   const pcdb::DeviceMap* dm=deviceMap();std::vector<std::pair<size_t,const pcdb::Mesh*>> want;std::string missing;unsigned usable=0;
   for(size_t k=0;k<m.doc.rules.size();k++){const auto& r=m.doc.rules[k];if((r.kind!="segment"&&r.kind!="whole-ib")||r.hash.size()!=8)continue;usable++;
-   const pcdb::Mesh* ent=nullptr;if(dm){auto it=dm->byIb.find(pcdb::lower(r.hash));if(it!=dm->byIb.end())ent=&it->second;}
+   const pcdb::Mesh* ent=dm?dm->find(pcdb::lower(r.hash)):nullptr;
    if(ent)want.push_back({k,ent});else if(missing.find(r.hash)==std::string::npos)missing+=(missing.empty()?"":"、")+r.hash;}
   if(!usable){sceneWhy="没有按索引缓冲 hash 写的规则；只按贴图 hash 的规则在安卓上对不上（游戏贴图的压缩格式不同）";return out;}
   // While the hashes are read, every scene mesh is read once so that an upload of a missing hash can be tied to it.
@@ -1010,7 +1010,7 @@ struct Runtime::Impl {
  // match_first_index, the material slot of that submesh. The record is saved like one confirmed by submesh starts and
  // written by the same paths (strategy, LOD option, restore); two meshes with those counts leave it waiting, said why.
  // An upload of a hash an NPC / monster mod names, tied to the one scene mesh with its index and vertex counts.
- bool sceneConfirm(const IbHit& h,const texdiag::TextureMod& m){auto ib=hex8(h.value);if(const auto* dm=deviceMap())if(dm->byIb.count(ib))return true;
+ bool sceneConfirm(const IbHit& h,const texdiag::TextureMod& m){auto ib=hex8(h.value);if(const auto* dm=deviceMap())if(dm->find(ib))return true;
   uint8_t format=h.variant>>2;std::set<std::string> keys;auto look=[&](uint64_t n,uint64_t v){auto r=sceneShapes.equal_range({n,v});for(auto it=r.first;it!=r.second;++it)keys.insert(it->second);};
   if(format!=2){look(h.bytes/2,uint64_t(h.max16)+1);}if(format!=1&&h.bytes%4==0){look(h.bytes/4,uint64_t(h.max32)+1);}
   std::string what=m.name+"："+ib+"（上传 #"+std::to_string(h.seq)+"，"+vkcap::variantName(h.variant)+"）";
@@ -1198,7 +1198,7 @@ struct Runtime::Impl {
   if(!ctl.enabled)o+="注意：模型替换总开关关着，场景里只读到当前操控角色的渲染器；其他角色靠“已加载的网格”补读（只限 hash 与 PC 相同的上传）\n";
   if(capAllMeshes)o+="已加载网格扫描：最近一次看了 "+std::to_string(capAllMeshes)+" 个网格，累计补读 "+std::to_string(capAllAdded)+" 个（与 PC 相同、但没显示的上传）"+(capClones?"，跳过 "+std::to_string(capClones)+" 个复制出来的网格（(Clone)，如 GIBox 为还原保存的副本）":"")+"\n";
   // Per PC character with something tied (this session or earlier): every component, tied or not.
-  std::map<std::string,std::vector<size_t>> chars;std::set<std::string> any;for(auto& kv:capTies)any.insert(kv.second.character);const pcdb::DeviceMap* known=deviceMap();if(known)for(auto& kv:known->byIb)if(!kv.second.character.empty())any.insert(kv.second.character);
+  std::map<std::string,std::vector<size_t>> chars;std::set<std::string> any;for(auto& kv:capTies)any.insert(kv.second.character);const pcdb::DeviceMap* known=deviceMap();if(known)known->each([&](const pcdb::Mesh& x){if(!x.character.empty())any.insert(x.character);});
   if(pcDb)for(size_t i=0;i<pcDb->comps.size();i++)if(any.count(pcDb->comps[i].character))chars[pcDb->comps[i].character].push_back(i);
   o+="\n== 和 PC 对上的角色（"+std::to_string(chars.size())+" 个）\n";
   std::set<std::string> tiedMeshes;
@@ -1206,7 +1206,7 @@ struct Runtime::Impl {
    for(size_t i:kv.second){auto& c=pcDb->comps[i];o+="  "+(c.name.empty()?std::string("（无名部件）"):c.name)+"  ";
     if(c.ib.empty()){std::string tx;for(auto& sub:c.textures)for(auto& b:sub)tx+=(tx.empty()?"":" ")+b.first+"="+b.second;o+="PC 没有它的索引缓冲 hash（只有贴图："+tx+"）；按部件名对应\n";continue;}
     o+="ib "+c.ib+"  PC 起点 "+texdiag::joined(c.indexes)+(c.counts.empty()?"":" 数量 "+texdiag::joined(c.counts))+"\n";
-    auto t=capTies.find(c.ib);const pcdb::Mesh* dm=nullptr;if(known){auto d=known->byIb.find(c.ib);if(d!=known->byIb.end())dm=&d->second;}
+    auto t=capTies.find(c.ib);const pcdb::Mesh* dm=known?known->find(c.ib):nullptr;
     if(t!=capTies.end()){auto m=capMeshes.find(t->second.meshKey);if(m!=capMeshes.end()){auto& x=m->second;tiedMeshes.insert(t->second.meshKey);bool same=pcdb::startsEqual(x.subs,c.indexes);
       std::string counts;for(auto& sb:x.subs)counts+=(counts.empty()?"":",")+std::to_string(sb.second);
       o+="      = "+(x.avatar.empty()?std::string("（已加载、未显示）"):x.avatar+" / "+x.renderer)+" / 网格 "+x.mesh+"（"+std::to_string(x.vertices)+" 顶点，"+std::to_string(x.indices)+" 索引）；安卓起点 "+capStarts(x.subs)+" 数量 ["+counts+"] "+(same?"与 PC 一致 ✓":"与 PC 不同 ✗")+"；上传方式："+t->second.variant+"\n";continue;}}

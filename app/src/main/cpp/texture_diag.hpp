@@ -161,7 +161,7 @@ inline std::vector<Match> match(const Doc& d,const std::vector<Renderer>& rs,con
  // The renderer the other segments of a hash name, when they name exactly one: a PC index buffer is one Android mesh (assumed).
  auto groupRenderer=[&](const std::string& hash){std::set<int> named;for(auto& x:d.rules)if(x.hash==hash&&x.kind=="segment"){auto h=nameHits(x);if(h.size()==1)named.insert(h[0]);}return named.size()==1?*named.begin():-1;};
  // The mesh this device's upload of an index-buffer hash was tied to (hash-map.json), when one renderer shows it now.
- auto deviceRenderer=[&](const std::string& hash,std::string& why)->int{if(!device)return -1;auto it=device->byIb.find(pcdb::lower(hash));if(it==device->byIb.end())return -1;const auto& e=it->second;std::vector<int> hit;
+ auto deviceRenderer=[&](const std::string& hash,std::string& why)->int{if(!device)return -1;const pcdb::Mesh* found=device->find(pcdb::lower(hash));if(!found)return -1;const auto& e=*found;std::vector<int> hit;
   for(size_t i=0;i<rs.size();i++){if(!comparable(i)||rs[i].meshName!=e.mesh||rs[i].vertices!=e.vertices||rs[i].layout.subs.size()!=e.subs.size())continue;bool same=true;
    for(size_t k=0;same&&k<e.subs.size();k++){same=rs[i].layout.subs[k].start==e.subs[k].first&&rs[i].layout.subs[k].count==e.subs[k].second;}if(same)hit.push_back(int(i));}
   if(hit.size()==1){why="本机的网格 "+e.mesh+" 上传（"+std::to_string(e.vertices)+" 顶点，"+std::to_string(pcdb::indices(e.subs))+" 索引"+(e.build.empty()?"":"，游戏版本 "+e.build.substr(0,8))+"）得到了相同的索引缓冲 hash "+e.ib+"；只有 "+label(rs[size_t(hit[0])])+" 显示这个网格";return hit[0];}

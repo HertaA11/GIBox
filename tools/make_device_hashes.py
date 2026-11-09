@@ -54,9 +54,20 @@ def main():
             old = merged.get(e["ib"])
             shape = (e["mesh"], e["vertices"], json.dumps(e["submeshes"]))
             if old and (old["mesh"], old["vertices"], json.dumps(old["submeshes"])) != shape:
-                conflicts.add(e["ib"])
-            elif not old or (not old["character"] and e["character"]):
+                # One index buffer two meshes share (a character's Pupil and an effect's sphere, 1.0.3): the character's
+                # is kept when only one of them is a character's; otherwise neither.
+                if old["vertices"] == e["vertices"] and bool(old["avatar"]) != bool(e["avatar"]):
+                    if e["avatar"]:
+                        merged[e["ib"]] = e
+                else:
+                    conflicts.add(e["ib"])
+            elif not old:
                 merged[e["ib"]] = e
+            else:  # the same mesh: what either knows (PC part, avatar, owner, bones from a capture)
+                for k in ("character", "component", "avatar", "renderer", "owner"):
+                    if not old.get(k) and e.get(k):
+                        old[k] = e[k]
+                old["bones"] = old["bones"] or e["bones"]
     for ib in conflicts:
         merged.pop(ib, None)
     body = ",\n".join(json.dumps(merged[k], ensure_ascii=False, separators=(",", ":")) for k in sorted(merged))
