@@ -23,7 +23,7 @@ are most of the game's meshes and almost never modded). The result is checked ag
 mesh name there is index data two meshes share, reported, not an error.
 
     python3 tools/make_offline_hashes.py --build <game Build ID> export-folder [more ...] [-o hash-map.json]
-        [--keep characters|all] [--check other-map.json] [--pc app/src/main/assets/pc-hashes.json]
+        [--keep characters|all] [--check other-map.json] [--pc app/src/main/assets/pc-hashes.json] [--conflicts left-out.txt]
     python3 tools/make_offline_hashes.py --from hash-map.json [-o out.json] [--keep characters|all] [--check ...]
         (a map this tool wrote: filtered and checked again, no hashing)
     python3 tools/make_offline_hashes.py --self-test
@@ -151,23 +151,36 @@ def same_mesh(a, b):
 
 
 def rank(e):
-    """0 a character's mesh, 1 an NPC's or monster's, 2 a weapon's, 3 anything else."""
+    """0 a character's mesh, 1 an NPC's or monster's, 2 a weapon's, a skill object's or a glider's, 3 anything else."""
     if e.get("avatar") or e.get("shared"):
         return 0
     if e.get("owner"):
         return 1
-    return 2 if re.match(r"(Equip|MonEquip)_", e["mesh"]) else 3
+    return 2 if re.match(r"(Equip|MonEquip|SkillObj|Flycloak)_", e["mesh"]) else 3
 
 
-def choose(candidates):
-    """One entry per hash: the best-ranked mesh, or None when two different meshes share the best rank. The same mesh
-    under two avatars or owners (a character's original look and a skin with the same Body, Xingqiu's 76df4025) names
-    neither: the App would otherwise take the hash for one outfit's and convert against the wrong skeleton."""
+def squash(s):
+    return re.sub(r"[^a-z0-9]", "", s.lower())
+
+
+def choose(candidates, device=None):
+    """One entry per hash: the best-ranked mesh, or None when two different meshes share the best rank and neither the
+    PC data (the part's character, in the avatar's name) nor this device's capture (the mesh it showed) tells them
+    apart. The same mesh under two avatars or owners names neither: the App would otherwise take the hash for one
+    outfit's and convert against the wrong skeleton."""
     best = min(rank(e) for e in candidates)
     top = [e for e in candidates if rank(e) == best]
+    if not all(same_mesh(top[0], e) for e in top[1:]):
+        who = squash(top[0].get("character", ""))
+        named = [e for e in top if who and any(who in squash(a) for a in [e.get("avatar", "")] + list(e.get("shared") or []))]
+        seen = [e for e in top if device is not None and same_mesh(device, e)]
+        for narrowed in (named, seen):
+            if narrowed and all(same_mesh(narrowed[0], e) for e in narrowed[1:]):
+                top = narrowed
+                break
+        else:
+            return None
     first = top[0]
-    if not all(same_mesh(first, e) for e in top[1:]):
-        return None
     if len({e.get("avatar", "") for e in top}) > 1 or len({e.get("owner", "") for e in top}) > 1:
         first = dict(first, avatar="")
         first.pop("owner", None)
@@ -193,6 +206,12 @@ def self_test():
     skin = dict(pupil, avatar="avatar_girl_sword_xcostume")
     both = choose([pupil, skin])
     assert both["avatar"] == "" and both["shared"] == ["avatar_girl_sword_x", "avatar_girl_sword_xcostume"] and pupil["avatar"]
+    # Two characters' meshes of one index buffer: the PC part's character decides, else the mesh this device showed.
+    ineffa = {"mesh": "Pupil", "vertices": 340, "submeshes": [[0, 900]], "avatar": "avatar_girl_pole_ineffa", "character": "Ineffa"}
+    other = dict(ineffa, mesh="Eyeball", avatar="avatar_girl_pole_other")
+    assert choose([other, ineffa]) is ineffa and choose([dict(other, character=""), dict(ineffa, character="")]) is None
+    assert choose([dict(other, character=""), dict(ineffa, character="")], device=ineffa)["avatar"] == "avatar_girl_pole_ineffa"
+    assert rank({"mesh": "SkillObj_Shinobu_Mask_Model", "avatar": ""}) == 2 and rank({"mesh": "Flycloak_Normal_Model", "avatar": ""}) == 2
     print("Offline hashes: PASS (3DMigoto CRC-32C and buffer desc forms, 16/32-bit index data, avatar from the path, renderer name)")
 
 
@@ -213,6 +232,7 @@ def main():
     build = take("--build")
     source = take("--from")
     keep = take("--keep", "characters")
+    conflicts = take("--conflicts")
     check = take("--check", os.path.join(ASSETS, "device-hashes.json"))
     pc = pc_table(take("--pc", os.path.join(ASSETS, "pc-hashes.json")))
     if keep not in ("characters", "all") or (not source and (not args or not build or not re.fullmatch(r"[0-9a-f]{40}", build))):
@@ -233,11 +253,16 @@ def main():
         meshes += 1
         for e in entries:
             candidates.setdefault(e["ib"], []).append(e)
-    by_ib, shared, ambiguous, dropped = {}, 0, 0, 0
+    devices = {}
+    if check and os.path.isfile(check):
+        devices = {m["ib"]: m for m in json.load(open(check, encoding="utf-8")).get("meshes", [])}
+    by_ib, shared, ambiguous, dropped, report = {}, 0, 0, 0, []
     for ib, cs in candidates.items():
-        e = choose(cs)
+        e = choose(cs, devices.get(ib))
         if e is None:
             ambiguous += 1
+            if conflicts:
+                report.append(ib + "\t" + " | ".join(sorted({"%s %d %s %s" % (x["mesh"], x["vertices"], x["submeshes"], x.get("avatar") or x.get("owner") or "-") for x in cs})))
             continue
         shared += any(not same_mesh(e, x) for x in cs)
         if keep == "all" or rank(e) < 3:
@@ -263,6 +288,9 @@ def main():
         "\n" + json.dumps(by_ib[k], ensure_ascii=False, separators=(",", ":")) for k in sorted(by_ib)) + "\n]}\n"
     with open(out, "w", encoding="utf-8") as f:
         f.write(body)
+    if conflicts:
+        with open(conflicts, "w", encoding="utf-8") as f:
+            f.write("\n".join(sorted(report)) + "\n")
     kinds = [0, 0, 0, 0]
     for e in by_ib.values():
         kinds[rank(e)] += 1

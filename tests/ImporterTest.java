@@ -130,7 +130,12 @@ public class ImporterTest {
   for(String f:new String[]{"pc-hashes.json","device-hashes.json"})Files.copy(new File("app/src/main/assets/"+f).toPath(),new File(oshared,f).toPath(),StandardCopyOption.REPLACE_EXISTING);
   ok(table.guess(10000063,Collections.singleton("83a9116d"),oshared).outfit==ff&&table.guess(10000063,Collections.singleton("33a92492"),oshared).outfit.original(),"guess: skin and original by hash");
   ok(table.guess(10000003,Collections.singleton("115737ff"),oshared).outfit.original(),"guess: the device names 115737ff the original although the PC data gives it to JeanCN too");
-  ok(table.guess(10000025,Collections.singleton("76df4025"),oshared).outfit==null,"guess: a hash two outfits share in the PC data decides nothing");
+  // 76df4025: the PC data gives it to Xingqiu and XingqiuBamboo; the game's own files (1.0.3 offline table) have it only
+  // in the bamboo outfit's Body (the original Body is 82c97b1c), so the bundled table decides; without it, nothing does.
+  ok(table.guess(10000025,Collections.singleton("76df4025"),oshared).outfit==table.byPc("XingqiuBamboo"),"guess: the bundled table names the outfit the PC data cannot");
+  File onone=new File(base,"GIBox-outfit-pc-only");onone.mkdirs();Files.copy(new File("app/src/main/assets/pc-hashes.json").toPath(),new File(onone,"pc-hashes.json").toPath(),StandardCopyOption.REPLACE_EXISTING);
+  Files.write(new File(onone,"device-hashes.json").toPath(),"{\"format\":\"gibox-hash-map\",\"version\":1,\"meshes\":[\n]}\n".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+  ok(table.guess(10000025,Collections.singleton("76df4025"),onone).outfit==null,"guess: a hash two outfits share in the PC data decides nothing");
   Outfits.Guess twoOutfits=table.guess(10000063,Arrays.asList("33a92492","83a9116d"),oshared);ok(twoOutfits.outfit==null&&twoOutfits.conflict.size()==2,"guess: hashes of two outfits");
   ok(table.guess(10000052,Collections.singleton("83a9116d"),oshared).outfit==null,"guess: a character without skins");
   File old=new File(base,"骨骼-旧皮肤");character(old,"10000063",10000063,"Avatar_Lady_Pole_ShenheCostumeDai_Manekin");
