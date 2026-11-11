@@ -174,7 +174,7 @@ fun PickScreen(state: AppState, pick: Screen.Pick) {
                         leadingContent = { RadioButton(selected = a.id == chosen, onClick = null) },
                         supportingContent = {
                             Text(
-                                if (Characters.isScene(a.id)) "只支持纯贴图 MOD：按 hash 在场景里找 NPC、怪物的网格" + (if (a.id == pick.current) " · 当前" else "")
+                                if (Characters.isScene(a.id)) "只支持纯贴图 MOD：按 hash 找 NPC、怪物和风之翼的网格" + (if (a.id == pick.current) " · 当前" else "")
                                 else "${a.id}" + (if (recorded.contains(a.id)) " · 已记录骨骼" else "") + (if (a.id == pick.current) " · 当前" else ""),
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )

@@ -16,12 +16,18 @@ public final class DeviceHashes {
     }
     private final Map<String, Mesh> byIb = new HashMap<>();
     private final Map<String, Set<Integer>> pcOwners = new HashMap<>();
+    /** Hashes of meshes no character owns that a texture mod can still find in the scene (1.0.3): an NPC's or a
+     *  monster's (an owner in the table) or the glider's (Flycloak_). */
+    private final Set<String> scene = new HashSet<>();
 
     public static DeviceHashes load(File sharedDir) {
         DeviceHashes d = new DeviceHashes();
         for (String f : new String[]{"device-hashes.json", "hash-map.json"}) {   // this device's own map wins
             try { Map<String, Object> j = Json.obj(Json.read(new File(sharedDir, f), 64L << 20), f);
                 for (Object m : Json.arr(j.get("meshes"), "meshes", 0, 262144)) { Map<String, Object> e = Json.obj(m, "mesh");
+                    if (e.get("ib") instanceof String && !(e.get("avatar") instanceof String && !((String) e.get("avatar")).isEmpty())
+                        && ((e.get("owner") instanceof String && !((String) e.get("owner")).isEmpty()) || String.valueOf(e.get("mesh")).startsWith("Flycloak_")))
+                        d.scene.add(((String) e.get("ib")).toLowerCase(Locale.ROOT));
                     if (!(e.get("ib") instanceof String) || !(e.get("avatar") instanceof String) || ((String) e.get("avatar")).isEmpty()) continue;
                     String renderer = e.get("renderer") instanceof String ? (String) e.get("renderer") : "", mesh = e.get("mesh") instanceof String ? (String) e.get("mesh") : "";
                     if (renderer.isEmpty()) continue;
@@ -93,6 +99,7 @@ public final class DeviceHashes {
             Set<Integer> who = new TreeSet<>();
             Mesh m = mesh(h); if (m != null) { int c = character(m.avatar); if (c != 0) who.add(c); }
             Set<Integer> pc = pcOwners.get(h.toLowerCase(Locale.ROOT)); if (pc != null) who.addAll(pc);
+            if (who.isEmpty() && scene.contains(h.toLowerCase(Locale.ROOT))) who.add(Characters.SCENE);
             if (who.size() == 1) out.computeIfAbsent(who.iterator().next(), k -> new ArrayList<>()).add(h);
         }
         return out;

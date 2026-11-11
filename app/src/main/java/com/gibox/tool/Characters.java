@@ -171,7 +171,7 @@ public final class Characters {
     /** Not a character (1.0.3): a texture-only mod for NPCs and monsters, whose meshes the game side finds anywhere in the
      *  scene by the index-buffer hashes its rules name (texture_diag.hpp kScene). Listed last in the picker. */
     public static final int SCENE = 1;
-    public static final Avatar SCENE_AVATAR = new Avatar(SCENE, "NPC / 怪物", "", "npc monster monsters enemy enemies 怪物 敌人");
+    public static final Avatar SCENE_AVATAR = new Avatar(SCENE, "NPC / 怪物 / 风之翼", "", "npc monster monsters enemy enemies glider flycloak 怪物 敌人 风之翼 滑翔");
     public static boolean isScene(int id) { return id == SCENE; }
     public static Avatar byId(int id) { if (id == SCENE) return SCENE_AVATAR; for (Avatar a : ALL) if (a.id == id) return a; return null; }
     public static String nameOf(int id) { Avatar a = byId(id); return a != null ? a.name : id == 0 ? "未指定角色" : "角色 " + id; }
@@ -250,6 +250,7 @@ public final class Characters {
         }
         int best = 0; for (int v : g.scores.values()) best = Math.max(best, v);
         g.recommended.clear(); if (best > 0) for (Avatar a : ALL) if (g.scores.getOrDefault(a.id, 0) == best) g.recommended.add(a);
+        if (best > 0 && g.scores.getOrDefault(SCENE, 0) == best) g.recommended.add(SCENE_AVATAR);   // hashes of an NPC's, a monster's or the glider's mesh
         g.evidence = why.toString();
     }
     /** Picker order: the recommended characters first, then everyone else in ID order. */

@@ -36,6 +36,8 @@ def entries(path):
         out = {k: (ib if k == "ib" else e.get(k, 0 if k in ("vertices", "bones") else "")) for k in KEYS}
         if isinstance(e.get("owner"), str) and e["owner"]:
             out["owner"] = e["owner"]  # 1.0.3: an NPC's or monster's object name, for reading only
+        if e.get("shared"):
+            out["shared"] = True  # several avatars' files hold this mesh (make_offline_hashes.py); not written out
         yield out
 
 
@@ -48,9 +50,11 @@ def main():
     if not args:
         print(__doc__)
         sys.exit(2)
-    merged, conflicts = {}, set()
+    merged, conflicts, shared = {}, set(), set()
     for p in args:
         for e in entries(p):
+            if e.get("shared"):  # the same mesh in several outfits' files: no single avatar, whatever a capture saw
+                shared.add(e["ib"])
             old = merged.get(e["ib"])
             shape = (e["mesh"], e["vertices"], json.dumps(e["submeshes"]))
             if old and (old["mesh"], old["vertices"], json.dumps(old["submeshes"])) != shape:
@@ -70,6 +74,11 @@ def main():
                 old["bones"] = old["bones"] or e["bones"]
     for ib in conflicts:
         merged.pop(ib, None)
+    for ib in shared:
+        if ib in merged:
+            merged[ib]["avatar"] = ""
+    for e in merged.values():
+        e.pop("shared", None)
     body = ",\n".join(json.dumps(merged[k], ensure_ascii=False, separators=(",", ":")) for k in sorted(merged))
     with open(out, "w", encoding="utf-8") as f:
         f.write('{"format":"gibox-hash-map","version":1,"meshes":[\n' + body + "\n]}\n")

@@ -1453,7 +1453,12 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
   // 3. A restart with the hashes off: the table now names the mesh, the slot is written at once.
   write(sharedS+"/control.json","{\"enabled\":true,\"selected\":[\"Slime\"],\"textureMods\":{\"strategy\":\"direct\",\"hashMode\":\"off\"}}");
   {Runtime c(e,pkg,root+"/privateScene",mediaS,false);uint64_t t=8200000;for(uint64_t end=t+2000;t<end;t+=100){c.tick(t);}
-   assert(f->diffuse[s1m1]!=slimeTex&&f->diffuse[s1m0]==slimeTex);c.shutdown();assert(f->diffuse[s1m1]==slimeTex);}
+   assert(f->diffuse[s1m1]!=slimeTex&&f->diffuse[s1m0]==slimeTex);
+   // A glider (1.0.3): out for a few seconds, among the controlled character's renderers, not in the last scene scan;
+   // written within two ticks.
+   auto [g,gm0,gm1,gtex]=slime();(void)gm0;Ptr withGlider[2]={body,g};store<Ptr>(f->owner+0x68,f->array(8,2,withGlider));
+   for(uint64_t end=t+200;t<end;t+=100){c.tick(t);}assert(f->diffuse[gm1]!=gtex);
+   c.shutdown();assert(f->diffuse[s1m1]==slimeTex&&f->diffuse[gm1]==gtex);f->world(body);}
   // 4. "collect": an NPC's mesh no mod names is kept in hash-map.json with its own hash and owner.
   write(sharedS+"/control.json","{\"enabled\":true,\"selected\":[],\"textureMods\":{\"hashMode\":\"collect\"}}");
   {Ptr npcRoot=f->object("transform","NPC_Katheryne(Clone)");Ptr nmesh=f->mesh("Katheryne_Body",5);texRanges[nmesh]={{0,9}};Ptr npc=f->renderer(nmesh,"Bip001","Body",npcRoot);f->scene={body,s1,npc};

@@ -729,30 +729,46 @@ struct Runtime::Impl {
   if(all){auto n=pcdb::indices(m.subs);auto k=capKey(m.mesh,m.vertices,n);
    if(!sceneByKey.count(k)){try{m.owner=avatarIdentity(r);if(m.owner.empty())m.owner=ownerOf(r);}catch(const std::exception&){}sceneByKey[k]=m;sceneShapes.insert({{n,uint64_t(m.vertices)},k});}}
   return sceneMeshes[key]=m;}
- std::vector<TexTarget> texSceneTargets(const texdiag::TextureMod& m,TexLive* L){std::vector<TexTarget> out;sceneWhy.clear();texDeferred.clear();
-  const pcdb::DeviceMap* dm=deviceMap();std::vector<std::pair<size_t,const pcdb::Mesh*>> want;std::string missing;unsigned usable=0;
+ // The rules an NPC / monster / glider mod can match here: each index-buffer hash rule whose mesh the hash table has.
+ typedef std::vector<std::pair<size_t,const pcdb::Mesh*>> SceneWant;
+ SceneWant sceneWant(const texdiag::TextureMod& m,std::string& missing,unsigned& usable){SceneWant want;missing.clear();usable=0;const pcdb::DeviceMap* dm=deviceMap();
   for(size_t k=0;k<m.doc.rules.size();k++){const auto& r=m.doc.rules[k];if((r.kind!="segment"&&r.kind!="whole-ib")||r.hash.size()!=8)continue;usable++;
    const pcdb::Mesh* ent=dm?dm->find(pcdb::lower(r.hash)):nullptr;
    if(ent)want.push_back({k,ent});else if(missing.find(r.hash)==std::string::npos)missing+=(missing.empty()?"":"、")+r.hash;}
+  return want;}
+ // One renderer against them: its slots to write go to out (taken: slots already counted). learn: read its mesh even when
+ // no rule names it (an upload of a missing hash may be tied to it).
+ void sceneTargetsFor(const texdiag::TextureMod& m,TexLive* L,Ptr r,const SceneWant& want,bool learn,std::vector<TexTarget>& out,std::set<std::pair<Ptr,int>>& taken,unsigned& shown){
+  try{if(!alive(r)||attachments.count(r)||swapped.count(r))return;(void)L;Ptr mesh=e.get(abi::getMesh,r);if(!alive(mesh))return;auto fp=fingerprint(mesh);
+   bool any=false;for(auto& w:want)any=any||(w.second->mesh==fp.mesh&&w.second->vertices==fp.vertices);if(!any&&!learn)return;
+   const auto& sm=sceneMeshOf(r,mesh);if(!any||!sm.known)return;
+   Ptr arr=e.get(abi::getMaterials,r);size_t mats=arr?pointers(arr,64).size():0;Ptr native=load<Ptr>(r+0x10);std::string label=rendererName(r)+"#"+hex(native);
+   for(auto& w:want){const auto& d=*w.second;if(d.mesh!=sm.mesh||d.vertices!=sm.vertices||d.subs!=sm.subs)continue;shown++;const auto& rule=m.doc.rules[w.first];
+    std::vector<int> slots;for(size_t i=0;i<sm.subs.size()&&i<mats;i++)if(rule.kind=="whole-ib"||(long long)sm.subs[i].first==rule.first)slots.push_back(int(i));
+    for(int sl:slots){if(!taken.insert({r,sl}).second){for(auto& o:out)if(o.renderer==r&&o.slot==sl&&std::find(o.rules.begin(),o.rules.end(),w.first)==o.rules.end())o.rules.push_back(w.first);continue;}
+     out.push_back({r,native,sl,{w.first},"索引缓冲 hash "+d.ib+" = 网格 "+d.mesh+"（"+std::to_string(d.vertices)+" 顶点"+(d.owner.empty()?std::string():"，"+d.owner)+"，本机 hash 表）；"
+      +(rule.kind=="whole-ib"?std::string("没有 match_first_index：整个网格"):"子网格起点 "+std::to_string(rule.first)+" = 材质槽 "+std::to_string(sl)),label,sm.mesh,false});}}}
+  catch(const std::exception&){}}
+ std::vector<TexTarget> texSceneTargets(const texdiag::TextureMod& m,TexLive* L){std::vector<TexTarget> out;sceneWhy.clear();texDeferred.clear();
+  std::string missing;unsigned usable=0;auto want=sceneWant(m,missing,usable);
   if(!usable){sceneWhy="没有按索引缓冲 hash 写的规则；只按贴图 hash 的规则在安卓上对不上（游戏贴图的压缩格式不同）";return out;}
   // While the hashes are read, every scene mesh is read once so that an upload of a missing hash can be tied to it.
   const bool learn=!missing.empty()&&vkcap::tracker().enabled;
   if(want.empty()&&!learn){sceneWhy="hash 表里还没有 "+missing+" 对应的网格：把 hash 模式设为“匹配”或“采集”并重启游戏，再让这个 NPC / 怪物出现一次";return out;}
-  std::vector<Ptr> pool=sceneRenderers(texClock());if(L)for(auto& x:L->slots)pool.push_back(x.renderer);
+  // The scene (every 2 s), our slots, and the controlled character's own renderers (a glider is one while it is out).
+  std::vector<Ptr> pool=sceneRenderers(texClock());if(L)for(auto& x:L->slots)pool.push_back(x.renderer);try{for(Ptr r:worldRenderers())pool.push_back(r);}catch(const std::exception&){}
   std::set<Ptr> once;std::set<std::pair<Ptr,int>> taken;unsigned shown=0;
-  for(Ptr r:pool){if(!once.insert(r).second)continue;
-   try{if(!alive(r)||attachments.count(r)||swapped.count(r))continue;Ptr mesh=e.get(abi::getMesh,r);if(!alive(mesh))continue;auto fp=fingerprint(mesh);
-    bool any=false;for(auto& w:want)any=any||(w.second->mesh==fp.mesh&&w.second->vertices==fp.vertices);if(!any&&!learn)continue;
-    const auto& sm=sceneMeshOf(r,mesh);if(!any||!sm.known)continue;
-    Ptr arr=e.get(abi::getMaterials,r);size_t mats=arr?pointers(arr,64).size():0;Ptr native=load<Ptr>(r+0x10);std::string label=rendererName(r)+"#"+hex(native);
-    for(auto& w:want){const auto& d=*w.second;if(d.mesh!=sm.mesh||d.vertices!=sm.vertices||d.subs!=sm.subs)continue;shown++;const auto& rule=m.doc.rules[w.first];
-     std::vector<int> slots;for(size_t i=0;i<sm.subs.size()&&i<mats;i++)if(rule.kind=="whole-ib"||(long long)sm.subs[i].first==rule.first)slots.push_back(int(i));
-     for(int sl:slots){if(!taken.insert({r,sl}).second){for(auto& o:out)if(o.renderer==r&&o.slot==sl&&std::find(o.rules.begin(),o.rules.end(),w.first)==o.rules.end())o.rules.push_back(w.first);continue;}
-      out.push_back({r,native,sl,{w.first},"索引缓冲 hash "+d.ib+" = 网格 "+d.mesh+"（"+std::to_string(d.vertices)+" 顶点"+(d.owner.empty()?std::string():"，"+d.owner)+"，本机 hash 表）；"
-       +(rule.kind=="whole-ib"?std::string("没有 match_first_index：整个网格"):"子网格起点 "+std::to_string(rule.first)+" = 材质槽 "+std::to_string(sl)),label,sm.mesh,false});}}}
-   catch(const std::exception&){}}
+  for(Ptr r:pool){if(once.insert(r).second)sceneTargetsFor(m,L,r,want,learn,out,taken,shown);}
   if(out.empty())sceneWhy=shown?std::string("网格已出现，但规则的 match_first_index 不是它的子网格起点"):want.empty()?"等待 "+missing+" 的上传与场景里的网格对上（让这个 NPC / 怪物出现一次）":std::string("场景里暂时没有这些网格（靠近这个 NPC / 怪物）");
   return out;}
+ // Every tick, between the scans: the controlled character's renderers, the hand-off's and those seen (a glider comes
+ // out for a few seconds; the 2 s scene scan alone could miss it), written at once.
+ void texSceneQuick(TexLive& L,const std::string& path,const texdiag::TextureMod& m,const std::map<std::string,Texture>& px,const std::vector<Ptr>& pool){
+  std::string missing,why;unsigned usable=0;auto want=sceneWant(m,missing,usable);if(want.empty()||!texStoreReady(path,why))return;
+  std::vector<TexTarget> targets;std::set<std::pair<Ptr,int>> taken;for(auto& x:L.slots)taken.insert({x.renderer,x.slot});unsigned shown=0;
+  for(Ptr r:pool)sceneTargetsFor(m,&L,r,want,false,targets,taken,shown);
+  for(auto& t:targets){try{if(texAssetWait(L,t,"逐帧检查"))continue;texSeen(t.native,"逐帧检查");auto& tt=texTimes[t.native];if(!tt.matched)tt.matched=texClock();TexSlot fresh;texApply(L,m,px,t,fresh);L.slots.push_back(std::move(fresh));}
+   catch(const std::exception& ex){texSay(L,"err|"+hex(t.renderer)+"|"+std::to_string(t.slot)+"|"+ex.what(),"texture-error",texTag(L)+"："+t.label+" 槽位 "+std::to_string(t.slot)+"："+ex.what());}}}
  // One slot: what the strategy writes, read back at once; the log line names everything needed to follow it.
  bool texApply(TexLive& L,const texdiag::TextureMod& m,const std::map<std::string,Texture>& px,const TexTarget& t,TexSlot& s){
   std::vector<std::string> skipped;auto plan=texdiag::writesFor(m.doc,t.rules,texVars(m),skipped);
@@ -867,6 +883,7 @@ struct Runtime::Impl {
    std::shared_ptr<std::map<std::string,Texture>> px;{std::lock_guard<std::mutex> l(sm);auto p=texPixels.find(kv.first);if(p==texPixels.end()||!p->second.pixels)continue;px=p->second.pixels;}
    std::set<Ptr> rs;for(auto& s:L->slots)rs.insert(s.renderer);for(Ptr r:rs)texWatchRenderer(*L,*f->second.mod,*px,r,"逐帧检查");
    std::vector<Ptr> pool;try{pool=worldRenderers();}catch(const std::exception&){}for(auto& sn:seen)if(seenLive(sn))pool.push_back(sn.renderer);for(auto& kv:texPending)if(texPendLive(kv))pool.push_back(kv.first);
+   if(f->second.mod->character==texdiag::kScene){texSceneQuick(*L,kv.first,*f->second.mod,*px,pool);continue;}
    for(Ptr r:pool)texQuickApply(*L,kv.first,*f->second.mod,*px,r,"scan",false);}}
  // A renderer with no slot yet: written when its mesh is a mapped one and the textures are ready; else the wait is said.
  // A model the game handed over first shows the loaded asset material, then the game's instance made from it: direct

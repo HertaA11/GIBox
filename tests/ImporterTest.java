@@ -39,7 +39,7 @@ public class ImporterTest {
   // NPC / monster (1.0.3): last in the plain list, found by its words, never a character's alias or recommendation.
   {List<Characters.Avatar> plain=Characters.ordered(new Characters.Guess(),"");ok(plain.get(plain.size()-1)==Characters.SCENE_AVATAR&&Characters.byId(Characters.SCENE)==Characters.SCENE_AVATAR
     &&ids(Characters.search("怪物")).equals(Collections.singletonList(Characters.SCENE))&&ids(Characters.search("npc")).equals(Collections.singletonList(Characters.SCENE))
-    &&!Characters.all().contains(Characters.SCENE_AVATAR)&&"NPC / 怪物".equals(Characters.nameOf(Characters.SCENE)),"NPC / monster choice");}
+    &&!Characters.all().contains(Characters.SCENE_AVATAR)&&"NPC / 怪物 / 风之翼".equals(Characters.nameOf(Characters.SCENE))&&ids(Characters.search("风之翼")).equals(Collections.singletonList(Characters.SCENE)),"NPC / monster choice");}
   File lumine=renamed(download,"Traveler","TravelerGirl"),both=renamed(download,"traveler x","Traveler");
   ok(ids(Characters.guess(lumine,"Traveler",null).recommended).equals(Collections.singletonList(10000007))&&ids(Characters.guess(both,"traveler x",null).recommended).equals(Arrays.asList(10000005,10000007)),"traveler: girl wins, plain is a tie");
   // 4. Staging: a folder is copied (one extra level is fine), a zip unpacked; unsafe archives leave nothing behind.
@@ -136,6 +136,9 @@ public class ImporterTest {
   File onone=new File(base,"GIBox-outfit-pc-only");onone.mkdirs();Files.copy(new File("app/src/main/assets/pc-hashes.json").toPath(),new File(onone,"pc-hashes.json").toPath(),StandardCopyOption.REPLACE_EXISTING);
   Files.write(new File(onone,"device-hashes.json").toPath(),"{\"format\":\"gibox-hash-map\",\"version\":1,\"meshes\":[\n]}\n".getBytes(java.nio.charset.StandardCharsets.UTF_8));
   ok(table.guess(10000025,Collections.singleton("76df4025"),onone).outfit==null,"guess: a hash two outfits share in the PC data decides nothing");
+  // The glider's mesh (Flycloak_Normal_Model, 1.0.3): no character owns it; its hash recommends NPC / monster / glider.
+  {Map<Integer,List<String>> sc=DeviceHashes.load(oshared).characters(Arrays.asList("f195ef18"));Characters.Guess sg=new Characters.Guess();Characters.hashEvidence(sg,sc);
+   ok(sc.keySet().equals(Collections.singleton(Characters.SCENE))&&sg.recommended.contains(Characters.SCENE_AVATAR)&&Characters.ordered(sg,"").get(0)==Characters.SCENE_AVATAR,"a glider hash recommends NPC / monster / glider: "+sc);}
   Outfits.Guess twoOutfits=table.guess(10000063,Arrays.asList("33a92492","83a9116d"),oshared);ok(twoOutfits.outfit==null&&twoOutfits.conflict.size()==2,"guess: hashes of two outfits");
   ok(table.guess(10000052,Collections.singleton("83a9116d"),oshared).outfit==null,"guess: a character without skins");
   File old=new File(base,"骨骼-旧皮肤");character(old,"10000063",10000063,"Avatar_Lady_Pole_ShenheCostumeDai_Manekin");
