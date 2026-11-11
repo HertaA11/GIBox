@@ -196,7 +196,7 @@ class AppState(private val activity: Activity) {
     private fun installPcHashes() {
         if (pcHashesFor == game || !storage) return
         runCatching {
-            for ((file, what) in listOf("pc-hashes.json" to "PC hash 数据库", "device-hashes.json" to "手机 hash 表")) {
+            for ((file, what) in listOf("pc-hashes.json" to "PC hash 数据库", "device-hashes.json" to "手机 hash 表", OfflineSkeletons.FILE to "离线骨骼表")) {
                 val bytes = activity.assets.open(file).use { it.readBytes() }
                 if (Control.installShared(game, file, bytes)) AppLog.info(game, LOGGER, "shared-installed $what（${bytes.size / 1024} KB）")
             }
@@ -507,11 +507,16 @@ class AppState(private val activity: Activity) {
     }
     fun guess(pick: Screen.Pick): Characters.Guess =
         Importer.guess(pick.pending ?: pick.source ?: File(modsRoot, pick.modName), pick.importedAs, boneRoot)
-    fun recorded(): Set<Int> = ModLibrary.library(boneRoot).map { it.id }.toSet()
+    /** Characters with a skeleton: in the table made from the game's files, or recorded by the game on this device. */
+    fun recorded(): Set<Int> = ModLibrary.library(boneRoot).map { it.id }.toSet() + (OfflineSkeletons.load(boneRoot.absoluteFile.parentFile)?.characters() ?: emptySet())
     /** The outfits of a character (the original first); empty for a character without skins. */
     fun outfits(id: Int): List<Outfits.Outfit> = Outfits.current().of(id)
     /** The outfits of a character that have a bone library (prefabs). */
-    fun recordedOutfits(id: Int): Set<String> = ModLibrary.recordedOutfits(boneRoot, id, Outfits.current())
+    fun recordedOutfits(id: Int): Set<String> {
+        val table = Outfits.current(); val offline = OfflineSkeletons.load(boneRoot.absoluteFile.parentFile)
+        val fromTable = table.of(id).filter { offline?.prefabFor(id, it.prefab) != null }.map { it.prefab }
+        return ModLibrary.recordedOutfits(boneRoot, id, table) + fromTable
+    }
     /** The outfit the picker suggests: the one the mod's INI hashes name, else the one chosen before, else the original. */
     fun suggestedOutfit(pick: Screen.Pick, id: Int): String {
         val list = outfits(id); if (list.isEmpty()) return ""

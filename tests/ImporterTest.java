@@ -136,6 +136,20 @@ public class ImporterTest {
   File onone=new File(base,"GIBox-outfit-pc-only");onone.mkdirs();Files.copy(new File("app/src/main/assets/pc-hashes.json").toPath(),new File(onone,"pc-hashes.json").toPath(),StandardCopyOption.REPLACE_EXISTING);
   Files.write(new File(onone,"device-hashes.json").toPath(),"{\"format\":\"gibox-hash-map\",\"version\":1,\"meshes\":[\n]}\n".getBytes(java.nio.charset.StandardCharsets.UTF_8));
   ok(table.guess(10000025,Collections.singleton("76df4025"),onone).outfit==null,"guess: a hash two outfits share in the PC data decides nothing");
+  // The skeleton table made from the game's files (1.0.4): a character's prefab by its internal name, an outfit's by its
+  // prefab (any case), written as a bone library the converter reads like the game's own; the device library is the
+  // fallback for a prefab the table lacks.
+  {File sh=new File(base,"GIBox-offline");sh.mkdirs();
+   String body="{\"mesh_id\":\"cab-1:2\",\"name\":\"Body\",\"mesh\":\"Body\",\"vertices\":3,\"submeshes\":1,\"kinds\":[\"character\"],\"owner_count\":1,\"bones\":[\"Bip001\",\"Bip001 Head\"],\"parents\":[-1,0],\"bindposes\":[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,1.74979198e-06,1.0939558e-06,-1,0,-1,4.37132996e-08,-1.74979209e-06,0,4.37114025e-08,1,1.09395592e-06,0,1.32685375,-0.0112854121,2.38770826e-06,1]}";
+   String offTable="{\"format\":\"gibox-offline-skeletons\",\"version\":1,\"build\":\"b\",\"meshes\":[\n"+body+"\n],\"prefabs\":[\n{\"owner\":\"Avatar_Girl_Catalyst_Citlali\",\"kind\":\"character\",\"renderers\":[[\"Body\",0]]},\n{\"owner\":\"Avatar_Girl_Catalyst_CitlaliCostumeXia\",\"kind\":\"character\",\"renderers\":[[\"Body\",0]]}\n]}\n";
+   Files.write(new File(sh,OfflineSkeletons.FILE).toPath(),offTable.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+   OfflineSkeletons os=OfflineSkeletons.load(sh);
+   ok(os!=null&&"Avatar_Girl_Catalyst_Citlali".equals(os.prefabFor(10000107,null))&&"Avatar_Girl_Catalyst_CitlaliCostumeXia".equals(os.prefabFor(10000107,"avatar_girl_catalyst_citlalicostumexia"))
+     &&os.prefabFor(10000107,"avatar_girl_catalyst_citlalicostumeother")==null&&os.prefabFor(10000002,null)==null&&os.characters().contains(10000107),"offline table: prefabs by name and by outfit");
+   ModLibrary.Character lib=os.library("Avatar_Girl_Catalyst_Citlali",10000107,new File(sh,"skeletons-offline"));
+   List<ModelConverter.Bones> bs=ModelConverter.bones(lib.bones,10000107);ByteBuffer bb=ByteBuffer.wrap(bs.get(0).binds).order(ByteOrder.LITTLE_ENDIAN);
+   ok(bs.size()==1&&bs.get(0).names.equals(Arrays.asList("Bip001","Bip001 Head"))&&bs.get(0).parents.equals(Arrays.asList(-1,0))&&bb.getFloat(64)==1.74979198e-06f&&bb.getFloat(64+48)==1.32685375f
+     &&bs.get(0).target!=null&&((Number)bs.get(0).target.get("submeshes")).intValue()==1&&Outfits.chainAvatar(lib.root).equals("avatar_girl_catalyst_citlali"),"offline table: a bone library the converter reads, bind poses exact: "+lib.root);}
   // The glider's mesh (Flycloak_Normal_Model, 1.0.3): no character owns it; its hash recommends NPC / monster / glider.
   {Map<Integer,List<String>> sc=DeviceHashes.load(oshared).characters(Arrays.asList("f195ef18"));Characters.Guess sg=new Characters.Guess();Characters.hashEvidence(sg,sc);
    ok(sc.keySet().equals(Collections.singleton(Characters.SCENE))&&sg.recommended.contains(Characters.SCENE_AVATAR)&&Characters.ordered(sg,"").get(0)==Characters.SCENE_AVATAR,"a glider hash recommends NPC / monster / glider: "+sc);}

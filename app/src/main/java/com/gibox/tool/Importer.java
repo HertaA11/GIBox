@@ -159,7 +159,15 @@ public final class Importer {
             outfitNote = "外观：" + outfit.name + "（" + outfit.prefab + "）" + (g.outfit != null ? "；依据 INI 哈希识别：" + g.how
                 : g.conflict.isEmpty() ? "；未能依据 INI 哈希识别外观，按所选外观转换" : "；INI 哈希指向多套外观（" + String.join("、", g.conflict) + "），按所选外观转换");
         }
-        ModLibrary.Character recorded = outfit != null ? ModLibrary.recorded(boneRoot, id, outfit.prefab) : ModLibrary.recorded(boneRoot, id); Characters.Avatar avatar = Characters.byId(id);
+        // The skeleton: the table made from the game's files first (1.0.4: equal, bit for bit, to what the game records),
+        // then the library the game recorded on this device.
+        File sharedDir = boneRoot.getAbsoluteFile().getParentFile(); ModLibrary.Character recorded = null; String boneSource = "";
+        OfflineSkeletons offline = OfflineSkeletons.load(sharedDir);
+        String offlinePrefab = offline == null ? null : offline.prefabFor(id, outfit != null ? outfit.prefab : null);
+        if (offlinePrefab != null) try { recorded = offline.library(offlinePrefab, id, new File(sharedDir, "skeletons-offline")); boneSource = "离线骨骼表（" + offlinePrefab + "）"; }
+            catch (Exception e) { log.append("离线骨骼表不可用：").append(e.getMessage()).append("，改用本机记录的骨骼库\n"); }
+        if (recorded == null) { recorded = outfit != null ? ModLibrary.recorded(boneRoot, id, outfit.prefab) : ModLibrary.recorded(boneRoot, id); if (recorded != null) boneSource = "本机记录的骨骼库"; }
+        Characters.Avatar avatar = Characters.byId(id);
         // A record of a lower level of detail (made right after loading, before 0.6.5) has a shorter bone list than the
         // full model the mod is made for: it is not used. The game records the full model the next time the character appears.
         String lodLibrary = recorded != null ? recorded.lodMesh : ""; if (!lodLibrary.isEmpty()) recorded = null;
@@ -173,6 +181,7 @@ public final class Importer {
         opt.source(mod.getAbsolutePath(), ModLibrary.signature(mod));
         if (outfit != null) { opt.outfit(outfit.prefab); log.append(outfitNote).append('\n'); }
         Result r = new Result(); r.id = id; r.library = recorded != null;
+        if (!boneSource.isEmpty()) log.append("骨骼来源：").append(boneSource).append('\n');
         log.append("角色：").append(Characters.nameOf(id)).append("（").append(id).append("）").append(r.library ? "，使用骨骼库：" + recorded.bones : lodLibrary.isEmpty() ? (outfit != null ? "，骨骼库中尚无此外观" : "，骨骼库中尚无此角色") + "：按游戏原骨骼顺序转换" : "，骨骼库中此角色的记录为低精度模型 " + lodLibrary + "，不使用：按游戏原骨骼顺序转换").append('\n');
         if (!r.library && avatar != null && !avatar.model.isEmpty()) opt.names(avatar.model);
         r.model = ModelConverter.convert(src, r.library ? recorded.bones : null, new File(modelsRoot, name), id, opt, decoder, log);
