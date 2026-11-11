@@ -42,6 +42,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -65,8 +66,10 @@ fun schemeLabel(rel: String, all: List<String>): String {
  */
 @Composable
 fun PickScreen(state: AppState, pick: Screen.Pick) {
-    val guess = remember(pick) { state.guess(pick) }
-    val recorded = remember(pick) { state.recorded() }
+    // Off the main thread: the guess reads the hash tables (~10 MB) and the INI (1.0.4: on the main thread they stalled the page).
+    val guess by produceState(initialValue = Characters.Guess(), pick) { value = withContext(Dispatchers.IO) { state.guess(pick) } }
+    // Off the main thread: the first call reads the skeleton table made from the game's files (17 MB).
+    val recorded by produceState(initialValue = emptySet<Int>(), pick) { value = withContext(Dispatchers.IO) { state.recorded() } }
     var query by remember(pick) { mutableStateOf("") }
     var chosen by remember(pick) { mutableIntStateOf(0) }
     val list = remember(guess, query) { Characters.ordered(guess, query) }

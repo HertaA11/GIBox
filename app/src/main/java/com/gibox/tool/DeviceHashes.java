@@ -20,7 +20,16 @@ public final class DeviceHashes {
      *  monster's (an owner in the table) or the glider's (Flycloak_). */
     private final Set<String> scene = new HashSet<>();
 
-    public static DeviceHashes load(File sharedDir) {
+    private static String cachedKey; private static DeviceHashes cached;
+    /** The three files as last read, by path, time and size: the bundled table is ~10 MB (1.0.3), and the character
+     *  list, the outfit guess and each conversion ask for it; it is parsed again only when a file changed. */
+    public static synchronized DeviceHashes load(File sharedDir) {
+        StringBuilder key = new StringBuilder(sharedDir.getAbsolutePath());
+        for (String f : new String[]{"device-hashes.json", "hash-map.json", "pc-hashes.json"}) { File x = new File(sharedDir, f); key.append('|').append(x.lastModified()).append(':').append(x.length()); }
+        if (key.toString().equals(cachedKey) && cached != null) return cached;
+        cached = read(sharedDir); cachedKey = key.toString(); return cached;
+    }
+    private static DeviceHashes read(File sharedDir) {
         DeviceHashes d = new DeviceHashes();
         for (String f : new String[]{"device-hashes.json", "hash-map.json"}) {   // this device's own map wins
             try { Map<String, Object> j = Json.obj(Json.read(new File(sharedDir, f), 64L << 20), f);

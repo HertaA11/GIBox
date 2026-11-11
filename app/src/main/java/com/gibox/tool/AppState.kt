@@ -195,13 +195,16 @@ class AppState(private val activity: Activity) {
      *  (assets/device-hashes.json): the game reads both from the shared folder. */
     private fun installPcHashes() {
         if (pcHashesFor == game || !storage) return
-        runCatching {
-            for ((file, what) in listOf("pc-hashes.json" to "PC hash 数据库", "device-hashes.json" to "手机 hash 表", OfflineSkeletons.FILE to "离线骨骼表")) {
-                val bytes = activity.assets.open(file).use { it.readBytes() }
-                if (Control.installShared(game, file, bytes)) AppLog.info(game, LOGGER, "shared-installed $what（${bytes.size / 1024} KB）")
-            }
-            pcHashesFor = game
-        }.onFailure { AppLog.warning(game, LOGGER, "shared-error hash 数据安装失败：${it.message}") }
+        // On a thread of its own: the three files are ~28 MB, read and compared with the installed copies (1.0.4).
+        val pkg = game; pcHashesFor = pkg
+        Thread {
+            runCatching {
+                for ((file, what) in listOf("pc-hashes.json" to "PC hash 数据库", "device-hashes.json" to "手机 hash 表", OfflineSkeletons.FILE to "离线骨骼表")) {
+                    val bytes = activity.assets.open(file).use { it.readBytes() }
+                    if (Control.installShared(pkg, file, bytes)) AppLog.info(pkg, LOGGER, "shared-installed $what（${bytes.size / 1024} KB）")
+                }
+            }.onFailure { pcHashesFor = ""; AppLog.warning(pkg, LOGGER, "shared-error hash 数据安装失败：${it.message}") }
+        }.apply { name = "gibox-install-tables"; isDaemon = true }.start()
     }
     fun refreshStatus() { status = Control.status(game) }
     fun acceptStatus(pkg: String, snapshot: Control.Status) { if (game == pkg) status = snapshot }

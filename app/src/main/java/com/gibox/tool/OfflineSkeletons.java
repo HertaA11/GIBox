@@ -1,10 +1,11 @@
 package com.gibox.tool;
 
-import java.io.BufferedReader;
+import java.io.BufferedInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
-import java.io.InputStreamReader;
+import java.io.RandomAccessFile;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 
@@ -16,14 +17,19 @@ import java.util.*;
  * character or an outfit converts without having been shown in the game. A prefab the table lacks (a character newer
  * than the table) falls back to the library the game records.
  *
- * The file is one record per line: the header, the meshes, a line opening the prefabs, the prefabs. The meshes stay
- * as text until a prefab asks for them.
+ * The file is one record per line: the header, the meshes, a line opening the prefabs, the prefabs. Only the prefab
+ * index is kept in memory; a mesh's line is read from the file (by its offset) when a prefab asks for it. A character
+ * is found by its internal name through an index made once (1.0.4: matching every prefab name per character on the
+ * App's main thread stalled the character list for seconds).
  */
 final class OfflineSkeletons {
     static final String FILE = "offline-skeletons.json";
     final String build;
     private final long modified;
-    private final List<String> meshes = new ArrayList<>();
+    private final File file;
+    private long[] meshAt = new long[1024]; private int[] meshLength = new int[1024]; private int meshCount;
+    private final Map<String, List<String>> byName = new HashMap<>();      // character internal name -> lower-case Avatar_<body>_<weapon>_<name> owners
+    private Set<Integer> characters;
     private final Map<String, List<Object[]>> prefabs = new HashMap<>();   // lower-case owner -> [renderer, mesh index]
     private final Map<String, String> owners = new HashMap<>();            // lower-case owner -> as written
 
@@ -40,21 +46,40 @@ final class OfflineSkeletons {
         return cached;
     }
 
+    /** One line of the file and the byte offset it starts at. */
+    private static final class Lines {
+        private final BufferedInputStream in; private final ByteArrayOutputStream buf = new ByteArrayOutputStream(1 << 16); long at, start;
+        Lines(File f) throws Exception { in = new BufferedInputStream(new FileInputStream(f), 1 << 16); }
+        String next() throws Exception {
+            buf.reset(); start = at; int c;
+            while ((c = in.read()) >= 0) { at++; if (c == '\n') break; buf.write(c); }
+            if (c < 0 && buf.size() == 0) return null;
+            return new String(buf.toByteArray(), StandardCharsets.UTF_8);
+        }
+        void close() throws Exception { in.close(); }
+    }
+
     private OfflineSkeletons(File f) throws Exception {
-        modified = f.lastModified();
-        try (BufferedReader in = new BufferedReader(new InputStreamReader(new FileInputStream(f), StandardCharsets.UTF_8), 1 << 16)) {
-            String head = in.readLine();
+        modified = f.lastModified(); file = f;
+        Lines in = new Lines(f);
+        try {
+            String head = in.next();
+            if (head != null && head.startsWith("\uFEFF")) head = head.substring(1);
             Json.check(head != null && head.startsWith("{\"format\":\"gibox-offline-skeletons\",\"version\":1,") && head.endsWith("\"meshes\":["), "不是 GIBox 离线骨骼表");
             Object b = ((Map<?, ?>) Json.parse(head + "]}")).get("build");
             build = b instanceof String ? (String) b : "";
             boolean inPrefabs = false;
-            for (String line; (line = in.readLine()) != null; ) {
+            for (String line; (line = in.next()) != null; ) {
+                long start = in.start; int bytes = (int) (in.at - in.start);
                 line = line.trim();
                 if (line.isEmpty()) continue;
                 if (line.equals("],\"prefabs\":[")) { inPrefabs = true; continue; }
                 if (line.equals("]}")) break;
                 if (line.endsWith(",")) line = line.substring(0, line.length() - 1);
-                if (!inPrefabs) { meshes.add(line); continue; }
+                if (!inPrefabs) {
+                    if (meshCount == meshAt.length) { meshAt = Arrays.copyOf(meshAt, meshCount * 2); meshLength = Arrays.copyOf(meshLength, meshCount * 2); }
+                    meshAt[meshCount] = start; meshLength[meshCount++] = bytes; continue;
+                }
                 Map<String, Object> p = Json.obj(Json.parse(line), "prefab");
                 String owner = Json.str(p.get("owner"), "owner", 256);
                 List<Object[]> rs = new ArrayList<>();
@@ -62,9 +87,22 @@ final class OfflineSkeletons {
                     List<Object> x = Json.arr(r, "renderer", 2, 2);
                     rs.add(new Object[]{Json.str(x.get(0), "renderer", 256), (int) Json.integer(x.get(1), "mesh", 0, Integer.MAX_VALUE)});
                 }
-                prefabs.put(owner.toLowerCase(Locale.ROOT), rs); owners.put(owner.toLowerCase(Locale.ROOT), owner);
+                String key = owner.toLowerCase(Locale.ROOT);
+                prefabs.put(key, rs); owners.put(key, owner);
+                String[] parts = key.split("_");
+                if (parts.length == 4 && parts[0].equals("avatar")) byName.computeIfAbsent(parts[3], k -> new ArrayList<>()).add(key);
             }
-        }
+        } finally { in.close(); }
+    }
+
+    /** A mesh record, read from its line in the file. */
+    private Map<String, Object> mesh(int index) throws Exception {
+        Json.check(index >= 0 && index < meshCount, "离线骨骼表的网格序号无效：" + index);
+        byte[] b = new byte[meshLength[index]];
+        try (RandomAccessFile r = new RandomAccessFile(file, "r")) { r.seek(meshAt[index]); r.readFully(b); }
+        String line = new String(b, StandardCharsets.UTF_8).trim();
+        if (line.endsWith(",")) line = line.substring(0, line.length() - 1);
+        return Json.obj(Json.parse(line), "mesh");
     }
 
     boolean has(String owner) { return owner != null && prefabs.containsKey(owner.toLowerCase(Locale.ROOT)); }
@@ -79,11 +117,10 @@ final class OfflineSkeletons {
         if (a == null) return null;
         String found = null;
         for (String model : a.model)
-            for (String k : prefabs.keySet())
-                if (k.matches("avatar_[a-z]+_[a-z]+_" + java.util.regex.Pattern.quote(model.toLowerCase(Locale.ROOT)))) {
-                    if (found != null && !found.equals(k)) return null;   // two prefabs answer: neither
-                    found = k;
-                }
+            for (String k : byName.getOrDefault(model.toLowerCase(Locale.ROOT), Collections.emptyList())) {
+                if (found != null && !found.equals(k)) return null;   // two prefabs answer: neither
+                found = k;
+            }
         return found == null ? null : owners.get(found);
     }
 
@@ -100,8 +137,8 @@ final class OfflineSkeletons {
             List<Object> renderers = new ArrayList<>(); Set<String> seen = new HashSet<>();
             for (Object[] r : rs) {
                 String name = (String) r[0]; int index = (Integer) r[1];
-                if (index >= meshes.size() || !seen.add(name.toLowerCase(Locale.ROOT)) || renderers.size() >= 64) continue;
-                Map<String, Object> m = Json.obj(Json.parse(meshes.get(index)), "mesh");
+                if (index >= meshCount || !seen.add(name.toLowerCase(Locale.ROOT)) || renderers.size() >= 64) continue;
+                Map<String, Object> m = mesh(index);
                 List<Object> bones = Json.arr(m.get("bones"), "bones", 1, 512);
                 Map<String, Object> rec = new LinkedHashMap<>();
                 rec.put("name", name);
@@ -121,11 +158,12 @@ final class OfflineSkeletons {
     }
 
     /** The characters (ids) the table has a prefab for: their original look, or one of their outfits. */
-    Set<Integer> characters() {
+    synchronized Set<Integer> characters() {
+        if (characters != null) return characters;
         Set<Integer> out = new TreeSet<>();
         for (Characters.Avatar a : Characters.all()) if (prefabFor(a.id, null) != null) out.add(a.id);
         Outfits table = Outfits.current();
         for (Characters.Avatar a : Characters.all()) for (Outfits.Outfit o : table.of(a.id)) if (has(o.prefab)) out.add(a.id);
-        return out;
+        return characters = Collections.unmodifiableSet(out);
     }
 }
