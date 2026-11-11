@@ -2103,7 +2103,8 @@ struct Runtime::Impl {
  // game slots, or several draws that all use slot 0. Saving the mod's array shape would itself break restoration.
  void captureMaterials(Attachment& a,Ptr mats){pin(a,mats);auto incoming=pointers(mats,64);Attachment* source=nullptr;bool known=false;
   for(auto& kv:attachments){auto& owner=*kv.second;for(Ptr p:incoming)if(owner.materialSources.count(p)){known=true;
-    if(matches(partOf(a).target,partOf(owner).target)){source=&owner;break;}}if(source)break;}
+    if(matches(partOf(a).target,partOf(owner).target)){source=&owner;break;}}
+   if(source)break;}
   require(!known||source,"继承的 GIBox 材质属于另一个网格");
   a.originalMaterials=source?source->originalMaterials:mats;pin(a,a.originalMaterials);
   if(source)log("material-backup-cleaned",a.set->name+"/"+partOf(a).name+"：继承的 MOD 材质槽 "+std::to_string(incoming.size())+" 个已替换为原材质组（"+std::to_string(length(a.originalMaterials,64))+" 槽）");}
