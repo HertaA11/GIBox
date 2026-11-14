@@ -206,8 +206,11 @@ private fun ModsCard(state: AppState, searchField: Modifier, onSearch: () -> Uni
                 IconButton(onClick = onSearch, modifier = searchField) { Icon(Icons.Filled.Search, contentDescription = "搜索 MOD") }
             }
             HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh)
-            if (groups.isEmpty()) EmptyNote(if (category == 2) "还没有加载图片。导入加载背景 MOD 时，选择「加载图片」。" else if (category == 1) "还没有场景 MOD。导入 NPC、怪物、武器或风之翼 MOD 时，选择对应的场景分类。" else "还没有角色 MOD。点「导入 MOD」，选择 MOD 的 .zip 压缩包。")
-            groups.forEach { g ->
+            if (groups.isEmpty()) EmptyNote(if (category == 2) "还没有加载图片。导入加载背景 MOD 时，选择「加载图片」。" else if (category == 1) "还没有场景 MOD。导入 NPC、怪物、武器或风之翼 MOD 时，选择「场景 MOD」。" else "还没有角色 MOD。点「导入 MOD」，选择 MOD 的 .zip 压缩包。")
+            if (category != 0) {
+                val mods = groups.flatMap { it.mods }
+                mods.forEachIndexed { index, mod -> ModRow(state, mod, index, mods.size) }
+            } else groups.forEach { g ->
                 Row(
                     Modifier.fillMaxWidth().clickable { state.open(Screen.Character(g.id)) }.padding(start = 24.dp, end = 16.dp, top = 16.dp, bottom = 16.dp),
                     verticalAlignment = Alignment.CenterVertically,

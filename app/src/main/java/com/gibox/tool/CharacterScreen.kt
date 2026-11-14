@@ -127,7 +127,7 @@ private fun CharacterMain(state: AppState, id: Int, searchField: Modifier, onSea
 
 /** One mod: its name, its state, the switch; tap for its details. */
 @Composable
-private fun ModRow(state: AppState, m: Importer.Mod, index: Int, count: Int) {
+internal fun ModRow(state: AppState, m: Importer.Mod, index: Int, count: Int) {
     val on = m.converted && state.selected(m.name)
     val label = state.label(m.name)
     SegmentedListItem(

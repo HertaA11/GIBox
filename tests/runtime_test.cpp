@@ -20,7 +20,7 @@ struct Fake {
  Ptr stringBase=0x7020000000ull,base=0,manager=0,owner=0,klass=0,typeObj=0,meshTypeObj=0;unsigned meshFinds=0;std::map<Ptr,Obj> obj;std::vector<void*> allocated;std::map<unsigned,Ptr> handles;unsigned nextHandle=1,nextId=1;
  // Each built part now clones one restoration snapshot and one mod mesh; count both engine allocations.
  unsigned clones=0,meshClones=0,textures=0,weightAllocs=0,typeLookups=0,findCalls=0,findAllCalls=0,childCalls=0,bindposeReads=0;std::map<Ptr,Ptr> goOfRenderer;std::map<Ptr,std::vector<Ptr>> goChildren;Ptr lastWeights=0;std::map<Ptr,std::string> strings;std::string lightProperty;bool failMaterials=false,failFind=false,failPosition=false;
- std::map<Ptr,Ptr> extraTypes,filterByGo,rendererByGo,transformByGo;std::vector<Ptr> rigidFilters,rigidTransforms;
+ std::set<Ptr> inactiveGos;std::map<Ptr,Ptr> extraTypes,filterByGo,rendererByGo,transformByGo;std::vector<Ptr> rigidFilters,rigidTransforms;
  unsigned expectedVertices=3;std::map<Ptr,unsigned> textureBytes;
  std::map<Ptr,Ptr> diffuse;std::map<Ptr,std::map<int32_t,Ptr>> named;std::map<Ptr,float> glow; // material properties copied by Instantiate, including copies made by the game
  std::map<Ptr,unsigned> nameReads,boneReads; // actual engine getter counts, used to check binding hot-path work
@@ -119,6 +119,7 @@ int32_t texSide(Ptr t,Ptr){assert(t&&load<Ptr>(t+0x10));return 4;}int32_t texFor
 // the loader switches by itself, else the level it is held at (IsLodLoaderSelfPaused: != 0xff).
 std::map<Ptr,Ptr> lodOnGo;std::map<Ptr,unsigned> lodHeld,lodNow;unsigned lodLookups=0;
 Ptr byName(Ptr go,Ptr name,Ptr){assert(f->obj.at(go).kind=="gameobject");auto label=f->strings.at(name);if(label=="Transform")return f->transformByGo[go];if(label=="MeshFilter")return f->filterByGo[go];if(label=="MeshRenderer")return f->rendererByGo[go];assert(label=="MiHoYoLodLoader");lodLookups++;auto it=lodOnGo.find(go);return it==lodOnGo.end()?0:it->second;}
+uint32_t gameObjectActive(Ptr go,Ptr){assert(f->obj.at(go).kind=="gameobject");return f->inactiveGos.count(go)?0:1;}
 uint32_t lodSelf(Ptr l,Ptr){assert(f->obj.at(l).kind=="lodloader");return lodHeld[l]!=0xff;}
 void lodPauseAt(Ptr l,int32_t level,Ptr){assert(f->obj.at(l).kind=="lodloader"&&level>=0&&level<=7);lodHeld[l]=unsigned(level);lodNow[l]=unsigned(level);}
 void lodResumeFn(Ptr l,Ptr){assert(f->obj.at(l).kind=="lodloader");lodHeld[l]=0xff;}
@@ -127,7 +128,7 @@ Ptr resolve(abi::Offset o){switch(o){
  case abi::componentByName:return reinterpret_cast<Ptr>(&byName);case abi::lodSelfPaused:return reinterpret_cast<Ptr>(&lodSelf);case abi::lodPause:return reinterpret_cast<Ptr>(&lodPauseAt);
  case abi::lodResume:return reinterpret_cast<Ptr>(&lodResumeFn);case abi::lodCurrent:return reinterpret_cast<Ptr>(&lodLevelNow);
 #define FN(x,y) case abi::x:return reinterpret_cast<Ptr>(&y)
- FN(filterMesh,filterMesh);FN(filterSetMesh,filterSet);FN(getMesh,getMesh);FN(getMaterials,getMaterials);FN(getBones,getBones);FN(getName,getName);FN(getParent,parent);FN(clone,clone);FN(destroy,destroy);FN(pin,pin);FN(unpin,unpin);FN(setMesh,setMesh);FN(setMaterials,setMaterials);FN(arrayNew,newArray);FN(getBindposes,getBinds);FN(getPositions,getPos);FN(getUV,getUV);FN(getTriangles,getIdx);FN(getColors,getColors);FN(getTangents,getTangents);FN(setColors,setChannel);FN(setTangents,setChannel);FN(setUV2,setChannel);FN(setPositions,setPos);FN(setNormals,setAny);FN(setUV,setAny);FN(setTriangles,setAny);FN(setReadable,op);FN(setIndexFormat,op);FN(setSubmeshCount,submeshCount);FN(meshUpload,op);FN(meshFinish,action);FN(meshDynamic,action);FN(setSubmeshTriangles,sub);FN(textureType,texType);FN(objectNew,objectNew);FN(textureInit,texInit);FN(texturePixels,texPixels);FN(textureApply,action);FN(setHideFlags,setHide);FN(getHideFlags,getHide);FN(mainTexture,setMainTexture);FN(newString,newString);FN(nativeAlloc,nativeAlloc);FN(hasProperty,hasProp);FN(setTexture,setTex);FN(classFromType,classFromType);FN(typeObject,typeObject);FN(findObjectsOfType,findObjects);FN(findObjectsNative,findNative);FN(componentsInChildren,children);FN(gameObject,goOf);FN(wrapperFor,wrapperFor);
+ FN(goActive,gameObjectActive);FN(filterMesh,filterMesh);FN(filterSetMesh,filterSet);FN(getMesh,getMesh);FN(getMaterials,getMaterials);FN(getBones,getBones);FN(getName,getName);FN(getParent,parent);FN(clone,clone);FN(destroy,destroy);FN(pin,pin);FN(unpin,unpin);FN(setMesh,setMesh);FN(setMaterials,setMaterials);FN(arrayNew,newArray);FN(getBindposes,getBinds);FN(getPositions,getPos);FN(getUV,getUV);FN(getTriangles,getIdx);FN(getColors,getColors);FN(getTangents,getTangents);FN(setColors,setChannel);FN(setTangents,setChannel);FN(setUV2,setChannel);FN(setPositions,setPos);FN(setNormals,setAny);FN(setUV,setAny);FN(setTriangles,setAny);FN(setReadable,op);FN(setIndexFormat,op);FN(setSubmeshCount,submeshCount);FN(meshUpload,op);FN(meshFinish,action);FN(meshDynamic,action);FN(setSubmeshTriangles,sub);FN(textureType,texType);FN(objectNew,objectNew);FN(textureInit,texInit);FN(texturePixels,texPixels);FN(textureApply,action);FN(setHideFlags,setHide);FN(getHideFlags,getHide);FN(mainTexture,setMainTexture);FN(newString,newString);FN(nativeAlloc,nativeAlloc);FN(hasProperty,hasProp);FN(setTexture,setTex);FN(classFromType,classFromType);FN(typeObject,typeObject);FN(findObjectsOfType,findObjects);FN(findObjectsNative,findNative);FN(componentsInChildren,children);FN(gameObject,goOf);FN(wrapperFor,wrapperFor);
  FN(meshSubmeshes,meshSubs);FN(meshVertices,meshVerts);FN(meshReadable,meshReadable);FN(meshIndexStart,meshStart);FN(meshIndexCount,meshCount);
  FN(textureWidth,texSide);FN(textureHeight,texSide);FN(textureFormat,texFormat);FN(textureMips,texMips);
  FN(frameCount,engineFrame);FN(getShader,matShader);FN(getTexture,matTexture);FN(getTextureIds,matTextureIds);FN(propertyToId,propertyToId);
@@ -1532,17 +1533,26 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
   store<uint64_t>(f->obj[staticMesh].shared+0xe0,0);f->obj[filter].mesh=staticMesh;f->obj[staticWing].materials=f->obj[body].materials;f->obj[staticTransform].parent=cr;
   for(Ptr component:{filter,staticWing,staticTransform}){f->goOfRenderer[component]=staticGo;}f->filterByGo[staticGo]=filter;f->rendererByGo[staticGo]=staticWing;f->transformByGo[staticGo]=staticTransform;f->rigidFilters={filter};f->rigidTransforms={staticTransform};
 
-  Runtime c(e,pkg,root+"/glider-private",media,false);uint64_t clock=7870000;auto run=[&](unsigned ms){for(uint64_t end=clock+ms;clock<end;clock+=100){c.tick(clock);}};run(3500);
+  f->scene={body};f->rigidTransforms.clear();
+  Runtime c(e,pkg,root+"/glider-private",media,false);uint64_t clock=7870000;auto run=[&](unsigned ms){for(uint64_t end=clock+ms;clock<end;clock+=100){c.tick(clock);}};
+  run(500);assert(f->textures==made+1); // Only the controlled owner's picture is prepared before a wing appears.
+  f->scene={body,a.first,b.first,orphan.first};f->rigidTransforms={staticTransform};run(3500);
   auto material=[&](Ptr r){return load<Ptr>(f->obj[r].materials+0x20);};
   if(std::getenv("GLIDER_PRINT")){std::cerr<<text(shared+"/GIBox Log.txt");}
   assert(material(a.first)!=mat&&material(b.first)!=mat&&material(a.first)!=material(b.first));assert(f->diffuse[material(a.first)]!=f->diffuse[material(b.first)]&&f->diffuse[mat]==gameTex&&material(orphan.first)==mat&&f->textures==made+2);
   assert(material(staticWing)!=mat&&f->diffuse[material(staticWing)]==f->diffuse[material(a.first)]&&f->boneReads[staticWing]==0);
+  // A live wing can fall out of the global scene snapshot; full matching must keep the quick pass's slot.
+  Ptr stable=material(a.first);f->scene={body,b.first,orphan.first};run(3000);assert(material(a.first)==stable);
+  // Hidden pooled wings restore, and a newly created child is discovered without a 2 s global scan.
+  f->inactiveGos.insert(f->goOfRenderer[a.first]);run(600);assert(material(a.first)==mat);
+  auto child=wing(cr);f->goChildren[goOf(cr,0)]={child.first};run(200);assert(material(child.first)!=mat);
+  f->inactiveGos.erase(f->goOfRenderer[a.first]);f->goChildren[goOf(cr,0)].push_back(a.first);run(200);assert(material(a.first)!=mat);
   Ptr kavehTex=f->diffuse[material(b.first)];f->obj[a.second].parent=kr;run(1500);assert(f->diffuse[material(a.first)]==kavehTex&&f->diffuse[mat]==gameTex);
   f->obj[a.second].parent=unknown;run(1500);assert(material(a.first)==mat&&material(b.first)!=mat);
   std::vector<Ptr> cached;f->obj[a.second].parent=cr;
   for(int i=0;i<11;i++){f->obj[cr].name="Avatar_Test_"+std::to_string(i);run(1500);assert(material(a.first)!=mat);cached.push_back(f->diffuse[material(a.first)]);}
   unsigned aliveCached=0;for(Ptr t:cached){aliveCached+=load<Ptr>(t+0x10)!=0;}assert(aliveCached<=8&&load<Ptr>(cached.front()+0x10)==0);
-  c.shutdown();assert(material(b.first)==mat&&material(staticWing)==mat&&f->diffuse[mat]==gameTex&&f->handles.size()==handles0);f->rigidFilters.clear();f->rigidTransforms.clear();
+  c.shutdown();assert(material(b.first)==mat&&material(staticWing)==mat&&material(child.first)==mat&&f->diffuse[mat]==gameTex&&f->handles.size()==handles0);f->rigidFilters.clear();f->rigidTransforms.clear();
  }
  // 42c. NPC / monster texture mods (1.0.3): "character" 1, no AvatarId. A rule's index-buffer hash names a mesh in this
  //      device's hash table; every active renderer of the scene showing it has the submesh at match_first_index written,

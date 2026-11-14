@@ -764,16 +764,33 @@ struct Runtime::Impl {
    if(!sceneByKey.count(k)){try{m.owner=avatarIdentity(r);if(m.owner.empty())m.owner=ownerOf(r);}catch(const std::exception&){}sceneByKey[k]=m;sceneShapes.insert({{n,uint64_t(m.vertices)},k});}}
   return sceneMeshes[key]=m;}
  static bool gliderMod(const texdiag::TextureMod& m){return !m.doc.rules.empty()&&m.doc.rules.front().kind=="glider-owner";}
- std::string gliderOwner(Ptr r){Owned tmp;std::string owner;try{Ptr go=e.get(abi::gameObject,r);if(alive(go)){Ptr type=managedName("Transform");pin(tmp,type);Ptr t=e.call<Ptr>(abi::componentByName,go,type,Ptr(0));if(alive(t)){pin(tmp,t);}
+ std::string gliderOwner(Ptr r){Owned tmp;std::string owner;try{Ptr go=e.get(abi::gameObject,r);if(alive(go)){pin(tmp,go);Ptr type=managedName("Transform");pin(tmp,type);Ptr t=e.call<Ptr>(abi::componentByName,go,type,Ptr(0));if(alive(t)){pin(tmp,t);}
    for(unsigned i=0;i<32&&alive(t);i++){auto n=meshName(name(t));if(n.rfind("avatar_",0)==0){owner=n.substr(0,n.find("_manekin"));break;}t=e.get(abi::getParent,t);}}if(owner.empty()&&!rigidRenderer(r)){owner=avatarIdentity(r);}}
   catch(...){freeOwned(tmp);throw;}freeOwned(tmp);return owner;}
- void gliderTargetsFor(const texdiag::TextureMod& m,Ptr r,std::vector<TexTarget>& out){try{if(!alive(r)||attachments.count(r)||swapped.count(r)){return;}Ptr mesh=meshGet(r);if(!alive(mesh)){return;}auto fp=fingerprint(mesh);if(meshName(fp.mesh).rfind("flycloak_",0)!=0){return;}
-  auto owner=gliderOwner(r);if(owner.empty()){return;}unsigned id=previewId(owner);size_t chosen=m.doc.rules.size();bool exact=false;
-  for(size_t i=0;i<m.doc.rules.size();i++){const auto& rule=m.doc.rules[i];if(rule.ownerId!=id){continue;}if(!rule.ownerAvatar.empty()){if(rule.ownerAvatar!=owner){continue;}chosen=i;exact=true;}else if(!exact&&owner.find("costume")==std::string::npos){chosen=i;}}
+ void gliderTargetsFor(const texdiag::TextureMod& m,Ptr r,std::vector<TexTarget>& out){try{if(!alive(r)||attachments.count(r)||swapped.count(r)){return;}Ptr mesh=meshGet(r);if(!alive(mesh)){return;}auto fp=fingerprint(mesh);if(meshName(fp.mesh).rfind("flycloak_",0)!=0){return;}Ptr go=e.get(abi::gameObject,r);if(!alive(go)||(abi::at(abi::goActive)<abi::notFound&&!(e.call<uint32_t>(abi::goActive,go,Ptr(0))&1))){return;}
+  auto owner=gliderOwner(r);if(owner.empty()){return;}size_t chosen=gliderRule(m,owner);
   if(chosen==m.doc.rules.size()){return;}Ptr array=e.get(abi::getMaterials,r);if(!array){return;}auto materials=pointers(array,64);Ptr native=load<Ptr>(r+0x10);for(size_t i=0;i<materials.size();i++){if(alive(materials[i])){out.push_back({r,native,int(i),{chosen},"风之翼挂载角色 "+owner,rendererName(r)+"#"+hex(native),fp.mesh,false});}}
  }catch(const std::exception&){}}
- std::vector<TexTarget> gliderTargets(const texdiag::TextureMod& m){std::vector<Ptr> pool=sceneRenderers(texClock());try{for(Ptr r:worldRenderers()){pool.push_back(r);}}catch(const std::exception&){}for(const auto& r:rigidRefs){pool.push_back(r.first);}std::set<Ptr> seen;std::vector<TexTarget> out;for(Ptr r:pool){if(seen.insert(r).second){gliderTargetsFor(m,r,out);}}return out;}
- std::set<std::string> gliderResources(const texdiag::TextureMod& m){std::set<std::string> out;for(const auto& t:gliderTargets(m)){for(size_t i:t.rules){for(const auto& b:m.doc.rules[i].textures){out.insert(b.resource);}}}return out;}
+ size_t gliderRule(const texdiag::TextureMod& m,const std::string& owner){unsigned id=previewId(owner);size_t chosen=m.doc.rules.size();bool exact=false;
+  for(size_t i=0;i<m.doc.rules.size();i++){const auto& r=m.doc.rules[i];if(r.ownerId!=id){continue;}if(!r.ownerAvatar.empty()){if(r.ownerAvatar==owner){chosen=i;exact=true;}}else if(!exact&&owner.find("costume")==std::string::npos){chosen=i;}}return chosen;}
+ void gliderHierarchy(){auto now=texClock();if(now<gliderHierarchyAt){return;}gliderHierarchyAt=now+100;SceneRoots next;std::vector<Ptr> children;
+  try{std::set<Ptr> roots;for(Ptr r:worldRenderers()){if(alive(r)&&!rigidRenderer(r)){Ptr root=avatarRoot(r);if(alive(root)){roots.insert(root);}}}
+   for(Ptr root:roots){pin(next.roots,root);Ptr go=e.get(abi::gameObject,root);if(!alive(go)){continue;}
+    if(rendererTypeObject){Ptr array=e.call<Ptr>(abi::componentsInChildren,go,rendererTypeObject,uint32_t(1),Ptr(0));if(array){scenePin(next,array);for(Ptr r:pointers(array,1024)){children.push_back(r);}}}
+    if(byvalOffset&&abi::at(abi::filterMesh)<abi::notFound){if(!rigidTransformType){rigidTransformType=rigidType(root);}Ptr array=e.call<Ptr>(abi::componentsInChildren,go,rigidTransformType,uint32_t(1),Ptr(0));if(!array){continue;}scenePin(next,array);
+     Ptr filterName=managedName("MeshFilter"),rendererName0=managedName("MeshRenderer");pin(next.roots,filterName);pin(next.roots,rendererName0);
+     for(Ptr t:pointers(array,2048)){if(!alive(t)||meshName(name(t)).rfind("flycloak",0)!=0){continue;}Ptr child=e.get(abi::gameObject,t);if(!alive(child)){continue;}Ptr filter=e.call<Ptr>(abi::componentByName,child,filterName,Ptr(0));if(!alive(filter)){continue;}
+      Ptr mesh=e.get(abi::filterMesh,filter);if(!alive(mesh)||meshName(name(mesh)).rfind("flycloak_",0)!=0){continue;}Ptr renderer=e.call<Ptr>(abi::componentByName,child,rendererName0,Ptr(0));if(!alive(renderer)){continue;}
+      if(!rigidFilterType){rigidFilterType=rigidType(filter);}if(!rigidRefs.count(renderer)&&rigidRefs.size()>=256){continue;}auto& ref=rigidRefs[renderer];
+      if(ref.filter!=filter||ref.filterNative!=load<Ptr>(filter+0x10)||ref.native!=load<Ptr>(renderer+0x10)){freeOwned(ref);pin(ref,renderer);pin(ref,filter);}ref.native=load<Ptr>(renderer+0x10);ref.filter=filter;ref.filterNative=load<Ptr>(filter+0x10);children.push_back(renderer);
+     }}}
+  }catch(const std::exception& ex){log("glider-discovery-wait",ex.what());}sceneClear(gliderRoots);gliderRoots=std::move(next);gliderChildren=std::move(children);}
+ std::vector<TexTarget> gliderTargets(const texdiag::TextureMod& m){gliderHierarchy();std::vector<Ptr> pool=sceneRenderers(texClock());try{for(Ptr r:worldRenderers()){pool.push_back(r);}}catch(const std::exception&){}
+  pool.insert(pool.end(),gliderChildren.begin(),gliderChildren.end());for(const auto& sn:seen){if(seenLive(sn)){pool.push_back(sn.renderer);}}for(const auto& p:texPending){if(texPendLive(p)){pool.push_back(p.first);}}
+  for(const auto& L:texLive){if(L.second&&L.second->mod==m.name){for(const auto& slot:L.second->slots){if(alive(slot.renderer)&&load<Ptr>(slot.renderer+0x10)==slot.native){pool.push_back(slot.renderer);}}}}
+  for(const auto& r:rigidRefs){pool.push_back(r.first);}std::set<Ptr> once;std::vector<TexTarget> out;for(Ptr r:pool){if(once.insert(r).second){gliderTargetsFor(m,r,out);}}return out;}
+ std::set<std::string> gliderResources(const texdiag::TextureMod& m){std::set<std::string> out;for(const auto& t:gliderTargets(m)){for(size_t i:t.rules){for(const auto& b:m.doc.rules[i].textures){out.insert(b.resource);}}}
+  auto owner=controlledAvatar();if(!owner.empty()){size_t rule=gliderRule(m,owner);if(rule<m.doc.rules.size()){for(const auto& b:m.doc.rules[rule].textures){out.insert(b.resource);}}}return out;}
  // The rules an NPC / monster / glider mod can match here: each index-buffer hash rule whose mesh the hash table has.
  typedef std::vector<std::pair<size_t,const pcdb::Mesh*>> SceneWant;
  SceneWant sceneWant(const texdiag::TextureMod& m,std::string& missing,unsigned& usable){SceneWant want;missing.clear();usable=0;const pcdb::DeviceMap* dm=deviceMap();
@@ -812,7 +829,7 @@ struct Runtime::Impl {
  void texSceneQuick(TexLive& L,const std::string& path,const texdiag::TextureMod& m,const std::map<std::string,Texture>& px,const std::vector<Ptr>& pool){
   std::string missing,why;unsigned usable=0;auto want=sceneWant(m,missing,usable);if((want.empty()&&!gliderMod(m))||!texStoreReady(path,why))return;
   std::vector<TexTarget> targets;std::set<std::pair<Ptr,int>> taken;for(auto& x:L.slots)taken.insert({x.renderer,x.slot});unsigned shown=0;
-  for(Ptr r:pool){if(gliderMod(m)){std::vector<TexTarget> found;gliderTargetsFor(m,r,found);for(auto& t:found){if(taken.insert({t.renderer,t.slot}).second){targets.push_back(std::move(t));}}}else{sceneTargetsFor(m,&L,r,want,false,targets,taken,shown);}}
+  if(gliderMod(m)){for(auto& t:gliderTargets(m)){if(taken.insert({t.renderer,t.slot}).second){targets.push_back(std::move(t));}}}else{for(Ptr r:pool){sceneTargetsFor(m,&L,r,want,false,targets,taken,shown);}}
   for(auto& t:targets){try{if(texAssetWait(L,t,"逐帧检查"))continue;texSeen(t.native,"逐帧检查");auto& tt=texTimes[t.native];if(!tt.matched)tt.matched=texClock();TexSlot fresh;texApply(L,m,px,t,fresh);L.slots.push_back(std::move(fresh));}
    catch(const std::exception& ex){texSay(L,"err|"+hex(t.renderer)+"|"+std::to_string(t.slot)+"|"+ex.what(),"texture-error",texTag(L)+"："+t.label+" 槽位 "+std::to_string(t.slot)+"："+ex.what());}}}
  // One slot: what the strategy writes, read back at once; the log line names everything needed to follow it.
@@ -828,6 +845,7 @@ struct Runtime::Impl {
   bool copy=L.strategy=="clone"||gliderMod(m);
   if(L.strategy=="auto"&&!gliderMod(m)){copy=instanceId(mat)>=0||!shared.empty();line+=copy?(instanceId(mat)>=0?"，自动方式：资源材质，复制后写入":"，自动方式：其他渲染器也在用，复制后写入"):"，自动方式：游戏自己的实例，原位写入";}
   if(copy){Ptr c=clone(L,mat);s.clone=c;target=c;line+="，副本 "+hex(c);}
+  if(gliderMod(m)){pin(L,t.renderer);}
   pin(L,mat);s.material=mat;s.materialNative=load<Ptr>(mat+0x10);bool ok=true;
   for(auto& w:plan){int32_t id=propertyId(w.property.c_str());if(std::find(ids.begin(),ids.end(),id)==ids.end()){line+="；"+w.property+"：材质没有这个贴图属性，不写入";continue;}
    std::string note;Ptr ours=texOurs(L,px,w,note);Ptr before=e.call<Ptr>(abi::getTexture,target,id,Ptr(0));if(alive(before))pin(L,before);putTexture(target,w.property.c_str(),ours);
@@ -924,7 +942,10 @@ struct Runtime::Impl {
  std::string texStrategy()const{return texTest.active?texTest.strategies[texTest.round]:ctl.tex.strategy;}
  std::string texTestId()const{return texTest.active?texTest.id():std::string();}
  // Every tick: textures prepared, written slots watched, renderers newly showing a mapped mesh written.
- void texQuick(){texPrepare();if(texTest.active&&texTest.phase!=2)return;
+ void texQuick(){texPrepare();
+  bool anyGlider=false;for(auto& f:texDiagDocs){if(!f.second.mod||!texModOn(f.second.mod->name)||!gliderMod(*f.second.mod)){continue;}anyGlider=true;auto strategy=texStrategy();if(strategy=="diagnose"){continue;}TexLive* L=nullptr;std::shared_ptr<std::map<std::string,Texture>> px;std::string why;texLiveFor(f.first,f.second,strategy,texTestId(),L,px,why);}
+  if(!anyGlider){sceneClear(gliderRoots);gliderChildren.clear();gliderHierarchyAt=0;}
+  if(texTest.active&&texTest.phase!=2)return;
   for(auto& kv:texLive){auto& L=kv.second;if(!L||L->strategy=="diagnose")continue;auto f=texDiagDocs.find(kv.first);if(f==texDiagDocs.end()||!f->second.mod)continue;
    std::shared_ptr<std::map<std::string,Texture>> px;{std::lock_guard<std::mutex> l(sm);auto p=texPixels.find(kv.first);if(p==texPixels.end()||!p->second.pixels)continue;px=p->second.pixels;}
    std::set<Ptr> rs;for(auto& s:L->slots)rs.insert(s.renderer);for(Ptr r:rs)texWatchRenderer(*L,*f->second.mod,*px,r,"逐帧检查");
@@ -1540,7 +1561,7 @@ struct Runtime::Impl {
  Ptr skinnedRendererClass=0;
  bool skinnedRenderer(Ptr r)const{return r&&skinnedRendererClass&&load<Ptr>(r)==skinnedRendererClass&&load<Ptr>(r+0x10)>4096;}
  Ptr bonesGet(Ptr r){return skinnedRenderer(r)?e.get(abi::getBones,r):0;}
- struct SceneRoots {Owned roots;std::vector<Ptr> arrays;};SceneRoots sceneCacheRoots,sceneListRoots;
+ struct SceneRoots {Owned roots;std::vector<Ptr> arrays;};SceneRoots sceneCacheRoots,sceneListRoots,gliderRoots;std::vector<Ptr> gliderChildren;uint64_t gliderHierarchyAt=0;
  void scenePin(SceneRoots& roots,Ptr array){if(array){pin(roots.roots,array);roots.arrays.push_back(array);}}
  void sceneClear(SceneRoots& roots){freeOwned(roots.roots);roots.arrays.clear();}
  struct RigidRef:Owned {Ptr native=0,filter=0,filterNative=0;};std::map<Ptr,RigidRef> rigidRefs;Owned rigidTypeRoots;
@@ -3172,7 +3193,7 @@ void Runtime::spawned(Ptr go)noexcept{try{p->spawned(go);}catch(...){}}
 void Runtime::spawnedAfter()noexcept{try{p->spawnedAfter();}catch(...){}}
 Ptr Runtime::bindMesh(Ptr renderer,Ptr mesh)noexcept{try{return p->bindMesh(renderer,mesh);}catch(...){return mesh;}}
 void Runtime::meshBound(Ptr renderer)noexcept{try{p->meshBound(renderer);}catch(...){}}
-void Runtime::shutdown(){try{p->loading.shutdown();}catch(const std::exception&){}try{p->lodUnpinAll("运行时关闭");}catch(const std::exception&){}try{p->texRestoreEverything("运行时关闭");}catch(const std::exception&){}if(p->releaseAll()){p->pruneRestoreBackups(true);p->sceneClear(p->sceneCacheRoots);p->sceneClear(p->sceneListRoots);p->sceneCache.clear();p->sceneList.clear();for(auto& r:p->rigidRefs)p->freeOwned(r.second);p->rigidRefs.clear();p->freeOwned(p->rigidTypeRoots);p->rigidFilterType=0;p->rigidTransformType=0;}}
+void Runtime::shutdown(){try{p->loading.shutdown();}catch(const std::exception&){}try{p->lodUnpinAll("运行时关闭");}catch(const std::exception&){}try{p->texRestoreEverything("运行时关闭");}catch(const std::exception&){}if(p->releaseAll()){p->pruneRestoreBackups(true);p->sceneClear(p->sceneCacheRoots);p->sceneClear(p->sceneListRoots);p->sceneClear(p->gliderRoots);p->gliderChildren.clear();p->sceneCache.clear();p->sceneList.clear();for(auto& r:p->rigidRefs)p->freeOwned(r.second);p->rigidRefs.clear();p->freeOwned(p->rigidTypeRoots);p->rigidFilterType=0;p->rigidTransformType=0;}}
 }
 
 void ms::Runtime::loadingCanvas(Ptr canvas,Ptr background)noexcept{try{if(!p->tickTid.load())p->tickTid.store(threadId());if(!p->inTick&&p->onTickThread("loading-canvas")){p->loading.observe(canvas,background);p->pollLoading();}}catch(const std::exception& ex){p->log("loading-image-error",ex.what());}}

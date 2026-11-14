@@ -16,8 +16,8 @@ android {
         applicationId = "com.gibox.tool"
         minSdk = 26
         targetSdk = 34
-        versionCode = 144
-        versionName = "1.0.12"
+        versionCode = 145
+        versionName = "1.0.13"
         ndk { abiFilters += "arm64-v8a" }
         externalNativeBuild {
             cmake {
