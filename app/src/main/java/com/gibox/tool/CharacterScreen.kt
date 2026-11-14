@@ -22,6 +22,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedListItem
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -111,6 +112,9 @@ private fun CharacterMain(state: AppState, id: Int, searchField: Modifier, onSea
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = padding.calculateTopPadding() + 8.dp, bottom = padding.calculateBottomPadding() + 24.dp),
             verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap),
         ) {
+            if (id in 10000000..10001999) item {
+                TextButton(onClick = { state.exportCharacterBones(id) }, enabled = state.busy == null) { Text("导出骨骼（可补充内置表）") }
+            }
             state.boneRefreshMessage(id)?.let { message ->
                 item(key = -id.toLong()) { Text(message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             }

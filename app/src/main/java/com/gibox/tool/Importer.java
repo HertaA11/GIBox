@@ -191,6 +191,7 @@ public final class Importer {
         r.summary = who + "（" + id + "）" + (r.library ? "：骨骼库已有" + (outfit != null ? "此外观" : "该角色") + "，进入游戏即可替换" : opt.reusedSkeleton ? "：复用本 MOD 已有骨骼记录，目标网格信息已保留"
             : outfit != null && !outfit.original() ? "：骨骼库中尚无此外观，在大世界穿上该外观或在衣装页预览后识别部件"
             : "：骨骼库中尚无该角色，" + (opt.names.isEmpty() ? "需要该角色在大世界出场一次后生效" : "在大世界、队伍界面或角色详情页出现时识别部件"));
+        if (offlinePrefab == null) r.summary += "\n内置表暂无此角色/外观骨骼：打开游戏图鉴中的该角色并停留，或在大世界切换到该角色，软件会自动采集。采集后可在角色页导出骨骼，供补充内置表。";
         for (String l : log.toString().split("\n")) if (l.startsWith("款式变量") || l.startsWith("模型动画：") || l.startsWith("动画骨骼兼容：") || l.contains("个顶点没有权重")) r.summary += "\n" + l;
         return r;
     }

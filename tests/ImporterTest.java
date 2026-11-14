@@ -149,7 +149,21 @@ public class ImporterTest {
    ModLibrary.Character lib=os.library("Avatar_Girl_Catalyst_Citlali",10000107,new File(sh,"skeletons-offline"));
    List<ModelConverter.Bones> bs=ModelConverter.bones(lib.bones,10000107);ByteBuffer bb=ByteBuffer.wrap(bs.get(0).binds).order(ByteOrder.LITTLE_ENDIAN);
    ok(bs.size()==1&&bs.get(0).names.equals(Arrays.asList("Bip001","Bip001 Head"))&&bs.get(0).parents.equals(Arrays.asList(-1,0))&&bb.getFloat(64)==1.74979198e-06f&&bb.getFloat(64+48)==1.32685375f
-     &&bs.get(0).target!=null&&((Number)bs.get(0).target.get("submeshes")).intValue()==1&&Outfits.chainAvatar(lib.root).equals("avatar_girl_catalyst_citlali"),"offline table: a bone library the converter reads, bind poses exact: "+lib.root);}
+     &&bs.get(0).target!=null&&((Number)bs.get(0).target.get("submeshes")).intValue()==1&&Outfits.chainAvatar(lib.root).equals("avatar_girl_catalyst_citlali"),"offline table: a bone library the converter reads, bind poses exact: "+lib.root);
+   Map<String,Object> policy=Json.obj(Json.parse(new String(OfflineSkeletons.capturePolicy(sh),StandardCharsets.UTF_8)),"policy");
+   ok(((Number)Json.obj(policy.get("models"),"models").get("vodyanitsa")).intValue()==10000140&&((List<?>)policy.get("builtin")).contains("avatar_girl_catalyst_citlali"),"capture policy: missing characters remain identifiable");
+   File exported=SkeletonExport.write(sh,10000107);
+   File round=new File(base,"GIBox-export-roundtrip");round.mkdirs();Files.copy(exported.toPath(),new File(round,OfflineSkeletons.FILE).toPath());
+   OfflineSkeletons exportedTable=OfflineSkeletons.load(round);ok(exportedTable!=null&&exportedTable.prefabFor(10000107,null)!=null,"export uses bundled line layout");
+   List<ModelConverter.Bones> back=ModelConverter.bones(exportedTable.library(exportedTable.prefabFor(10000107,null),10000107,new File(round,"skeletons-offline")).bones,10000107);
+   ok(Arrays.equals(back.get(0).binds,bs.get(0).binds)&&back.get(0).names.equals(bs.get(0).names),"export preserves float32 matrices and bone order");
+   // A new live capture takes precedence when contributing, even though normal conversions prefer the built-in table.
+   File live=new File(sh,"skeletons/10000107");live.mkdirs();Files.copy(new File(lib.bones,"skeleton.json").toPath(),new File(live,"skeleton.json").toPath());
+   Map<String,Object> liveDoc=Json.obj(Json.read(new File(live,"skeleton.json"),4L<<20),"live");liveDoc.put("build","b");
+   Files.write(new File(live,"skeleton.json").toPath(),Json.write(liveDoc).getBytes(StandardCharsets.UTF_8));
+   Map<String,Object> contribution=Json.obj(Json.read(SkeletonExport.write(sh,10000107),4L<<20),"export");
+   ok(((List<?>)contribution.get("prefabs")).size()==1&&"b".equals(contribution.get("build")),"exports captured prefab and version");}
+
   // The glider's mesh (Flycloak_Normal_Model, 1.0.3): no character owns it; its hash recommends NPC / monster / glider.
   {Map<Integer,List<String>> sc=DeviceHashes.load(oshared).characters(Arrays.asList("f195ef18"));Characters.Guess sg=new Characters.Guess();Characters.hashEvidence(sg,sc);
    ok(sc.keySet().equals(Collections.singleton(Characters.SCENE))&&sg.recommended.contains(Characters.SCENE_AVATAR)&&Characters.ordered(sg,"").get(0)==Characters.SCENE_AVATAR,"a glider hash recommends NPC / monster / glider: "+sc);}

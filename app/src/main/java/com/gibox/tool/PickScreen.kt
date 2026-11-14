@@ -89,6 +89,10 @@ fun PickScreen(state: AppState, pick: Screen.Pick) {
         outfitHint = withContext(Dispatchers.IO) { state.outfitGuessText(pick, chosen) }
     }
     val chosenOutfit = outfits.firstOrNull { it.prefab == outfit }
+    val boneHint by produceState(initialValue = "", chosen, outfit, state.game) {
+        value = withContext(Dispatchers.IO) { state.boneImportHint(chosen, outfit) }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -107,7 +111,7 @@ fun PickScreen(state: AppState, pick: Screen.Pick) {
                     Column(Modifier.weight(1f)) {
                         Text(if (selected == null) "还没有选择" else "已选：${selected.name}" + (chosenOutfit?.let { " · ${it.name}" } ?: ""), style = MaterialTheme.typography.titleMedium)
                         Text(
-                            if (needScheme) "先在上面选一套 INI 方案" else if (selected == null) "点一个角色，再点确定" else "${selected.id}" + if (recorded.contains(selected.id)) " · 已记录骨骼" else "",
+                            if (needScheme) "先在上面选一套 INI 方案" else if (selected == null) "点一个角色，再点确定" else "${selected.id} · $boneHint",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )

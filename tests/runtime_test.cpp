@@ -132,7 +132,7 @@ Ptr resolve(abi::Offset o){switch(o){
 bool alive(Ptr p){return p&&load<Ptr>(p+0x10);}
 }
 int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // the engine allocation path (the default); the logic-key block below runs the reuse path
- char temp[]="/tmp/model-runtime-XXXXXX";assert(mkdtemp(temp));std::string root=temp,pkg="com.miHoYo.Yuanshen",media=root+"/media",shared=media+"/"+pkg+"/GIBox",models=shared+"/models",boneRoot=shared+"/skeletons";
+ std::string temp=std::string(std::getenv("TMPDIR")?std::getenv("TMPDIR"):"/tmp")+"/model-runtime-XXXXXX";assert(mkdtemp(&temp[0]));std::string root=temp,pkg="com.miHoYo.Yuanshen",media=root+"/media",shared=media+"/"+pkg+"/GIBox",models=shared+"/models",boneRoot=shared+"/skeletons";
  writeModel(models+"/A");writeModel(models+"/B");
  // Model B carries a real 1x1 diffuse and a LightMap, so its material builds two textures.
  {Spec b;b.textures=true;b.channels=true;writeModel(models+"/B",b);}
@@ -910,6 +910,30 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
    assert(meshOf(w)==baseMesh&&has("外观不符：当前角色的外观为 avatar_girl_catalyst_citlali，此 MOD 适用于 avatar_girl_catalyst_citlalicostumexia"));
    f->world(ws);f->scene={ws};for(int i=4;i<10;i++)gate.tick(t+600*i);assert(meshOf(ws)!=skinMesh&&meshOf(w)==baseMesh);
    gate.shutdown();assert(meshOf(ws)==skinMesh&&f->handles.empty());}}
+ // A different character in the archive: collect under its own ID, even with replacement off; built-ins stay untouched.
+ {std::string mediaP=root+"/mediaPolicy",sp=mediaP+"/"+pkg+"/GIBox";
+  std::filesystem::create_directories(sp);
+  write(sp+"/skeleton-policy.json",R"J({"models":{"citlali":10000107,"vodyanitsa":10000140},"outfits":{},"builtin":["avatar_girl_catalyst_citlali"]})J");
+  write(sp+"/control.json",R"J({"enabled":false,"selected":[]})J");
+  Ptr vr=f->object("transform","Avatar_Girl_Catalyst_Vodyanitsa_Manekin"),v=f->renderer(f->mesh(),"BoneA","Body",vr);
+  Ptr w=f->renderer(f->mesh());f->world(w);f->scene={w,v};
+  {Runtime rt(e,pkg,root+"/privatePolicy",mediaP,false);for(uint64_t t=8500000;t<8510000;t+=500)rt.tick(t);
+   auto path=sp+"/skeletons/10000140/skeleton.json";assert(exists(path)&&text(path).find("Vodyanitsa")!=std::string::npos);
+   assert(!exists(sp+"/skeletons/10000107/skeleton.json"));
+   auto before=text(path);write(sp+"/control.json",R"J({"enabled":false,"selected":[],"refreshBones":1,"refreshBonesCharacter":10000140})J");
+   for(uint64_t t=8510000;t<8520000;t+=500)rt.tick(t);
+   assert(exists(sp+"/bone-refresh-result.json")&&text(sp+"/bone-refresh-result.json").find("10000140")!=std::string::npos&&text(path)==before);
+   rt.shutdown();assert(f->handles.empty());}
+  std::filesystem::remove(sp+"/skeletons/10000140/skeleton.json");
+  write(sp+"/skeleton-policy.json",R"J({"models":{"citlali":10000107,"vodyanitsa":10000140},"outfits":{},"builtin":["avatar_girl_catalyst_citlali","avatar_girl_catalyst_vodyanitsa"]})J");
+  write(sp+"/control.json",R"J({"enabled":false,"selected":[]})J");
+  {Runtime rt(e,pkg,root+"/privatePolicy2",mediaP,false);for(uint64_t t=8520000;t<8530000;t+=500)rt.tick(t);
+   assert(!exists(sp+"/skeletons/10000140/skeleton.json"));
+   write(sp+"/control.json",R"J({"enabled":false,"selected":[],"refreshBones":2,"refreshBonesCharacter":10000140})J");
+   for(uint64_t t=8530000;t<8540000;t+=500)rt.tick(t);
+   assert(exists(sp+"/skeletons/10000140/skeleton.json")&&text(sp+"/bone-refresh-result.json").find("\"request\":2")!=std::string::npos);
+   rt.shutdown();assert(f->handles.empty());}
+  f->world(0);f->scene={};}
  // 50. Merged draws: neighbours with the same material row share a submesh, their index ranges joined in draw order.
  //     A draw hidden by the variant between two of them is not drawn, ranges that continue each other become one, a
  //     neighbour with another material keeps its own submesh and slot, and switching back reads the model's indices

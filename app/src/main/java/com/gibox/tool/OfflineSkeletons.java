@@ -157,6 +157,20 @@ final class OfflineSkeletons {
         return new ModLibrary.Character(id, out, root, "");
     }
 
+    /** Runtime identities and prefabs already supplied by the built-in table. */
+    static byte[] capturePolicy(File shared) {
+        Map<String, Object> models = new TreeMap<>(), outfits = new TreeMap<>();
+        for (Characters.Avatar a : Characters.all()) {
+            for (String name : a.model) models.put(name.toLowerCase(Locale.ROOT), a.id);
+            for (Outfits.Outfit o : Outfits.current().of(a.id)) outfits.put(o.prefab, a.id);
+        }
+        OfflineSkeletons table = load(shared);
+        List<String> builtin = new ArrayList<>();
+        if (table != null) for (String owner : table.prefabs.keySet()) if (owner.startsWith("avatar_")) builtin.add(owner);
+        Collections.sort(builtin);
+        return Json.write(Json.of("models", models, "outfits", outfits, "builtin", builtin)).getBytes(StandardCharsets.UTF_8);
+    }
+
     /** The characters (ids) the table has a prefab for: their original look, or one of their outfits. */
     synchronized Set<Integer> characters() {
         if (characters != null) return characters;

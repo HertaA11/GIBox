@@ -203,6 +203,7 @@ class AppState(private val activity: Activity) {
                     val bytes = activity.assets.open(file).use { it.readBytes() }
                     if (Control.installShared(pkg, file, bytes)) AppLog.info(pkg, LOGGER, "shared-installed $what（${bytes.size / 1024} KB）")
                 }
+                Control.installShared(pkg, "skeleton-policy.json", OfflineSkeletons.capturePolicy(Control.shared(pkg)))
             }.onFailure { pcHashesFor = ""; AppLog.warning(pkg, LOGGER, "shared-error hash 数据安装失败：${it.message}") }
         }.apply { name = "gibox-install-tables"; isDaemon = true }.start()
     }
@@ -212,7 +213,7 @@ class AppState(private val activity: Activity) {
         !(status.boneRefreshRequest == boneRefreshRequest && status.boneRefreshCharacter == id && status.boneRefreshState == "complete")
     fun boneRefreshMessage(id: Int): String? {
         if (boneRefreshRequest <= 0 || boneRefreshCharacter != id) return null
-        if (status.boneRefreshRequest != boneRefreshRequest || status.boneRefreshCharacter != id) return "等待游戏响应，请在大世界切换到${Characters.nameOf(id)}。"
+        if (status.boneRefreshRequest != boneRefreshRequest || status.boneRefreshCharacter != id) return "等待游戏响应，请在图鉴打开${Characters.nameOf(id)}并停留，或在大世界切换到该角色。"
         return when (status.boneRefreshState) {
             "complete" -> "骨骼已重新采集，可重新转换对应 MOD。"
             "waiting-character" -> "请在大世界切换到${Characters.nameOf(id)}，会自动开始采集。"
@@ -363,6 +364,31 @@ class AppState(private val activity: Activity) {
         Control.requestBoneExport(game)
         toast("已通知游戏导出骨骼，校验未通过会自动重试")
     }
+    fun exportCharacterBones(id: Int) {
+        if (!storage) { needStorage(); return }
+        val pkg = game
+        work("导出骨骼", "正在整理${Characters.nameOf(id)}的骨骼…", { _ ->
+            try { SkeletonExport.write(Control.shared(pkg), id) }
+            catch (e: IllegalArgumentException) {
+                if (e.message?.startsWith("暂无骨骼。") == true) null else throw e
+            }
+        }) { file ->
+            if (file == null) {
+                Control.requestBoneRefresh(pkg, id)
+                refresh()
+                prompt = Prompt("等待采集骨骼", "请打开游戏图鉴中的${Characters.nameOf(id)}并停留数秒。采集完成后，再点一次本页的导出骨骼按钮即可分享。")
+                return@work
+            }
+            val uri = DocumentsContract.buildDocumentUri(DirectoryProvider.AUTHORITY, "$pkg:shared/skeleton-exports/${file.name}")
+            val send = Intent(Intent.ACTION_SEND).setType("application/json").putExtra(Intent.EXTRA_STREAM, uri).apply {
+                clipData = ClipData.newRawUri("骨骼表", uri); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            try {
+                activity.startActivity(Intent.createChooser(send, "导出骨骼表"))
+                toast("已导出：${file.absolutePath}")
+            } catch (e: Throwable) { fail("分享骨骼", e, null) }
+        }
+    }
     fun confirmBoneRefresh(id: Int) {
         if (id !in 10000000..10001999 || refreshingBones(id)) return
         if (!storage) { needStorage(); return }
@@ -371,12 +397,12 @@ class AppState(private val activity: Activity) {
             "当前还有${Characters.nameOf(boneRefreshCharacter)}的采集请求，确定后将改为采集本页角色。\n\n" else ""
         prompt = Prompt(
             title = "重新采集骨骼？",
-            text = other + "将重新获取${Characters.nameOf(id)}的骨骼。请先在大世界切换到该角色；若提示只有低精度模型，再打开该角色详情或队伍预览并停留。完整模型校验通过后保存，等待期间保留原骨骼库。\n\n采集完成后，请重新转换需要使用新骨骼的 MOD。",
+            text = other + "将重新获取${Characters.nameOf(id)}的骨骼。可直接打开图鉴中的该角色并停留，或在大世界切换到该角色；若提示只有低精度模型，再打开该角色详情或队伍预览并停留。完整模型校验通过后保存，等待期间保留原骨骼库。\n\n采集完成后，请重新转换需要使用新骨骼的 MOD。",
             confirm = "确定", dismiss = "取消",
             onConfirm = { save("重新采集骨骼") {
                 Control.requestBoneRefresh(pkg, id)
                 AppLog.info(pkg, LOGGER, "bone-recapture ${Characters.nameOf(id)}（$id）：已请求重新采集骨骼")
-                toast("已提交，请在大世界切换到${Characters.nameOf(id)}")
+                toast("已提交，请打开图鉴中的${Characters.nameOf(id)}并停留")
             } },
         )
     }
@@ -511,6 +537,12 @@ class AppState(private val activity: Activity) {
     fun guess(pick: Screen.Pick): Characters.Guess =
         Importer.guess(pick.pending ?: pick.source ?: File(modsRoot, pick.modName), pick.importedAs, boneRoot)
     /** Characters with a skeleton: in the table made from the game's files, or recorded by the game on this device. */
+    fun boneImportHint(id: Int, outfit: String): String {
+        if (id !in 10000000..10001999) return "按 hash 匹配场景中的部件"
+        val table = OfflineSkeletons.load(boneRoot.absoluteFile.parentFile)
+        if (table?.prefabFor(id, outfit.takeIf { it.isNotEmpty() }) != null) return "优先使用内置骨骼，无需采集"
+        return "内置暂无此骨骼；打开图鉴后自动采集，可在角色页导出补充"
+    }
     fun recorded(): Set<Int> = ModLibrary.library(boneRoot).map { it.id }.toSet() + (OfflineSkeletons.load(boneRoot.absoluteFile.parentFile)?.characters() ?: emptySet())
     /** The outfits of a character (the original first); empty for a character without skins. */
     fun outfits(id: Int): List<Outfits.Outfit> = Outfits.current().of(id)

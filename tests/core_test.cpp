@@ -40,7 +40,7 @@ int main(int argc,char**argv){
    std::cout<<"Native logic: "<<d.summary()<<"; 60 frames as FrameLoop\n";}
   if(exists(p+"/learned.json"))learnedOf(JsonParser(text(p+"/learned.json")).parse());
   return 0;}
- char temp[]="/tmp/gibox-core-XXXXXX";assert(mkdtemp(temp));std::string root=temp;
+ std::string temp=std::string(std::getenv("TMPDIR")?std::getenv("TMPDIR"):"/tmp")+"/gibox-core-XXXXXX";assert(mkdtemp(&temp[0]));std::string root=temp;
  // Rows back to PC order for a texture on one of the game's meshes (the face swap): 3 rows of 2 pixels.
  {Texture t{2,3,Bytes(24)};for(size_t i=0;i<24;i++)t.pixels[i]=uint8_t(i/8);flipRows(t);for(size_t i=0;i<24;i++)assert(t.pixels[i]==uint8_t(2-i/8));flipRows(t);for(size_t i=0;i<24;i++)assert(t.pixels[i]==uint8_t(i/8));
   Texture odd{1,1,Bytes(4,7)};flipRows(odd);assert(odd.pixels==Bytes(4,7));}
