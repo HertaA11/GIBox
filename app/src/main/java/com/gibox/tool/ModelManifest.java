@@ -70,7 +70,8 @@ public final class ModelManifest {
         ModelManifest r = new ModelManifest(); r.version = (int) version;
         r.name = Json.str(m.get("name"), "name", 512); r.generation = Json.str(m.get("generation"), "generation", 64);
         Map<String, Object> c = Json.obj(m.get("character"), "character");
-        r.id = (int) Json.integer(c.get("id"), "character.id", 0, 10001999); Json.check(r.id == 0 || r.id >= 10000000, "角色 ID 越界");
+        r.id = (int) Json.integer(c.get("id"), "character.id", 0, 10001999); Json.check(r.id == 0 || Characters.isScene(r.id) || r.id >= 10000000, "角色 ID 越界");
+        if (Characters.isScene(r.id)) Json.arr(c.get("targets"), "character.targets", 1, 64);
         if (c.get("names") != null) for (Object n : Json.arr(c.get("names"), "character.names", 0, 16)) { String s = Json.str(n, "character.names", 40); Json.check(s.matches("[a-z0-9]{3,40}"), "角色名格式：" + s); r.names.add(s); }
         Json.check(r.id != 0 || !r.names.isEmpty(), "模型没有角色 ID 也没有角色名");
         if (c.get("outfit") != null) { r.outfit = Json.str(c.get("outfit"), "character.outfit", 128); Json.check(r.outfit.matches("avatar_[a-z0-9_]{1,121}"), "外观格式：" + r.outfit); }

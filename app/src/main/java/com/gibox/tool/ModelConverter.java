@@ -461,7 +461,7 @@ public final class ModelConverter {
         File f=root.isDirectory()?new File(root,"skeleton.json"):root;check(f.isFile(),"骨骼目录里没有 skeleton.json："+root);
         Map<String,Object> j=Json.obj(Json.read(f,64L<<20),"skeleton.json");
         check("gibox-skeleton".equals(j.get("format")),"不是 GIBox 骨骼记录："+f);long version=Json.integer(j.get("version"),"version",1,1000000);check(version==1,"骨骼记录版本 "+version+" 不支持（新版 GIBox 记录的？）");
-        long sid=Json.integer(j.get("id"),"id",10000000,10001999);check(id==0||sid==id,"骨骼记录属于另一个角色（"+sid+"）");
+        long sid=Json.integer(j.get("id"),"id",1,10001999);check(sid==Characters.SCENE||sid>=10000000,"骨骼记录角色无效");check(id==0||sid==id,"骨骼记录属于另一个角色（"+sid+"）");
         List<Bones> out=new ArrayList<>();Set<String> seen=new HashSet<>();
         for(Object r:Json.arr(j.get("renderers"),"renderers",1,64)){
             Map<String,Object> x=Json.obj(r,"renderer");String n=safe(Json.str(x.get("name"),"renderer.name",64));check(seen.add(lower(n)),"重复的渲染器："+n);
@@ -506,8 +506,9 @@ public final class ModelConverter {
      */
     private static void deviceParts(Ini ini,List<Bones> bones,Map<String,String> map,Options o,StringBuilder log){
         if(o.deviceRenderers.isEmpty())return;boolean synthetic=true;for(Bones b:bones)synthetic&=b.synthetic;
-        for(Section s:ini.sections.values()){if(!lower(s.name).startsWith("textureoverride"))continue;String h=null;boolean draws=false;
-            for(String l:s.lines){String[] a=kv(l);if(a==null)continue;if(a[0].equals("hash"))h=lower(a[1].trim());if(a[0].equals("ib")||a[0].equals("draw")||a[0].equals("drawindexed"))draws=true;}
+        for(Section s:ini.sections.values()){if(!lower(s.name).startsWith("textureoverride"))continue;String h=null;boolean draws=false,indexed=false;
+            for(String l:s.lines){String[] a=kv(l);if(a==null)continue;if(a[0].equals("hash"))h=lower(a[1].trim());if(a[0].equals("ib")||a[0].equals("draw")||a[0].equals("drawindexed"))draws=true;if(a[0].equals("ib")||a[0].equals("drawindexed"))indexed=true;}
+            if(!o.sceneTargets.isEmpty()&&indexed&&h!=null)check(o.deviceRenderers.containsKey(h),"场景部件 "+s.name+" 的 hash "+h+" 没有可用的内置骨骼，不能套用其他网格");
             String r=h==null?null:o.deviceRenderers.get(h),part=s.name.substring(15);if(r==null||map.containsKey(lower(part)))continue;
             Bones have=null;for(Bones b:bones)if(b.name.equalsIgnoreCase(r))have=b;
             if(have==null&&synthetic){have=new Bones(r);bones.add(have);}
@@ -1195,7 +1196,8 @@ public final class ModelConverter {
         /** pc-hashes.json's texture hashes, for "this =" texture replacements (DeviceHashes.pcTextures). */
         public Options pcTextures(Map<String,List<String[]>> m){pcTextures=m==null?new HashMap<>():m;return this;}
         public Options deviceRenderers(Map<String,String> m){deviceRenderers=new HashMap<>();if(m!=null)for(Map.Entry<String,String> e:m.entrySet())deviceRenderers.put(lower(e.getKey()),e.getValue());return this;}
-        Map<String,Object> character(int id){Map<String,Object> c=Json.of("id",id,"names",new ArrayList<Object>(names));if(outfit!=null&&!outfit.isEmpty())c.put("outfit",outfit);return c;}
+        public List<Object> sceneTargets=new ArrayList<>();
+        Map<String,Object> character(int id){Map<String,Object> c=Json.of("id",id,"names",new ArrayList<Object>(names));if(outfit!=null&&!outfit.isEmpty())c.put("outfit",outfit);if(Characters.isScene(id))c.put("targets",sceneTargets);return c;}
         /** Where a texture-only mod's read-only diagnostic goes (GIBox/texture-diag, TextureDiag); null: none. */
         public File textureDiag=null;
         public Options textureDiag(File dir){textureDiag=dir;return this;}
@@ -1217,7 +1219,7 @@ public final class ModelConverter {
         // A mod that converts (or fails for another reason) leaves no texture-only diagnostic of an earlier import behind.
         if(o.textureDiag!=null&&(!textureOnly(ini)||o.textureMods))TextureDiag.remove(o.textureDiag,dest.getName());
         if(o.textureMods&&textureOnly(ini))return TextureMod.install(src,ini,id,dest,o,decoder,log);
-        check(!Characters.isScene(id),"NPC / 怪物 / 风之翼只支持纯贴图 MOD：独立网格 MOD 的导入尚未接通；角色网格 MOD 可在设置中开启同步替换对应 NPC");
+        check(!Characters.isScene(id)||!o.sceneTargets.isEmpty(),"场景网格 MOD 需要先按 hash 匹配目标和内置骨骼");
         log.append("模型主 INI：").append(ini.file.getName()).append('\n');
         for(File sibling:ModConfig.allInis(src))if(!sibling.getCanonicalFile().equals(ini.file.getCanonicalFile()))log.append("未导入辅助 INI：").append(src.toPath().relativize(sibling.toPath())).append("（帮助、菜单或独立贴图配置；不包含在本次模型转换中）\n");
         if(o.variants)for(Map.Entry<String,TreeSet<Integer>> e:ini.excludedChoices.entrySet())
@@ -1226,7 +1228,7 @@ public final class ModelConverter {
         o.reusedSkeleton=false;List<Bones> saved=null;if(boneDir==null&&o.replace)try{saved=previousBones(dest,id);}catch(Exception ex){log.append("未复用已有骨骼记录：").append(ex.getMessage()).append('\n');}
         if(saved!=null){bones=saved;o.reusedSkeleton=true;log.append("骨骼复用：独立骨骼库不可用，保留本 MOD 已有转换中的完整骨骼和目标网格记录\n");}
         else if(boneDir==null){check((id==0&&!o.names.isEmpty())||(id>=10000000&&id<=10001999),"没有骨骼目录时需要角色 ID 或角色名");bones=new ArrayList<>();for(String r:DEFAULT_RENDERERS)bones.add(new Bones(r));if(o.fallback==null)o.fallback="Body";}
-        else{check(id>=10000000&&id<=10001999,"角色 ID 越界");bones=bones(boneDir,id);}Map<String,String> map=new LinkedHashMap<>();
+        else{check(Characters.isScene(id)||(id>=10000000&&id<=10001999),"角色 ID 越界");bones=bones(boneDir,id);}Map<String,String> map=new LinkedHashMap<>();
         if(!o.mapping.trim().isEmpty())for(String row:o.mapping.split(";")){String[] a=row.trim().split("=",-1);check(a.length==2&&!a[0].trim().isEmpty()&&!a[1].trim().isEmpty(),"映射格式：部件=渲染器;部件=skip");check(map.put(lower(a[0].trim()),a[1].trim())==null,"重复映射");}
         deviceParts(ini,bones,map,o,log);
         Animation animation;String driven=null;try{animation=Animation.parse(ini,src,o.rehearsal);}catch(Driven d){animation=null;driven=d.getMessage();}

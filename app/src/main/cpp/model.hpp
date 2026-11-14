@@ -105,17 +105,22 @@ struct FrameLoop {AnimationSpec spec;float counter=0;size_t current=0,step=0;uin
 struct PartSummary {std::string name,renderer;unsigned bones=0;bool hasTarget=false,indexedBones=false;Fingerprint target;};
 // outfit (model.json character.outfit, 0.7.94): the prefab of the outfit (original look or skin) the model was converted for,
 // as the runtime reads it from a renderer ("avatar_lady_pole_shenhecostumedai"); "" for a model made before outfits.
-struct ModelSummary {std::string name,generation,outfit;unsigned id=0;bool animated=false;std::vector<std::string> names;std::vector<PartSummary> parts;Variants variants;When replaceWhen;};
+struct SceneTarget {Fingerprint target;std::vector<std::string> owners;};
+struct ModelSummary {std::vector<SceneTarget> sceneTargets;std::string name,generation,outfit;unsigned id=0;bool animated=false;std::vector<std::string> names;std::vector<PartSummary> parts;Variants variants;When replaceWhen;};
 inline void checkFormat(const Json& m){require(m.type==Json::Object,"model.json：不是对象");require(m.at("format").type==Json::String&&m.at("format").string=="gibox-model","model.json：不是 GIBox 模型");
  auto version=juint(m,"version",1,1000000);require(version>=1&&version<=4,"model.json：不支持的版本 "+std::to_string(version)+"（可能由更新的 GIBox 生成）");}
-inline void characterOf(const Json& m,unsigned& id,std::vector<std::string>& names){const auto& c=jfield(m,"character");id=unsigned(juint(c,"id",0,10001999));require(id==0||id>=10000000,"角色 ID 超出范围");
+inline void characterOf(const Json& m,unsigned& id,std::vector<std::string>& names){const auto& c=jfield(m,"character");id=unsigned(juint(c,"id",0,10001999));require(id==0||id==1||id>=10000000,"角色 ID 超出范围");
  const auto& n=c.at("names");if(n.type!=Json::Null){require(n.type==Json::Array&&n.array.size()<=16,"角色名称列表无效");for(auto& x:n.array){require(x.type==Json::String&&nameToken(x.string),"角色名称无效");names.push_back(x.string);}}
  require(id!=0||!names.empty(),"模型须指定角色 ID 或角色名称");}
 inline ModelSummary summaryOf(const Json& m){checkFormat(m);ModelSummary s;s.animated=animationOf(m).present();s.name=jstr(m,"name",512);s.generation=jstr(m,"generation",64);characterOf(m,s.id,s.names);std::set<std::string> seen;
+ if(s.id==1){for(const auto& row:jarr(m.at("character"),"targets",1,64)){SceneTarget t;t.target=fingerprintOf(row.at("target"));
+  for(const auto& owner:jarr(row,"owners",1,20000)){require(owner.type==Json::String&&!owner.string.empty()&&owner.string.size()<=256,"场景目标名称无效");
+   const auto& n=owner.string;require(n.compare(0,4,"npc_")==0||n.compare(0,8,"monster_")==0||n.compare(0,11,"monsterobj_")==0||n.compare(0,9,"flycloak_")==0||n.compare(0,10,"@renderer:")==0,"场景目标类型无效");t.owners.push_back(n);}s.sceneTargets.push_back(std::move(t));}}
  auto version=unsigned(juint(m,"version",1,4));s.variants=variantsOf(m.at("variants"),version);require(version>=3||m.at("replaceWhen").type==Json::Null,"replaceWhen 需要模型格式版本 3");s.replaceWhen=whenOf(m.at("replaceWhen"),s.variants,"replacement");
  {const auto& o=m.at("character").at("outfit");if(o.type!=Json::Null){require(o.type==Json::String&&o.string.size()<=128&&o.string.compare(0,7,"avatar_")==0&&o.string.find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789_")==std::string::npos,"角色外观名称无效");s.outfit=o.string;}}
  for(auto& p:jarr(m,"parts",1,model::maxParts)){PartSummary ps;ps.name=jstr(p,"name",64);require(safeName(ps.name)&&seen.insert(ps.name).second,"部件名称无效或重复："+ps.name);ps.renderer=jstr(p,"renderer",256);
   ps.bones=unsigned(juint(p,"bones",1,model::maxBones));ps.indexedBones=p.at("skeleton").type==Json::Null;if(p.at("target").type!=Json::Null){ps.target=fingerprintOf(p.at("target"));ps.hasTarget=true;}s.parts.push_back(ps);}
+ if(s.id==1){for(const auto& p:s.parts){bool found=false;for(const auto& t:s.sceneTargets)found=found||(p.hasTarget&&matches(t.target,p.target));require(found&&!p.indexedBones,"场景部件必须指定目标和骨骼");}}
  return s;}
 inline std::string manifestText(const std::string& dir){auto b=read(dir+"/model.json",4*1024*1024);return std::string(b.begin(),b.end());}
 inline ModelSummary readSummary(const std::string& dir){return summaryOf(JsonParser(manifestText(dir)).parse());}

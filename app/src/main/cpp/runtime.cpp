@@ -96,7 +96,7 @@ ControlState parseControl(const std::string& raw){
 struct PartInfo {std::string name,group,lodMesh;unsigned minBones=0;bool hasTarget=false;Fingerprint target;};
 // A model folder as the scan sees it (model.json + learned.json; model.bin is only read when the model is loaded).
 // id 0 + names: converted without the skeleton library; the character is found by the names in its skeleton chain.
-struct ModelInfo {std::string name,path,generation,stamp,outfit;unsigned id=0;bool animated=false;std::vector<PartInfo> parts;std::vector<std::string> names;Learned learned;Variants variants;When replaceWhen;};
+struct ModelInfo {std::vector<SceneTarget> sceneTargets;std::string name,path,generation,stamp,outfit;unsigned id=0;bool animated=false;std::vector<PartInfo> parts;std::vector<std::string> names;Learned learned;Variants variants;When replaceWhen;};
 std::vector<std::string> nameTokens(const std::string& s){std::vector<std::string> out;std::string cur;for(size_t i=0;i<=s.size();i++){unsigned char c=i<s.size()?s[i]:' ';bool alnum=(c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9');
  if(!alnum){if(cur.size()>=3)out.push_back(cur);cur.clear();continue;}cur+=char(c>='A'&&c<='Z'?c+32:c);}return out;}
 bool namesMatch(const std::vector<std::string>& names,const std::vector<std::string>& tokens){for(auto& n:names)for(auto& t:tokens)if(t==n||(std::min(t.size(),n.size())>=4&&(t.compare(0,n.size(),n)==0||n.compare(0,t.size(),t)==0)))return true;return false;}
@@ -114,7 +114,7 @@ std::vector<ModelInfo> scanModels(const std::string& root,std::map<std::string,M
   if(!d.is_directory(ec)){continue;}auto name=d.path().filename().string();if(name.empty()||name[0]=='.')continue;auto path=d.path().string();
   try{auto manifest=path+"/model.json";if(!exists(manifest))continue;auto stamp=stampOf(manifest);auto it=cache.find(path);
    if(it!=cache.end()&&it->second.stamp==stamp){next[path]=it->second;out.push_back(it->second);continue;}
-   auto summary=readSummary(path);ModelInfo m;m.name=name;m.path=path;m.stamp=stamp;m.generation="g:"+summary.generation;m.id=summary.id;m.animated=summary.animated;m.names=summary.names;m.learned=readLearned(path);m.variants=summary.variants;m.replaceWhen=summary.replaceWhen;m.outfit=summary.outfit;
+   auto summary=readSummary(path);ModelInfo m;m.name=name;m.path=path;m.stamp=stamp;m.generation="g:"+summary.generation;m.id=summary.id;m.sceneTargets=summary.sceneTargets;m.animated=summary.animated;m.names=summary.names;m.learned=readLearned(path);m.variants=summary.variants;m.replaceWhen=summary.replaceWhen;m.outfit=summary.outfit;
    if(!m.id&&m.learned.id)m.id=m.learned.id;
    // Targets the runtime learned (also after a game update moved a part) take precedence over the converter's.
    for(auto& p:summary.parts){PartInfo pi;pi.name=p.name;pi.group=p.renderer;pi.minBones=p.indexedBones?p.bones:0;pi.hasTarget=p.hasTarget&&p.target.bones>=pi.minBones;pi.target=p.target;if(p.hasTarget&&lowerLod(p.target.mesh))pi.lodMesh=p.target.mesh;
@@ -211,7 +211,7 @@ struct Runtime::Impl {
  // experiments.logicCore: the set's own INI logic, picking its animation frame or its outfit (logic_game.hpp).
  struct LogicRun {std::unique_ptr<LogicDriver> driver;bool failed=false,fresh=false,noted=false;uint64_t misses=0,lastStats=0;unsigned missLines=0;std::string missLogged;std::map<std::string,int> pushed;Assignment want;bool persistDue=false;uint64_t persistAt=0,persistSaves=0;};   // want: the outfit it picked (applyVariant may wait for textures)
  uint64_t animationToken=0;
- struct Set:Owned {bool lost=false;std::string name,path,generation,outfit;unsigned id=0;std::shared_ptr<ModelFile> data;std::vector<Fingerprint> targets;std::vector<BuiltPart> parts;std::map<std::string,MatTex> textures;std::map<std::string,MaterialFile> mats;std::string meshKey;AnimationRun animation;uint64_t blobSize=0;std::string fileGeneration,textureWait;Variants variants;bool originalMaterials=false,built=false,mergeDraws=true;std::vector<TextureSwap> swaps;LogicSpec logicSpec;LogicRun logic;Assignment assignment;uint64_t used=0,bytes=0;
+ struct Set:Owned {std::vector<SceneTarget> sceneTargets;bool lost=false;std::string name,path,generation,outfit;unsigned id=0;std::shared_ptr<ModelFile> data;std::vector<Fingerprint> targets;std::vector<BuiltPart> parts;std::map<std::string,MatTex> textures;std::map<std::string,MaterialFile> mats;std::string meshKey;AnimationRun animation;uint64_t blobSize=0;std::string fileGeneration,textureWait;Variants variants;bool originalMaterials=false,built=false,mergeDraws=true;std::vector<TextureSwap> swaps;LogicSpec logicSpec;LogicRun logic;Assignment assignment;uint64_t used=0,bytes=0;
   std::vector<std::unique_ptr<BuiltPart>> lods;std::set<std::pair<Ptr,Ptr>> lodWanted;std::set<std::string> lodFailed;};  // bytes: estimated memory of the built set; lods: parts built on lower-LOD renderers with other bone lists (lodWanted: renderer, native waiting for one)
  // source: for a renderer the game created from one of ours (adopted), the renderer whose material clones it shows.
  struct Attachment:Owned {Ptr renderer=0,native=0,original=0,originalMaterials=0,source=0;Set* set=nullptr;RestoreBackup* backup=nullptr;size_t part=0;BuiltPart* built=nullptr;bool adopted=false;std::map<std::string,Ptr> clones;std::string restoreError;
@@ -1585,15 +1585,16 @@ struct Runtime::Impl {
  bool switchedOff(){for(auto& n:ctl.selected)for(auto& m:models)if(m.name==n){auto v=ctl.variables.find(m.name);if(!drawn(m.replaceWhen,pick(m.variants,v==ctl.variables.end()?std::map<std::string,int>{}:v->second)))return true;}return false;}
  size_t rank(const std::string& path){for(size_t i=0;i<wantedNow.size();i++)if(wantedNow[i]->path==path)return i;return wantedNow.size();}
  bool claims(const Set& s,Ptr original,Ptr renderer=0){if(!alive(original))return false;auto fp=fingerprint(original);bool npc=renderer&&!npcSource(renderer).empty();
+  if(s.id==1&&(!renderer||!sceneFits(s.sceneTargets,renderer,fp)))return false;
   if(npc&&!modelFits(s.id,s.outfit,renderer))return false;
   for(auto& p:s.parts){
-   if(matches(p.target,fp)||(npc&&npcGeometry(p.target,fp))){if(npc){bool ordered=false;if(!npcPalette(renderer,original,p,ordered))continue;}return true;}
+   if(matches(p.target,fp)||(npc&&npcGeometry(p.target,fp))){if(npc||s.id==1){bool ordered=false;if(!npcPalette(renderer,original,p,ordered))continue;}return true;}
   }
   return false;}
  // Every part of the model is also replaced by a model switched on earlier: building it would show nothing, so it waits
  // (and is built when that one is switched off). Unknown targets count as not covered.
- bool shadowed(const ModelInfo& m,const std::vector<const ModelInfo*>& wanted){std::vector<Fingerprint> mine;if(!targetsFor(m,mine))return false;
-  for(auto& t:mine){bool covered=false;for(auto* h:wanted){if(h==&m)break;std::vector<Fingerprint> theirs;if(!targetsFor(*h,theirs))continue;for(auto& x:theirs)covered=covered||matches(x,t);if(covered)break;}if(!covered)return false;}
+ bool shadowed(const ModelInfo& m,const std::vector<const ModelInfo*>& wanted){if(m.id==1){return false;}std::vector<Fingerprint> mine;if(!targetsFor(m,mine))return false;
+  for(auto& t:mine){bool covered=false;for(auto* h:wanted){if(h==&m)break;if(h->id==1)continue;std::vector<Fingerprint> theirs;if(!targetsFor(*h,theirs))continue;for(auto& x:theirs)covered=covered||matches(x,t);if(covered)break;}if(!covered)return false;}
   return true;}
  static std::string lodTarget(const ModelInfo& m){for(auto& p:m.parts)if(!p.lodMesh.empty())return p.lodMesh;return {};}
  bool outranked(const Attachment& a,const std::vector<Set*>& live){size_t mine=rank(a.set->path);for(Set* s:live)if(s->path!=a.set->path&&rank(s->path)<mine&&claims(*s,a.original,a.renderer))return true;return false;}
@@ -1629,6 +1630,7 @@ struct Runtime::Impl {
  }
  // Folders without usable targets: keep identifying missing parts on the world character until all are ready.
  void learnTargets(const ModelInfo& m){
+  if(m.id==1){return;}
   if(m.id==0){learnByName(m);return;}
   if(!ch.entity||m.id!=ch.config){if(!m.names.empty())learnByName(m);return;}
   if(!outfitMatchesWorld(m)){staleNote[m.path]="外观不符：当前角色的外观为 "+worldOutfit()+"，此 MOD 适用于 "+modelOutfit(m)+"，换上对应外观后替换";return;}
@@ -1718,7 +1720,7 @@ struct Runtime::Impl {
  // proves a hidden party member's renderer belongs to the model's character before any set of it is built.
  std::string libraryAvatar(unsigned id){auto* f=libraryFile(boneRoot+"/"+std::to_string(id)+"/skeleton.json");return f?chainAvatar(f->root):"";}
  // The outfit a model is for: model.json's; for a model made before outfits, the one its library was recorded from.
- std::string modelOutfit(const ModelInfo& m){if(!m.outfit.empty())return m.outfit;return m.id?libraryAvatar(m.id):"";}
+ std::string modelOutfit(const ModelInfo& m){if(m.id==1){return {};}if(!m.outfit.empty())return m.outfit;return m.id?libraryAvatar(m.id):"";}
  Recent<std::pair<Ptr,Ptr>,std::string> avatarIds{512};
  std::string avatarOf(Ptr r){auto key=std::make_pair(r,load<Ptr>(r+0x10));if(auto* hit=avatarIds.find(key))return *hit;std::string a;try{a=avatarIdentity(r);}catch(const std::exception&){return "";}return avatarIds.put(key,a);}
  // The outfit the controlled character shows in the world ("" before its renderers are there).
@@ -1734,7 +1736,13 @@ struct Runtime::Impl {
   if(!npc.empty()){if(have)*have=npc;return ctl.npcModels&&npc!="?"&&!want.empty()&&npc==want;}
   if(want.empty()){return true;}
   auto a=avatarOf(r);if(have)*have=a;return a.empty()||a==want;}
- bool modelFits(unsigned id,const std::string& want,Ptr r){auto npc=npcSource(r);if(npc.empty())return outfitFits(want,r);
+ bool sceneFits(const std::vector<SceneTarget>& targets,Ptr r,const Fingerprint& fp){if(targets.empty()){return false;}
+  std::set<std::string> allowed;for(const auto& t:targets)if(matches(t.target,fp))allowed.insert(t.owners.begin(),t.owners.end());
+  if(allowed.empty()){return false;}if(allowed.count("@renderer:"+name(r))){return true;}
+  Owned tmp;bool found=false;try{Ptr array=e.get(abi::getBones,r);if(array){pin(tmp,array);auto bones=pointers(array,512);Ptr t=bones.empty()?0:bones[0];
+   for(unsigned i=0;i<32&&alive(t);i++){if(allowed.count(meshName(name(t)))){found=true;break;}t=e.get(abi::getParent,t);}}}
+  catch(...){freeOwned(tmp);throw;}freeOwned(tmp);return found;}
+ bool modelFits(unsigned id,const std::string& want,Ptr r){if(id==1){return true;}auto npc=npcSource(r);if(npc.empty())return outfitFits(want,r);
   return ctl.npcModels&&npc!="?"&&id&&previewId(npc)==id&&(want.empty()||want==npc);}
 
  bool outfitMatchesWorld(const ModelInfo& m){auto want=modelOutfit(m),have=worldOutfit();return want.empty()||have.empty()||want==have;}
@@ -1787,7 +1795,8 @@ struct Runtime::Impl {
    auto key=m.path+"|"+t.renderer;if(lodLogged.insert(key).second)log("template-lod",m.name+"："+t.renderer+" 只显示 "+s.fp.mesh+"，其骨骼和绑定矩阵与"+(rec==&embedded?"模型保存的 ":"骨骼库记录的 ")+t.mesh+" 一致，以它为模板构建");
    return s;}
   return std::nullopt;}
- bool npcTemplate(const ModelInfo& m,size_t index,const Seen& sn){if(npcSource(sn.renderer).empty())return true;
+ bool npcTemplate(const ModelInfo& m,size_t index,const Seen& sn){if(m.id==1&&!sceneFits(m.sceneTargets,sn.renderer,sn.fp)){return false;}
+  if(m.id!=1&&npcSource(sn.renderer).empty())return true;
   std::shared_ptr<ModelFile> data;{std::lock_guard<std::mutex> lock(sm);auto it=loaded.find(m.path);if(it!=loaded.end()&&it->second.generation==m.generation)data=it->second.data;}
   if(!data){auto* set=findSet(m.path,m.generation);if(set)data=set->data;}
   if(!data||index>=data->parts.size()){return false;}
@@ -1802,7 +1811,7 @@ struct Runtime::Impl {
    // Not a renderer that already failed to attach (another skeleton on the same asset): it would fail the build too.
    // Nor one of another outfit: its bindposes are not the model's (0.7.94).
    for(auto& s:seen)if(matches(t,s.fp)&&seenLive(s)&&alive(s.mesh)&&!attachments.count(s.renderer)&&!skipped.count({s.renderer,load<Ptr>(s.renderer+0x10)})&&e.get(abi::getMesh,s.renderer)==s.mesh&&modelFits(model.id,outfit,s.renderer)&&npcTemplate(model,i,s)&&usableTemplate(s,min)){out.push_back(s);found=true;break;}
-   if(!found)for(auto& a:attachments)if(alive(a.first)&&alive(a.second->original)&&modelFits(model.id,outfit,a.first)&&matches(t,fingerprint(a.second->original))){Seen s{a.first,a.second->original,fingerprint(a.second->original)};if(usableTemplate(s,min)){out.push_back(s);found=true;break;}}
+   if(!found)for(auto& a:attachments)if(alive(a.first)&&alive(a.second->original)&&modelFits(model.id,outfit,a.first)&&matches(t,fingerprint(a.second->original))){Seen s{a.first,a.second->original,fingerprint(a.second->original)};if(npcTemplate(model,i,s)&&usableTemplate(s,min)){out.push_back(s);found=true;break;}}
    if(!found)if(auto lod=lodTemplate(model,t,min)){out.push_back(*lod);found=true;}
    if(!found){for(auto& s:seen)if(matches(t,s.fp)&&seenLive(s)&&alive(s.mesh)&&!usableTemplate(s,min)){staleNote[model.path]=t.renderer+" 的骨骼或绑定矩阵尚未完整，持续等待并重新检测";break;}return std::nullopt;}}
   staleNote.erase(model.path);
@@ -2110,7 +2119,7 @@ struct Runtime::Impl {
  void freeAnimation(Set& s){for(auto& part:s.parts)freeOwned(part.dynamicRoots);}
 
  Set* startSet(const ModelInfo& m,LoadResult& res,const std::vector<Fingerprint>& targets,uint64_t now){
-  auto s=std::make_unique<Set>();s->name=m.name;s->path=m.path;s->generation=m.generation;s->id=m.id;s->outfit=modelOutfit(m);s->data=res.data;s->targets=targets;s->variants=res.data->variants;s->originalMaterials=res.data->originalMaterials;
+  auto s=std::make_unique<Set>();s->name=m.name;s->path=m.path;s->generation=m.generation;s->id=m.id;s->sceneTargets=m.sceneTargets;s->outfit=modelOutfit(m);s->data=res.data;s->targets=targets;s->variants=res.data->variants;s->originalMaterials=res.data->originalMaterials;
   // Estimated memory once built: vertex arrays and the clone's skin, indices (ours and the engine's), RGBA textures.
   for(auto& p:res.data->parts){s->bytes+=uint64_t(p.geo.n)*(12+12+8+32+32);for(auto& c:p.channels)s->bytes+=c.second.size();s->bytes+=uint64_t(p.geo.ni)*8;}
   if(res.data->animation.present()){auto& a=s->animation;a.loop=FrameLoop(res.data->animation);a.mode=ctl.exp.animationMode;a.token=++animationToken;a.started=now;a.cpu.resize(a.loop.spec.frames.size());a.meshes.resize(a.cpu.size());a.owned.resize(res.data->parts.size());a.back.resize(res.data->parts.size());a.cpu[0]=res.data;}
@@ -2219,6 +2228,7 @@ struct Runtime::Impl {
   for(auto& variant:s.lods)if(variant->npc&&variant->index==i&&sameBones(sn.renderer,variant->bones))return variant.get();
   s.lodWanted.insert({sn.renderer,load<Ptr>(sn.renderer+0x10)});return nullptr;}
  bool attach(Ptr r,Ptr mesh,Set& s,size_t part,uint64_t now,BuiltPart* built=nullptr){
+  if(s.id==1){if(!sceneFits(s.sceneTargets,r,fingerprint(mesh)))return false;bool ordered=false;if(!npcPalette(r,mesh,built?*built:s.parts[part],ordered)||!ordered)return false;}
   if(!built&&!npcSource(r).empty()){auto* choice=npcPartFor(s,part,Seen{r,mesh,fingerprint(mesh)});if(!choice)return false;if(choice!=&s.parts[part])built=choice;}
   auto& bp=built?*built:s.parts[part];auto a=std::make_unique<Attachment>();a->renderer=r;a->native=load<Ptr>(r+0x10);a->original=mesh;a->set=&s;a->part=part;a->built=built;a->backup=bp.backup;bool meshSet=false;
   auto readyKey=s.path+"|attach|"+std::to_string(a->native);auto waiting=[&](const std::string& reason){if(missingLogged[readyKey]!=reason){missingLogged[readyKey]=reason;log("attach-wait",s.name+"/"+bp.name+"："+reason);}freeOwned(*a);return false;};
@@ -2458,14 +2468,15 @@ struct Runtime::Impl {
    require(alive(original)&&originalMats!=0,"接管的渲染器原状态未知");
    pin(*a,r);pin(*a,original);pin(*a,originalMats);a->original=original;a->originalMaterials=originalMats;a->source=src?src->renderer:0;}
   catch(...){freeOwned(*a);throw;}
-   if(!npcSource(r).empty()){bool ordered=false;if(!modelFits(s.id,s.outfit,r)||!npcPalette(r,a->original,bp,ordered)||!ordered){if(detach(*a,true))return;}}
+   if(s.id==1&&!sceneFits(s.sceneTargets,r,fingerprint(a->original))){if(detach(*a,true))return;}
+   if(s.id==1||!npcSource(r).empty()){bool ordered=false;if(!modelFits(s.id,s.outfit,r)||!npcPalette(r,a->original,bp,ordered)||!ordered){if(detach(*a,true))return;}}
    log("adopted",s.name+"/"+bp.name+" → "+name(r));attachments[r]=std::move(a);beginMaterialTrace(*attachments.at(r),now);s.used=now;}
  void discover(const std::vector<Set*>& live,uint64_t now){materialWait.clear();
   std::map<Ptr,std::pair<Set*,size_t>> ours;for(auto& s:sets)for(size_t i=0;i<s->parts.size();i++){ours[s->parts[i].mesh]={s.get(),i};if(i<s->animation.owned.size())for(Ptr mesh:s->animation.owned[i])ours[mesh]={s.get(),i};}
   auto list=allRenderers(now);
   for(auto it=attachments.begin();it!=attachments.end();){auto& a=*it->second;bool keep=alive(a.renderer)&&load<Ptr>(a.renderer+0x10)==a.native;
    if(keep){Ptr m=e.get(abi::getMesh,a.renderer);if(m&&m!=partOf(a).mesh&&!reclaim(a,m)){keep=false;log("attachment-dropped","游戏在 "+rendererName(a.renderer)+" 上放了另一个网格"+(alive(m)?"："+name(m):""));try{restoreMaterials(a);}catch(const std::exception& ex){restoreFailure(a,ex.what());keep=true;}}}
-   bool npcDrop=keep&&!npcSource(a.renderer).empty()&&!modelFits(a.set->id,a.set->outfit,a.renderer);if(npcDrop)keep=false;
+   bool npcDrop=keep&&((a.set->id==1&&!sceneFits(a.set->sceneTargets,a.renderer,fingerprint(a.original)))||(!npcSource(a.renderer).empty()&&!modelFits(a.set->id,a.set->outfit,a.renderer)));if(npcDrop)keep=false;
    bool newer=false;for(Set* s:live)newer=newer||(s!=a.set&&s->path==a.set->path);
    bool giveWay=keep&&(newer||outranked(a,live));if(giveWay){keep=false;log("outranked",a.set->name+"/"+partOf(a).name+"，"+rendererName(a.renderer)+"：由更新的或优先级更高的模型替换这个网格");}
     if(keep&&a.materialTraceAt&&now>=a.materialTraceAt){materialState(a,"挂载后采样",now);a.materialTraceAt=++a.materialTraceSamples<2?a.materialTraceStart+1000:0;}
@@ -2671,11 +2682,12 @@ struct Runtime::Impl {
    for(auto& row:bindingTargets){auto* m=row.model;const auto& targets=row.parts;if(!row.known){if(world.count(r)&&m->id==ch.config)bindingDeferred(m->name,"目标网格尚未识别");continue;}bool candidate=false;
     for(auto& t:targets)candidate=candidate||matches(t,fp)||(world.count(r)&&lowerLod(fp.mesh)&&meshName(fp.mesh)==meshName(t.mesh));
     if(!candidate)continue;
-    if(world.count(r)){if(m->id&&m->id!=ch.config)continue;}
+    if(m->id==1){if(!sceneFits(m->sceneTargets,r,fp))continue;}
+    else if(world.count(r)){if(m->id&&m->id!=ch.config)continue;}
     else{if(!tokensRead){tokens=chain(r,true);tokensRead=true;} // a pooled/loading renderer's parent chain can change
      if(std::find(tokens.begin(),tokens.end(),"avatar")==tokens.end()||(!m->names.empty()&&!namesMatch(m->names,tokens)))continue;}
-    if(!world.count(r)&&!npcSource(r).empty()){if(!modelFits(m->id,modelOutfit(*m),r))continue;}
-    else if(!world.count(r)&&m->names.empty()){auto* built=liveSet(*m);bool identity=false;auto root=avatarIdentity(r);
+    if(m->id!=1&&!world.count(r)&&!npcSource(r).empty()){if(!modelFits(m->id,modelOutfit(*m),r))continue;}
+    else if(m->id!=1&&!world.count(r)&&m->names.empty()){auto* built=liveSet(*m);bool identity=false;auto root=avatarIdentity(r);
      if(built&&!root.empty())for(auto& bp:built->parts)identity=identity||(bp.avatar==root&&(matches(bp.target,fp)||meshName(bp.target.mesh)==meshName(fp.mesh)));
      // Not built yet (a party member loaded but not switched in): the outfit the model is for (its bone library's).
      std::string recorded;if(!identity&&!built&&m->id&&!root.empty()){recorded=modelOutfit(*m);identity=root==recorded;}

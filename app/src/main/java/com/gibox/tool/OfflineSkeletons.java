@@ -96,7 +96,7 @@ final class OfflineSkeletons {
     }
 
     /** A mesh record, read from its line in the file. */
-    private Map<String, Object> mesh(int index) throws Exception {
+    Map<String, Object> mesh(int index) throws Exception {
         Json.check(index >= 0 && index < meshCount, "离线骨骼表的网格序号无效：" + index);
         byte[] b = new byte[meshLength[index]];
         try (RandomAccessFile r = new RandomAccessFile(file, "r")) { r.seek(meshAt[index]); r.readFully(b); }
@@ -178,6 +178,9 @@ final class OfflineSkeletons {
         }
         return Json.write(Json.of("models", models, "outfits", outfits, "builtin", builtin, "npcs", npcs)).getBytes(StandardCharsets.UTF_8);
     }
+
+    int meshCount() { return meshCount; }
+    Map<String,List<Object[]>> prefabRecords() { return prefabs; }
 
     /** The characters (ids) the table has a prefab for: their original look, or one of their outfits. */
     synchronized Set<Integer> characters() {

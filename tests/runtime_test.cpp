@@ -966,6 +966,28 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
   {Runtime rt(e,pkg,root+"/privateNpcOnly",mediaN,false);for(uint64_t end=t+4000;t<end;t+=100)rt.tick(t);
    assert(meshOf(n1)!=original);rt.shutdown();assert(meshOf(n1)==original&&f->handles.empty());}
   store<uint32_t>(entity+kConfig,10000107);f->world(0);f->scene={};}
+
+ // Independent NPC/monster and skinned weapon imports never inherit the controlled avatar's identity.
+ {std::string mediaI=root+"/mediaIndependent",sp=mediaI+"/"+pkg+"/GIBox";
+  auto sceneSpec=[&](const std::string& owner){Spec spec;spec.id=1;spec.withTarget(fixture::target("Body"));
+   spec.edit=[owner](std::string& json){fixture::replaceIn(json,"\"id\":1,\"names\":[]","\"id\":1,\"names\":[],\"targets\":[{\"target\":"+fixture::target("Body")+",\"owners\":["+quote(owner)+"]}]");};return spec;};
+  writeModel(sp+"/models/SceneNpc",sceneSpec("npc_katheryne"));
+  Ptr original=f->mesh(),npcRoot=f->object("transform","NPC_Katheryne(Clone)"),monsterRoot=f->object("transform","Monster_Test(Clone)"),wrongRoot=f->object("transform","NPC_Other(Clone)");
+  Ptr n1=f->renderer(original,"BoneA","Body",npcRoot),n2=f->renderer(original,"BoneA","Body",npcRoot),wrong=f->renderer(original,"BoneA","Body",wrongRoot);
+  Ptr monster=f->renderer(original,"BoneA","Body",monsterRoot),weapon=f->renderer(original,"BoneA","Equip_Bow_Test",f->skeletonRoot),wrongWeapon=f->renderer(original,"BoneA","Equip_Bow_Other",f->skeletonRoot);
+  Ptr badMesh=f->mesh(),bad=f->renderer(badMesh,"BoneA","Body",npcRoot);store<float>(f->obj[badMesh].arrays[abi::getBindposes]+0x20+48,2.f);
+  Ptr player=f->renderer(original);f->world(player);f->scene={player,n1,n2,wrong,monster,weapon,wrongWeapon,bad};
+  writeModel(sp+"/models/SceneMonster",sceneSpec("monster_test"));writeModel(sp+"/models/SceneWeapon",sceneSpec("@renderer:Equip_Bow_Test"));
+  write(sp+"/control.json",R"J({"enabled":true,"npcModels":false,"selected":["SceneNpc","SceneMonster","SceneWeapon"]})J");
+  {Runtime rt(e,pkg,root+"/privateIndependent",mediaI,false);uint64_t t=8800000;auto run=[&](uint64_t ms){for(uint64_t end=t+ms;t<end;t+=100)rt.tick(t);};run(5000);
+   assert(meshOf(n1)!=original&&meshOf(n2)!=original&&meshOf(monster)!=original&&meshOf(weapon)!=original);
+   assert(meshOf(player)==original&&meshOf(wrong)==original&&meshOf(wrongWeapon)==original&&meshOf(bad)==badMesh);
+   // A pooled NPC can change its owner while retaining our mesh: restore before it represents another target.
+   Ptr bone=load<Ptr>(f->obj[n2].bones+0x20);f->obj[bone].parent=wrongRoot;run(1000);assert(meshOf(n2)==original);
+   write(sp+"/control.json",R"J({"enabled":true,"selected":[]})J");run(1000);
+   assert(meshOf(n1)==original&&meshOf(monster)==original&&meshOf(weapon)==original);
+   rt.shutdown();assert(f->handles.empty());}
+  f->world(0);f->scene={};}
  // 50. Merged draws: neighbours with the same material row share a submesh, their index ranges joined in draw order.
  //     A draw hidden by the variant between two of them is not drawn, ranges that continue each other become one, a
  //     neighbour with another material keeps its own submesh and slot, and switching back reads the model's indices

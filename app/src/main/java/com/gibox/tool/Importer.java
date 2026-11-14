@@ -145,6 +145,7 @@ public final class Importer {
         if (!Characters.isScene(id) && (id < 10000000 || id > 10001999)) throw new IllegalArgumentException("角色 ID 无效：" + id);
         File ini = ModLibrary.mainIni(mod), src = ModConfig.switchedOn(mod, ini); ModLibrary.setOverride(mod, "id", Integer.toString(id));
         Map<String, String> o = ModLibrary.overrides(mod); String name = ModLibrary.modelName(o.containsKey("name") ? o.get("name") : mod.getName());
+        if (Characters.isScene(id)) return SceneModels.convert(mod, src, ini, new File(modelsRoot,name), boneRoot.getAbsoluteFile().getParentFile(), decoder, log);
         // The outfit (Outfits, 0.7.94): the one chosen with the character (modelswap.txt "outfit"), else the one the INI's
         // hashes name, else the original. A mod made for another outfit than the one chosen is refused: its bone indices
         // follow that outfit's bone list, and on another outfit the model is torn apart (Shenhe's Frostflower Dew mod on

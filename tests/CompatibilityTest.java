@@ -190,7 +190,18 @@ public final class CompatibilityTest {
         Map<String,Object> sj=Json.obj(Json.read(new File(sceneOut,"texture.json"),4L<<20),"texture.json");ModelManifest sm=ModelManifest.read(sceneOut);
         ok(sm.textureMod&&sm.id==Characters.SCENE&&String.valueOf(((Map<?,?>)sj.get("character")).get("id")).matches("1(\\.0)?")&&String.valueOf(((Map<?,?>)sj.get("diag")).get("character")).matches("1(\\.0)?"),"an NPC / monster texture mod: "+sj.get("character")+" "+((Map<?,?>)sj.get("diag")).get("character"));
         String sceneMesh="";try{ModelConverter.convert(src,null,new File(base,"scene-mesh-out"),Characters.SCENE,new ModelConverter.Options().textureMods(true),DECODE,new StringBuilder());}catch(IllegalArgumentException e){sceneMesh=e.getMessage();}
-        ok(sceneMesh.contains("NPC / 怪物 / 风之翼只支持纯贴图 MOD")&&!new File(base,"scene-mesh-out").exists(),"a mesh mod for NPC / monster refused: "+sceneMesh);
+        ok(sceneMesh.contains("场景网格 MOD 需要先按 hash 匹配目标和内置骨骼")&&!new File(base,"scene-mesh-out").exists(),"a mesh mod for NPC / monster refused: "+sceneMesh);
+        File sceneBones=new File(base,"scene-bones");Map<String,Object> sceneTarget=Fixtures.target("NpcBody",6,2,2);
+        Fixtures.skeleton(sceneBones,Characters.SCENE,"NPC_Test",new String[]{"Scene0"},new String[]{"Root","Spine"},Collections.singletonMap("Scene0",sceneTarget));
+        ModelConverter.Options sceneOpt=new ModelConverter.Options().textureMods(true).deviceRenderers(Collections.singletonMap("44444444","Scene0"));
+        sceneOpt.sceneTargets=Arrays.asList(Json.of("target",sceneTarget,"owners",Arrays.asList("npc_test")));
+        File meshOut=new File(base,"scene-mesh-valid");
+        ModelConverter.convert(src,sceneBones,meshOut,Characters.SCENE,sceneOpt,DECODE,new StringBuilder());
+        ok(ModelManifest.read(meshOut).id==Characters.SCENE&&Fixtures.part(meshOut,0).get("skeleton")!=null,"scene mesh keeps explicit target and embedded skeleton");
+        if(nativeChecker!=null){Process check=new ProcessBuilder(nativeChecker,meshOut.getAbsolutePath()).inheritIO().start();ok(check.waitFor()==0,"native loader accepts scene mesh metadata");}
+        sceneOpt.deviceRenderers(Collections.singletonMap("11111111","Scene0"));
+        try{ModelConverter.convert(src,sceneBones,new File(base,"scene-mesh-wrong-hash"),Characters.SCENE,sceneOpt,DECODE,new StringBuilder());ok(false,"scene draw borrowed another hash's skeleton");}
+        catch(IllegalArgumentException expected){ok(expected.getMessage().contains("没有可用的内置骨骼"),"unmapped scene draw explains missing skeleton: "+expected);}
         String noUse="";try{ModelConverter.convert(GimiPatternsTest.mod(base,"texture-ramp","[TextureOverrideX]\nhash = 1\nps-t3 = ResourceRamp\n[ResourceRamp]\nfilename = Ramp.dds\n"),null,new File(base,"texture-ramp-out"),10000107,new ModelConverter.Options().textureMods(true),DECODE,new StringBuilder());}catch(IllegalArgumentException e){noUse=e.getMessage();}
         ok(noUse.contains("没有能写入的贴图")&&!new File(base,"texture-ramp-out").exists(),"nothing writable: refused, no folder: "+noUse);
         StringBuilder failed=new StringBuilder();ModelConverter.convert(src,null,new File(base,"backend-failed"),10000107,new ModelConverter.Options().core(r->"{\"ok\":false,\"reason\":\"no core\"}"),DECODE,failed);
