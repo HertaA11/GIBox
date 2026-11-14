@@ -70,6 +70,12 @@ inline constexpr uintptr_t uiTextString=0xd8;
 enum Offset:uintptr_t {
  tick=0x7e8cb08,manager=0x158095a0,
  // CN 7.2 dump.cs, UnityEngine.MeshFilter MethodIndex 19618 / 19619. Global stays unavailable until verified.
+ // Loading UI / Image / Sprite: CN dump 7.2, verified class signatures. No global fallback RVAs.
+ loadingRender=0x124f5c98,loadingStart=0xd9c7e8c,loadingBackground=0xd9c7ce4,loadingDestroy=0xd9c7f54,
+ imageEnable=0x8c625cc,imageDisable=0x8c6266c,imageSprite=0x8c5ec4c,imageSetSprite=0x8c5ec54,
+ imageType=0x8c5f2cc,imageSetType=0x8c5f2d4,imageAspect=0x8c5f304,imageSetAspect=0x8c5f30c,
+ graphicColor=0xcc5df44,graphicSetColor=0xcc5df50,spriteCreate=0xa7ed504,
+ imageActive=0x9dd52d0,goActive=0x9577a00,goActiveSelf=0x95779fc,goSetActive=0x95779f8,
  filterMesh=0xc537e84,filterSetMesh=0xc53803c,
  getMesh=0x8f4217c,setMesh=0x8f4235c,getBones=0x8f420b4,getMaterials=0x8f03940,setMaterials=0x8f0399c,
  clone=0x8ffeb20,destroy=0x8ffe3a0,getName=0x8ffe494,getParent=0x8fffc18,
@@ -143,6 +149,7 @@ enum Offset:uintptr_t {
 struct CodeCheck {Offset rva;const char* hex;};
 inline CodeCheck handoffChecks[]={{componentsInChildren,"e403022ae2031f2a23008052e5031f2a"},
  {gameObject,"614d1c16604d1c16c00000b4080840f9"},{receive,"fe4fbfa9288706f0e50304aae403032a"}};
+inline CodeCheck loadingChecks[]={{loadingStart,"fe0f1ff848f003f0e10300aa08755a39"},{loadingDestroy,"fe0f1ff848f003f0e10300aa08815a39"},{imageEnable,"fe4fbfa9f30300aa97eaff94e80313aa"},{imageDisable,"fe4fbfa9f30300aaeaeaff9468124439"},{loadingRender,"a898019008d142f9080140f9a80000b4"}};
 inline CodeCheck bindChecks[]={{lodBind,"ff8304d1e9230b6dfd7b0ca9fc6f0da9"},{meshBones,"ff8304d1e85b00fdfd7b0ca9fc6f0da9"}};
 
 // ---------------------------------------------------------------- the global client (com.miHoYo.GenshinImpact, 7.2)

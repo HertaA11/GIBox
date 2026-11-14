@@ -22,14 +22,14 @@ public class ImporterTest {
   // 2. Search by ID, Chinese name, English or internal name.
   ok(ids(Characters.search("10000107")).equals(Collections.singletonList(10000107))&&ids(Characters.search("茜特")).equals(Collections.singletonList(10000107)),"search id/name");
   ok(ids(Characters.search("旅行者")).equals(Arrays.asList(10000005,10000007))&&ids(Characters.search("Raiden")).equals(Collections.singletonList(10000052))&&ids(Characters.search("shougun")).equals(Collections.singletonList(10000052)),"search aliases");
-  ok(Characters.search("1000010").size()==10&&Characters.search(" ").size()==131&&Characters.search("没有这个人").isEmpty(),"search edge cases");
+  ok(Characters.search("1000010").size()==10&&Characters.search(" ").size()==132&&Characters.search("没有这个人").isEmpty(),"search edge cases");
   ok(Characters.words("TextureOverrideHuTaoBody2").equals(Arrays.asList("texture","override","hu","tao","body","2")),"words: "+Characters.words("TextureOverrideHuTaoBody2"));
   // 3. The recommended character: from the import name, folder, INI sections and resource names.
   character(bones,"10000107",10000107,"Avatar_Girl_Catalyst_Citlali");character(bones,"10000150",10000150,"Avatar_Girl_Sword_Odette(Clone)");character(bones,"10000107-123",10000107,"Old_Export");
   ok(ModLibrary.library(bones).size()==2&&ModLibrary.recorded(bones,10000107).bones.getName().equals("10000107"),"library prefers the per-character folder");
   File citlali=GimiPatternsTest.mod(download,"Citlali Summer",GimiPatternsTest.ini("global $creditinfo = 0\n","","",""));
   Characters.Guess g=Characters.guess(citlali,"Citlali Summer",ModLibrary.library(bones));
-  ok(ids(g.recommended).equals(Collections.singletonList(10000107))&&Characters.ordered(g,"").get(0).id==10000107&&Characters.ordered(g,"").size()==131,"citlali recommended first: "+g.evidence);
+  ok(ids(g.recommended).equals(Collections.singletonList(10000107))&&Characters.ordered(g,"").get(0).id==10000107&&Characters.ordered(g,"").size()==132,"citlali recommended first: "+g.evidence);
   ok(Characters.ordered(g,"琴").get(0).id==10000003,"a search keeps only matches");
   File raiden=renamed(download,"RaidenShogun Kimono","RaidenShogun"),hutao=renamed(download,"hu tao","HuTao"),odette=renamed(download,"odette_v2","Odette"),hero=renamed(download,"Mystery","Hero");
   ok(ids(Characters.guess(raiden,"RaidenShogun Kimono",null).recommended).equals(Collections.singletonList(10000052)),"raiden");
@@ -37,7 +37,7 @@ public class ImporterTest {
   ok(ids(Characters.guess(odette,"odette_v2",ModLibrary.library(bones)).recommended).equals(Collections.singletonList(10000150)),"a character known only to the bone library");
   ok(Characters.guess(hero,"Mystery",ModLibrary.library(bones)).recommended.isEmpty()&&Characters.ordered(new Characters.Guess(),"").get(0).id==10000002,"no guess: plain list");
   // NPC / monster (1.0.3): last in the plain list, found by its words, never a character's alias or recommendation.
-  {List<Characters.Avatar> plain=Characters.ordered(new Characters.Guess(),"");ok(plain.get(plain.size()-1)==Characters.SCENE_AVATAR&&Characters.byId(Characters.SCENE)==Characters.SCENE_AVATAR
+  {List<Characters.Avatar> plain=Characters.ordered(new Characters.Guess(),"");ok(plain.contains(Characters.SCENE_AVATAR)&&plain.get(plain.size()-1)==Characters.LOADING_AVATAR&&Characters.byId(Characters.SCENE)==Characters.SCENE_AVATAR
     &&ids(Characters.search("怪物")).equals(Collections.singletonList(Characters.SCENE))&&ids(Characters.search("npc")).equals(Collections.singletonList(Characters.SCENE))
     &&!Characters.all().contains(Characters.SCENE_AVATAR)&&"场景 MOD".equals(Characters.nameOf(Characters.SCENE))&&ids(Characters.search("风之翼")).equals(Collections.singletonList(Characters.SCENE)),"NPC / monster choice");}
   File lumine=renamed(download,"Traveler","TravelerGirl"),both=renamed(download,"traveler x","Traveler");
@@ -208,6 +208,17 @@ public class ImporterTest {
   ok(new File(modelsB,"Clash (2)/model.json").isFile()&&!new File(modelsB,"Clash").exists(),"the renamed mod's model follows it");
   File[] lib=shared.listFiles(f->!f.getName().startsWith("."));ok(lib!=null&&lib.length==4,"four shared entries: "+Arrays.toString(lib));
   Importer.deleteModel("Clash (2)",modelsB);ok(!new File(modelsB,"Clash (2)").exists(),"another game's model deleted");
+  {File source=new File(base,"loading-source");source.mkdirs();
+   GimiPatternsTest.put(source,"LSMod.ini","[Constants]\nglobal $skip_ui = 1\n[ResourceLS.0]\nfilename = bg.dds\n[ResourceLS.1]\nfilename = bg2.dds\n");
+   GimiPatternsTest.put(source,"DarkModeFix.ini","[ShaderRegexLoadingScreenDarkMode]\nshader_model = ps_5_0\n");GimiPatternsTest.put(source,"bg.dds",new byte[128]);GimiPatternsTest.put(source,"bg2.dds",new byte[128]);
+   File stagedLoading=Importer.stage(source,new File(base,"loading-mods"),"Screens",new StringBuilder());
+   ok(Importer.guess(stagedLoading,"Screens",bones).recommended.get(0).id==Characters.LOADING&&Importer.schemes(stagedLoading).size()==1&&Characters.search("加载").get(0).id==Characters.LOADING,"loading category and recommendation");
+   Importer.setScheme(stagedLoading,Importer.scheme(stagedLoading));
+   ModelConverter.TextureDecoder loadingDecoder=dds->{ByteBuffer b=ByteBuffer.allocate(24).order(ByteOrder.LITTLE_ENDIAN);b.putInt(2).putInt(2);for(int k=0;k<16;k++)b.put((byte)k);return b.array();};
+   Importer.Result result=Importer.convert(stagedLoading,Characters.LOADING,new File(base,"loading-models"),bones,loadingDecoder,new StringBuilder());
+   ModelManifest m=ModelManifest.read(result.model);ok(m.id==Characters.LOADING&&m.defaults.get("$skip_ui")==1&&Variants.read(result.model).values.get("$skip_ui").equals(Arrays.asList(0,1)),"loading model and hide UI switch");
+   byte[] rgba=Files.readAllBytes(new File(result.model,"images/0.rgba").toPath());ok(rgba[0]==8&&rgba[8]==0&&!new File(result.model,"model.json").exists(),"loading images flip once for UI and need no mesh");
+   List<Importer.Mod> entries=Importer.list(new File(base,"loading-mods"),new File(base,"loading-models"));ok(entries.size()==1&&entries.get(0).id==Characters.LOADING&&entries.get(0).converted&&!entries.get(0).outdated,"loading category survives refresh");}
   System.out.println("Importer: PASS (shared Mods merge: duplicates once, clashes renamed with their model; outfit table, outfit by INI hash, library per outfit, a skin mod refused as the original and converted for its skin, lower-LOD library records and models, mod names, unreadable models listed, 7.1 character table, search by ID/name, recommended character first, folder/zip staging, picker prepare/commit/discard, zip-slip guard, bone-library and ID conversion, character change, Mods list, delete, XXMI log line and levels)");
  }
 }

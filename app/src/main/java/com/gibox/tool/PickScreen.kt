@@ -97,7 +97,7 @@ fun PickScreen(state: AppState, pick: Screen.Pick) {
         topBar = {
             TopAppBar(
                 colors = pageBarColors(),
-                title = { Text("选择角色") },
+                title = { Text("选择分类或角色") },
                 subtitle = { Text(pick.modName) },
                 navigationIcon = { BackButton { state.back() } },
             )
@@ -181,7 +181,8 @@ fun PickScreen(state: AppState, pick: Screen.Pick) {
                         leadingContent = { RadioButton(selected = a.id == chosen, onClick = null) },
                         supportingContent = {
                             Text(
-                                if (Characters.isScene(a.id)) "NPC、怪物、武器、风之翼" + (if (a.id == pick.current) " · 当前" else "")
+                                if (Characters.isLoading(a.id)) "加载背景图片，无需骨骼"
+                                else if (Characters.isScene(a.id)) "NPC、怪物、武器、风之翼" + (if (a.id == pick.current) " · 当前" else "")
                                 else "${a.id}" + (if (recorded.contains(a.id)) " · 已记录骨骼" else "") + (if (a.id == pick.current) " · 当前" else ""),
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )

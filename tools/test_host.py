@@ -12,6 +12,8 @@ run(['g++',*flags,'tests/core_test.cpp','app/src/main/cpp/runtime.cpp','app/src/
 run([out/'core_test'])
 run(['g++',*flags,'tests/texture_diag_test.cpp','-o',out/'texture_diag_test'])
 run([out/'texture_diag_test'])
+run(['g++',*flags,'tests/loading_images_test.cpp','-o',out/'loading_images_test'])
+run([out/'loading_images_test'])
 run(['g++',*flags,'tests/vk_capture_test.cpp','-o',out/'vk_capture_test'])
 run([out/'vk_capture_test'])
 run(['python3','-I','tools/make_offline_hashes.py','--self-test'])

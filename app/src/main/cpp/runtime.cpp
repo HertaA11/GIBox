@@ -2,6 +2,7 @@
 #include "runtime.hpp"
 #include "uid_hide.hpp"
 #include "model.hpp"
+#include "loading_images.hpp"
 #include "logfmt.hpp"
 #include "texture_diag.hpp"
 #include "logic_game.hpp"
@@ -186,6 +187,10 @@ template<class K,class V> struct Recent {size_t limit;std::map<K,V> now,before;e
 };
 struct Runtime::Impl {
  Engine e;std::string pkg,priv,shared,modelRoot,boneRoot;
+ LoadingScreens loading{e};LoadingReader loadingReader;ControlState loadingWorkerControl;std::shared_ptr<LoadingPrepared> loadingPending;uint64_t loadingAt=0,loadingFrameAt=0;std::string loadingError;
+ void pollLoading(){std::shared_ptr<LoadingPrepared> ready;bool enabled=ctl.enabled;std::vector<std::string> selected=ctl.selected;
+  {std::lock_guard<std::mutex> lock(sm);ready.swap(loadingPending);if(pendingControl){enabled=pendingControl->enabled;selected=pendingControl->selected;}}
+  if(ready){if(!ready->error.empty())log("loading-image-error",ready->name+"："+ready->error);loading.receive(std::move(ready));}loading.tick(enabled,selected);}
  // ---- shared with the worker (guarded by sm)
  std::mutex sm;std::optional<ControlState> pendingControl;std::string controlError;std::vector<ModelInfo> scanned;bool scannedFresh=false;
  struct LoadResult {std::string generation,error;std::shared_ptr<ModelFile> data;uint64_t bytes=0;};
@@ -296,8 +301,9 @@ struct Runtime::Impl {
   if(now>=controlAt){controlAt=now+100;try{auto file=shared+"/control.json";if(exists(file)){auto raw=text(file);if(raw!=controlRaw){controlRaw=raw;scanAt=0;
      // A file caught while the App replaces it reads cut short ("JSON EOF", 0.7.52 log): read again next time, and
      // report only the same text failing twice.
-     try{auto c=parseControl(raw);controlBad.clear();logLevel.store(c.logLevel);uid::on.store(c.hideUid);std::lock_guard<std::mutex> l(sm);pendingControl=c;controlError.clear();}
+     try{auto c=parseControl(raw);loadingWorkerControl=c;controlBad.clear();logLevel.store(c.logLevel);uid::on.store(c.hideUid);std::lock_guard<std::mutex> l(sm);pendingControl=c;controlError.clear();}
      catch(const std::exception& ex){if(raw!=controlBad){controlBad=raw;controlRaw.clear();}else{std::lock_guard<std::mutex> l(sm);controlError=ex.what();}}}}}catch(const std::exception&){}}
+  if(now>=loadingAt){loadingAt=now+250;try{auto p=loadingReader.update(modelRoot,loadingWorkerControl.selected,loadingWorkerControl.enabled,loadingWorkerControl.variables,loading.cycle.load());if(p){std::lock_guard<std::mutex> lock(sm);loadingPending=p;}}catch(const std::exception& ex){log("loading-image-error",ex.what());}}
   if(now>=scanAt){scanAt=now+1000;try{auto list=scanModels(modelRoot,scanCache);std::lock_guard<std::mutex> l(sm);scanned=std::move(list);scannedFresh=true;}catch(const std::exception&){}}
   if(now>=texDiagScanAt){texDiagScanAt=now+2000;textureDiagScan();
    try{auto file=shared+"/skeleton-policy.json";auto st=exists(file)?stampOf(file):std::string();if(st!=bonePolicyStamp){
@@ -3005,7 +3011,7 @@ struct Runtime::Impl {
 
  // ---------------------------------------------------------------- tick
  bool boneRefreshPending()const{return ctl.refreshBones&&(boneRefreshDone!=ctl.refreshBones||boneRefreshDoneId!=ctl.refreshBonesCharacter);}
- void consume(){std::optional<ControlState> c;std::string cerr;std::deque<BoneResult> bones;std::deque<TextureResult> textures;std::deque<AnimationResult> frames;{std::lock_guard<std::mutex> l(sm);c.swap(pendingControl);cerr.swap(controlError);bones.swap(boneResults);bonePolicy=bonePolicyScanned;textures.swap(textureResults);frames.swap(animationResults);if(scannedFresh){models=scanned;scannedFresh=false;}}
+ void consume(){std::shared_ptr<LoadingPrepared> loadingReady;std::optional<ControlState> c;std::string cerr;std::deque<BoneResult> bones;std::deque<TextureResult> textures;std::deque<AnimationResult> frames;{std::lock_guard<std::mutex> l(sm);loadingReady.swap(loadingPending);c.swap(pendingControl);cerr.swap(controlError);bones.swap(boneResults);bonePolicy=bonePolicyScanned;textures.swap(textureResults);frames.swap(animationResults);if(scannedFresh){models=scanned;scannedFresh=false;}}
   for(auto& frame:frames){Set* found=nullptr;for(auto& candidate:sets)if(candidate->path==frame.path&&candidate->generation==frame.generation&&candidate->animation.token==frame.token){found=candidate.get();break;}if(!found)continue;auto& a=found->animation;a.loading=false;
    if(!frame.error.empty()){a.stopped=true;a.error=frame.error;log("animation-error",found->name+"：读取帧失败："+frame.error);continue;}a.cpu.at(frame.index)=std::move(frame.data);log("animation-read",found->name+"：帧值 "+std::to_string(a.loop.spec.frames[frame.index].value)+"，用时 "+std::to_string(frame.us)+" us");}
   if(timelineOn()){timelineMeshes.clear();for(auto& m:models)for(auto& p:m.parts)if(p.hasTarget)timelineMeshes.insert(baseMesh(p.target.mesh));}
@@ -3035,6 +3041,7 @@ struct Runtime::Impl {
    auto id=c->refreshBonesCharacter;forgetLibrary(id);libraryRead.clear();libraryRetry[id]=0;libraryError.erase(id);
    boneCandidate.clear();boneBadList.clear();boneBadStreak=0;exportWait.clear();boneFullSearchAt=0;libraryWait.erase(id);log("bone-refresh-request",std::to_string(id)+"：请求 "+std::to_string(c->refreshBones));
   }
+  if(loadingReady){if(!loadingReady->error.empty())log("loading-image-error",loadingReady->name+"："+loadingReady->error);loading.receive(std::move(loadingReady));}
   if(c&&c->npcModels!=ctl.npcModels){skipped.clear();bindingRejected.clear();texQuickNo.clear();texWaitUntil.clear();npcTextureAt=0;discoverAt=0;}
   if(c){bool diagnosticOnly=c->enabled==ctl.enabled&&c->selected==ctl.selected&&c->variables==ctl.variables&&c->exportBones==ctl.exportBones&&c->refreshBones==ctl.refreshBones&&c->refreshBonesCharacter==ctl.refreshBonesCharacter&&(c->renderMark!=ctl.renderMark||c->logLevel!=ctl.logLevel||c->keys!=ctl.keys);
    if(!(c->exp==ctl.exp))log("experiments",c->exp.text());
@@ -3051,6 +3058,7 @@ struct Runtime::Impl {
    seen.erase(std::remove_if(seen.begin(),seen.end(),[&](const Seen& sn){return !seenLive(sn);}),seen.end());
    tickPhase="读取文件与当前角色";wantedNow.clear();bindingTargets.clear();bindingReady=false;if(!worker.background()){workerTick(now);}consume();ch=current();bindingStats();tickPhase="骨骼库与预览";
    if(ch.config!=shownCharacter){shownCharacter=ch.config;log("character",ch.entity?std::to_string(ch.config):std::string("无"));}
+   try{loading.tick(ctl.enabled,ctl.selected);}catch(const std::exception& ex){if(loadingError!=ex.what()){loadingError=ex.what();log("loading-image-error",loadingError);}}
    try{textureDiagTick(now);}catch(const std::exception& ex){log("texture-diag-unsupported",std::string("本轮诊断中止：")+ex.what());}
    try{textureModTick(now);}catch(const std::exception& ex){log("texture-error",std::string("本轮纯贴图 MOD 处理中止：")+ex.what());}
    try{ibHashTick(now);}catch(const std::exception& ex){log("ib-capture",std::string("本轮中止：")+ex.what());}
@@ -3118,6 +3126,8 @@ struct Runtime::Impl {
    for(auto& n:notes)errors.push_back(n);
    for(auto& kv:attachments){auto& n=kv.second->set->name;if(std::find(active.begin(),active.end(),n)==active.end())active.push_back(n);}
    for(auto& kv:texLive)if(kv.second&&!kv.second->slots.empty()&&std::find(active.begin(),active.end(),kv.second->mod)==active.end())active.push_back(kv.second->mod);
+   if(loading.active()&&std::find(active.begin(),active.end(),loading.name())==active.end())active.push_back(loading.name());
+   if(wanted.empty()&&active.empty()&&loading.ready()&&texStatus.empty()){if(abi::at(abi::loadingStart)>=abi::notFound)errors.push_back("加载图片暂仅支持国服 7.2");else if(!loading.error().empty())errors.push_back(loading.name()+"："+loading.error());else waiting="加载图片已就绪，等待加载界面";}
    // Texture-only mods (no mesh model): their own state ("等待映射", "只诊断", written slots) is the status line.
    if(wanted.empty()&&!texStatus.empty()&&waiting.empty()&&building.empty()&&errors.empty()&&!restoring){status(texApplied?"active":"waiting",texStatus,active,errors);inTick=false;animationTick(now);return;}
    if(restoring)status("waiting","正在恢复已停用 MOD 的原模型；暂时失败的渲染器会单独重试",active,errors);
@@ -3139,5 +3149,11 @@ void Runtime::spawned(Ptr go)noexcept{try{p->spawned(go);}catch(...){}}
 void Runtime::spawnedAfter()noexcept{try{p->spawnedAfter();}catch(...){}}
 Ptr Runtime::bindMesh(Ptr renderer,Ptr mesh)noexcept{try{return p->bindMesh(renderer,mesh);}catch(...){return mesh;}}
 void Runtime::meshBound(Ptr renderer)noexcept{try{p->meshBound(renderer);}catch(...){}}
-void Runtime::shutdown(){try{p->lodUnpinAll("运行时关闭");}catch(const std::exception&){}try{p->texRestoreEverything("运行时关闭");}catch(const std::exception&){}if(p->releaseAll()){p->pruneRestoreBackups(true);p->sceneClear(p->sceneCacheRoots);p->sceneClear(p->sceneListRoots);p->sceneCache.clear();p->sceneList.clear();for(auto& r:p->rigidRefs)p->freeOwned(r.second);p->rigidRefs.clear();p->freeOwned(p->rigidTypeRoots);p->rigidFilterType=0;p->rigidTransformType=0;}}
+void Runtime::shutdown(){try{p->loading.shutdown();}catch(const std::exception&){}try{p->lodUnpinAll("运行时关闭");}catch(const std::exception&){}try{p->texRestoreEverything("运行时关闭");}catch(const std::exception&){}if(p->releaseAll()){p->pruneRestoreBackups(true);p->sceneClear(p->sceneCacheRoots);p->sceneClear(p->sceneListRoots);p->sceneCache.clear();p->sceneList.clear();for(auto& r:p->rigidRefs)p->freeOwned(r.second);p->rigidRefs.clear();p->freeOwned(p->rigidTypeRoots);p->rigidFilterType=0;p->rigidTransformType=0;}}
 }
+
+void ms::Runtime::loadingCanvas(Ptr canvas,Ptr background)noexcept{try{if(!p->tickTid.load())p->tickTid.store(threadId());if(!p->inTick&&p->onTickThread("loading-canvas")){p->loading.observe(canvas,background);p->pollLoading();}}catch(const std::exception& ex){p->log("loading-image-error",ex.what());}}
+void ms::Runtime::loadingImage(Ptr image,bool shown)noexcept{try{if(p->loading.matches(image)&&!p->inTick&&p->onTickThread("loading-image")){p->loading.event(image,shown);p->pollLoading();}}catch(const std::exception& ex){p->log("loading-image-error",ex.what());}}
+void ms::Runtime::loadingDestroyed(Ptr canvas)noexcept{try{if(!p->inTick&&p->onTickThread("loading-destroy"))p->loading.destroyed(canvas);}catch(const std::exception& ex){p->log("loading-image-error",ex.what());}}
+
+void ms::Runtime::loadingFrame()noexcept{try{if(!p->loading.hasCanvas()||p->inTick||!p->onTickThread("loading-render"))return;auto now=clockMs();if(now<p->loadingFrameAt)return;p->loadingFrameAt=now+50;p->pollLoading();}catch(const std::exception& ex){if(p->loadingError!=ex.what()){p->loadingError=ex.what();p->log("loading-image-error",ex.what());}}}

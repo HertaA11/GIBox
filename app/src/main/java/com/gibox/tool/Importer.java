@@ -106,6 +106,7 @@ public final class Importer {
 
     /** The character the mod most likely belongs to, from the name it was imported under and its INI. */
     public static Characters.Guess guess(File mod, String importedAs, File boneRoot) {
+        if(LoadingImages.ini(mod)!=null){Characters.Guess g=new Characters.Guess();g.recommended.add(Characters.LOADING_AVATAR);g.evidence="加载图片列表";return g;}
         try { File ini = ModLibrary.schemes(mod).size() > 1 && !ModLibrary.overrides(mod).containsKey("ini") ? ModConfig.geometryInis(mod).get(0) : ModLibrary.mainIni(mod);
             Characters.Guess g = Characters.guess(ini.getParentFile(), ini, importedAs, ModLibrary.library(boneRoot));
             // The INI's hashes, where this device's hash map or the PC database names their character, weigh more than names.
@@ -121,13 +122,14 @@ public final class Importer {
      * the choice in the mod's modelswap.txt, so a re-import or re-conversion keeps it.
      */
     /** The model INIs to choose from (relative paths); fewer than two: nothing to choose. */
-    public static List<String> schemes(File mod) { try { return ModLibrary.schemes(mod); } catch (Exception e) { return new ArrayList<>(); } }
+    public static List<String> schemes(File mod) { try { File loading=LoadingImages.ini(mod);if(loading!=null)return Collections.singletonList(ModConfig.relative(mod,loading));return ModLibrary.schemes(mod); } catch (Exception e) { return new ArrayList<>(); } }
     /** The chosen scheme, or "" when the package has only one. */
     /** The scheme in effect: the one chosen, else the only model INI XXMI would load (the switched-off ones offered
      *  beside it are a choice, not a question); "" when there is no single one. */
-    public static String scheme(File mod) { String s = ModLibrary.overrides(mod).get("ini"); if (s != null) return s;
+    public static String scheme(File mod) { File loading=LoadingImages.ini(mod);if(loading!=null)return ModConfig.relative(mod,loading);String s = ModLibrary.overrides(mod).get("ini"); if (s != null) return s;
         try { List<File> on = ModConfig.geometryInis(mod); return on.size() == 1 ? ModConfig.relative(mod, on.get(0)) : ""; } catch (Exception e) { return ""; } }
     public static void setScheme(File mod, String rel) throws Exception {
+        File loading=LoadingImages.ini(mod);if(loading!=null&&ModConfig.relative(mod,loading).equals(rel)){ModLibrary.setOverride(mod,"ini",rel);return;}
         if (ModConfig.scheme(mod, rel) == null) throw new IllegalArgumentException("不是此 MOD 中的模型 INI：" + rel);
         ModLibrary.setOverride(mod, "ini", rel);
     }
@@ -142,6 +144,7 @@ public final class Importer {
     public static boolean animationBoneFallback(File mod) { return "retain-valid".equals(ModLibrary.overrides(mod).get("animationbones")); }
     public static void setAnimationBoneFallback(File mod, boolean enabled) throws Exception { ModLibrary.setOverride(mod, "animationbones", enabled ? "retain-valid" : null); }
     public static Result convert(File mod, int id, File modelsRoot, File boneRoot, ModelConverter.TextureDecoder decoder, StringBuilder log) throws Exception {
+        if(Characters.isLoading(id)){Map<String,String> o=ModLibrary.overrides(mod);String name=ModLibrary.modelName(o.containsKey("name")?o.get("name"):mod.getName());ModLibrary.setOverride(mod,"id",Integer.toString(id));return LoadingImages.install(mod,new File(modelsRoot,name),decoder,log);}
         if (!Characters.isScene(id) && (id < 10000000 || id > 10001999)) throw new IllegalArgumentException("角色 ID 无效：" + id);
         File ini = ModLibrary.mainIni(mod), src = ModConfig.switchedOn(mod, ini); ModLibrary.setOverride(mod, "id", Integer.toString(id));
         Map<String, String> o = ModLibrary.overrides(mod); String name = ModLibrary.modelName(o.containsKey("name") ? o.get("name") : mod.getName());

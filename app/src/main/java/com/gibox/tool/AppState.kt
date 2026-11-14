@@ -449,7 +449,7 @@ class AppState(private val activity: Activity) {
         try { Importer.setScheme(source, rel); AppLog.info(game, LOGGER, "ini-scheme ${mod.name} → $rel") }
         catch (e: Throwable) { fail("选择 INI 方案", e, null); return }
         refresh()
-        if (mod.converted && (mod.id in 10000000..10001999 || Characters.isScene(mod.id))) convert(source, mod.id)
+        if (mod.converted && (mod.id in 10000000..10001999 || Characters.isScene(mod.id) || Characters.isLoading(mod.id))) convert(source, mod.id)
     }
     /** Confirmed on the character page; `scheme` is the INI chosen there for a package with several. */
     fun confirm(pick: Screen.Pick, avatar: Characters.Avatar, scheme: String? = null, outfit: String? = null) {
@@ -543,6 +543,7 @@ class AppState(private val activity: Activity) {
         Importer.guess(pick.pending ?: pick.source ?: File(modsRoot, pick.modName), pick.importedAs, boneRoot)
     /** Characters with a skeleton: in the table made from the game's files, or recorded by the game on this device. */
     fun boneImportHint(id: Int, outfit: String): String {
+        if (Characters.isLoading(id)) return "每次加载随机切换图片，无需骨骼"
         if (id !in 10000000..10001999) return "按 hash 匹配场景中的部件"
         val table = OfflineSkeletons.load(boneRoot.absoluteFile.parentFile)
         if (table?.prefabFor(id, outfit.takeIf { it.isNotEmpty() }) != null) return "优先使用内置骨骼，无需采集"
