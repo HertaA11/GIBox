@@ -168,7 +168,15 @@ final class OfflineSkeletons {
         List<String> builtin = new ArrayList<>();
         if (table != null) for (String owner : table.prefabs.keySet()) if (owner.startsWith("avatar_")) builtin.add(owner);
         Collections.sort(builtin);
-        return Json.write(Json.of("models", models, "outfits", outfits, "builtin", builtin)).getBytes(StandardCharsets.UTF_8);
+        Map<String,Object> npcs = new TreeMap<>();
+        if (table != null) for (String owner : table.prefabs.keySet()) {
+            if (!owner.startsWith("npc_avatar_")) continue;
+            String[] parts=owner.substring(4).split("_");
+            if (parts.length < 4) continue;
+            String source=String.join("_", Arrays.copyOf(parts,4));
+            if (table.has(source)) npcs.put(owner, source);
+        }
+        return Json.write(Json.of("models", models, "outfits", outfits, "builtin", builtin, "npcs", npcs)).getBytes(StandardCharsets.UTF_8);
     }
 
     /** The characters (ids) the table has a prefab for: their original look, or one of their outfits. */

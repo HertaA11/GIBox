@@ -934,6 +934,38 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
    assert(exists(sp+"/skeletons/10000140/skeleton.json")&&text(sp+"/bone-refresh-result.json").find("\"request\":2")!=std::string::npos);
    rt.shutdown();assert(f->handles.empty());}
   f->world(0);f->scene={};}
+ {std::string mediaN=root+"/mediaNpc",sharedN=mediaN+"/"+pkg+"/GIBox";
+  std::filesystem::create_directories(sharedN);
+  write(sharedN+"/skeleton-policy.json",R"J({"models":{"citlali":10000107},"outfits":{},"builtin":["avatar_girl_catalyst_citlali"],"npcs":{"npc_avatar_girl_catalyst_citlali":"avatar_girl_catalyst_citlali"}})J");
+  Spec spec;spec.withTarget(fixture::target("Body"));writeModel(sharedN+"/models/Sync",spec);
+  Ptr entity=load<Ptr>(load<Ptr>(load<Ptr>(f->manager+kList)+0x10)+0x20);store<uint32_t>(entity+kConfig,10000107);
+  Ptr original=f->mesh(),w=f->renderer(original);f->world(w);
+  Ptr npcRoot=f->object("transform","NPC_Avatar_Girl_Catalyst_Citlali(Clone)");
+  Ptr n1=f->renderer(original,"BoneA","Body",npcRoot),n2=f->renderer(original,"BoneA","Body",npcRoot);
+  Ptr otherRoot=f->object("transform","NPC_Avatar_Girl_Catalyst_Other(Clone)"),other=f->renderer(original,"BoneA","Body",otherRoot);
+  Ptr badMesh=f->mesh(),bad=f->renderer(badMesh,"BoneA","Body",npcRoot);store<float>(f->obj[badMesh].arrays[abi::getBindposes]+0x20+48,2.f);
+  Ptr reorderedMesh=f->mesh(),reordered=f->renderer(reorderedMesh,"BoneA","Body",npcRoot),bone=load<Ptr>(f->obj[reordered].bones+0x20),extra=f->object("bone","Extra");f->obj[extra].parent=npcRoot;
+  Ptr bones2[2]={extra,bone};f->obj[reordered].bones=f->array(8,2,bones2);
+  Bytes matrix(128);for(int j=0;j<2;j++)for(int k=0;k<4;k++)store<float>(reinterpret_cast<Ptr>(matrix.data())+64*j+20*k,1.f);
+  f->obj[reorderedMesh].arrays[abi::getBindposes]=f->array(64,2,matrix.data());store<uint64_t>(f->obj[reorderedMesh].shared+0xe0,2);
+  f->scene={w,n1,n2,other,bad,reordered};
+  auto controlNpc=[&](bool on,bool mod=true){write(sharedN+"/control.json",std::string("{\"enabled\":true,\"selected\":")+(mod?"[\"Sync\"]":"[]")+",\"npcModels\":"+(on?"true":"false")+"}");};
+  controlNpc(false);uint64_t t=8600000;
+  {Runtime rt(e,pkg,root+"/privateNpc",mediaN,false);auto run=[&](uint64_t ms){for(uint64_t end=t+ms;t<end;t+=100)rt.tick(t);};run(3000);
+   assert(meshOf(w)!=original&&meshOf(n1)==original&&meshOf(n2)==original&&meshOf(reordered)==reorderedMesh);
+   controlNpc(true);run(4000);
+   assert(meshOf(n1)!=original&&meshOf(n2)!=original&&meshOf(other)==original&&meshOf(bad)==badMesh);
+   assert(meshOf(reordered)!=reorderedMesh);
+   Ptr data=load<Ptr>(load<Ptr>(meshOf(reordered)+0x10)+0x48),weights=load<Ptr>(data+0xf0);assert(load<uint32_t>(weights+16)==1);
+   controlNpc(false);run(1000);assert(meshOf(w)!=original&&meshOf(n1)==original&&meshOf(n2)==original&&meshOf(reordered)==reorderedMesh);
+   controlNpc(true);run(1000);assert(meshOf(n1)!=original);
+   controlNpc(true,false);run(1000);assert(meshOf(w)==original&&meshOf(n1)==original&&meshOf(n2)==original&&meshOf(reordered)==reorderedMesh);
+   rt.shutdown();assert(f->handles.empty());}
+  // Only an NPC present: the embedded source palette allows building without controlling that character first.
+  Ptr otherPlayer=f->renderer(f->mesh("OtherBody",4),"BoneA","Body",f->kavehRoot);f->world(otherPlayer);f->scene={otherPlayer,n1};store<uint32_t>(entity+kConfig,10000200);controlNpc(true);t+=100000;
+  {Runtime rt(e,pkg,root+"/privateNpcOnly",mediaN,false);for(uint64_t end=t+4000;t<end;t+=100)rt.tick(t);
+   assert(meshOf(n1)!=original);rt.shutdown();assert(meshOf(n1)==original&&f->handles.empty());}
+  store<uint32_t>(entity+kConfig,10000107);f->world(0);f->scene={};}
  // 50. Merged draws: neighbours with the same material row share a submesh, their index ranges joined in draw order.
  //     A draw hidden by the variant between two of them is not drawn, ranges that continue each other become one, a
  //     neighbour with another material keeps its own submesh and slot, and switching back reads the model's indices
@@ -1493,6 +1525,20 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
    auto map=text(sharedS+"/hash-map.json");assert(map.find(std::string("\"ib\":\"")+hn+"\"")!=std::string::npos&&map.find("\"owner\":\"NPC_Katheryne\"")!=std::string::npos);
    assert(text(sharedS+"/hash-report.txt").find("NPC / 怪物 / 其他：NPC_Katheryne")!=std::string::npos);}
   T.allForms=true;store<uint32_t>(entity+kConfig,10000107);f->world(0);f->scene={};assert(f->handles.size()==handles0);}
+ {std::string mediaT=root+"/mediaNpcTex",sp=mediaT+"/"+pkg+"/GIBox",mod=sp+"/models/Tint";std::filesystem::create_directories(mod+"/textures");
+  Ptr entity=load<Ptr>(load<Ptr>(load<Ptr>(f->manager+kList)+0x10)+0x20);store<uint32_t>(entity+kConfig,10000200);
+  Ptr player=f->renderer(f->mesh("OtherBody",4),"BoneA","Body",f->kavehRoot);f->world(player);
+  Ptr rootNpc=f->object("transform","NPC_Avatar_Girl_Catalyst_Citlali(Clone)"),n=f->renderer(f->mesh(),"BoneA","Body",rootNpc);
+  Ptr mat=load<Ptr>(f->obj[n].materials+0x20),tex=f->object("texture","NpcDiffuse");f->diffuse[mat]=tex;store<uint32_t>(load<Ptr>(mat+0x10)+8,uint32_t(-31));f->scene={player,n};
+  write(sp+"/skeleton-policy.json",R"J({"models":{"citlali":10000107},"outfits":{},"builtin":[],"npcs":{"npc_avatar_girl_catalyst_citlali":"avatar_girl_catalyst_citlali"}})J");
+  Bytes pixels(16,0x7f);write(mod+"/textures/0.rgba",pixels.data(),pixels.size());
+  write(mod+"/texture.json",R"J({"format":"gibox-texture-mod","version":1,"name":"Tint","generation":"1","character":{"id":10000107},"variants":{"vars":[],"default":{}},"textures":[{"resource":"t","file":"textures/0.rgba","width":2,"height":2}],"diag":{"format":"gibox-texture-diag","version":1,"name":"Tint","character":10000107,"rules":[{"section":"TextureOverrideBodyA","part":"BodyA","hint":"body","hash":"d5ae71a3","first":0,"kind":"segment","textures":[{"slot":"ps-t0","resource":"t","role":"diffuse","condition":"","via":""}]}],"resources":[]}})J");
+  write(sp+"/control.json",R"J({"enabled":true,"selected":["Tint"],"npcModels":true,"textureMods":{"strategy":"direct"}})J");
+  size_t handles=f->handles.size();Runtime rt(e,pkg,root+"/privateNpcTex",mediaT,false);uint64_t t=9000000;
+  for(uint64_t end=t+4000;t<end;t+=100){rt.tick(t);}assert(f->diffuse[mat]!=tex);
+  write(sp+"/control.json",R"J({"enabled":true,"selected":["Tint"],"npcModels":false,"textureMods":{"strategy":"direct"}})J");
+  for(uint64_t end=t+1500;t<end;t+=100){rt.tick(t);}assert(f->diffuse[mat]==tex);
+  rt.shutdown();assert(f->handles.size()==handles);store<uint32_t>(entity+kConfig,10000107);f->world(0);f->scene={};}
  // 43. The first match at the game's hand-off: no earlier confirmation, the model not yet in the world; the textures were
  //     prepared once the mod was on, so the hand-off only checks and binds. The mapping is saved and, after a restart,
  //     used for this build and these rules only; a lower LOD without migration waits and says why; a material the game

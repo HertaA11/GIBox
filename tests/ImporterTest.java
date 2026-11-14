@@ -142,6 +142,7 @@ public class ImporterTest {
   {File sh=new File(base,"GIBox-offline");sh.mkdirs();
    String body="{\"mesh_id\":\"cab-1:2\",\"name\":\"Body\",\"mesh\":\"Body\",\"vertices\":3,\"submeshes\":1,\"kinds\":[\"character\"],\"owner_count\":1,\"bones\":[\"Bip001\",\"Bip001 Head\"],\"parents\":[-1,0],\"bindposes\":[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,1.74979198e-06,1.0939558e-06,-1,0,-1,4.37132996e-08,-1.74979209e-06,0,4.37114025e-08,1,1.09395592e-06,0,1.32685375,-0.0112854121,2.38770826e-06,1]}";
    String offTable="{\"format\":\"gibox-offline-skeletons\",\"version\":1,\"build\":\"b\",\"meshes\":[\n"+body+"\n],\"prefabs\":[\n{\"owner\":\"Avatar_Girl_Catalyst_Citlali\",\"kind\":\"character\",\"renderers\":[[\"Body\",0]]},\n{\"owner\":\"Avatar_Girl_Catalyst_CitlaliCostumeXia\",\"kind\":\"character\",\"renderers\":[[\"Body\",0]]}\n]}\n";
+   offTable=offTable.replace("\n]}\n", ",\n{\"owner\":\"NPC_Avatar_Girl_Catalyst_Citlali\",\"kind\":\"npc\",\"renderers\":[[\"Body\",0]]}\n]}\n");
    Files.write(new File(sh,OfflineSkeletons.FILE).toPath(),offTable.getBytes(java.nio.charset.StandardCharsets.UTF_8));
    OfflineSkeletons os=OfflineSkeletons.load(sh);
    ok(os!=null&&"Avatar_Girl_Catalyst_Citlali".equals(os.prefabFor(10000107,null))&&"Avatar_Girl_Catalyst_CitlaliCostumeXia".equals(os.prefabFor(10000107,"avatar_girl_catalyst_citlalicostumexia"))
@@ -152,6 +153,7 @@ public class ImporterTest {
      &&bs.get(0).target!=null&&((Number)bs.get(0).target.get("submeshes")).intValue()==1&&Outfits.chainAvatar(lib.root).equals("avatar_girl_catalyst_citlali"),"offline table: a bone library the converter reads, bind poses exact: "+lib.root);
    Map<String,Object> policy=Json.obj(Json.parse(new String(OfflineSkeletons.capturePolicy(sh),StandardCharsets.UTF_8)),"policy");
    ok(((Number)Json.obj(policy.get("models"),"models").get("vodyanitsa")).intValue()==10000140&&((List<?>)policy.get("builtin")).contains("avatar_girl_catalyst_citlali"),"capture policy: missing characters remain identifiable");
+   ok("avatar_girl_catalyst_citlali".equals(Json.obj(policy.get("npcs"),"npcs").get("npc_avatar_girl_catalyst_citlali")),"NPC identity comes from the prefab catalog");
    File exported=SkeletonExport.write(sh,10000107);
    File round=new File(base,"GIBox-export-roundtrip");round.mkdirs();Files.copy(exported.toPath(),new File(round,OfflineSkeletons.FILE).toPath());
    OfflineSkeletons exportedTable=OfflineSkeletons.load(round);ok(exportedTable!=null&&exportedTable.prefabFor(10000107,null)!=null,"export uses bundled line layout");

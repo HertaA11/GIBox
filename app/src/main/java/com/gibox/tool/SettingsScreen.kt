@@ -49,12 +49,19 @@ fun SettingsScreen(state: AppState) {
             item {
                 val rev = state.revision
                 val hideUid = remember(rev) { state.hideUid() }
+                val npcModels = remember(rev) { state.npcModels() }
                 SettingsGroup(title = { SectionTitle("通用") }, verticalArrangement = gap) {
                     SettingsSwitch(
                         state = hideUid,
                         title = { Text("隐藏用户UID") },
-                        shapes = ListItemDefaults.segmentedShapes(0, 1),
+                        shapes = ListItemDefaults.segmentedShapes(0, 2),
                         onCheckedChange = { state.setHideUid(it) },
+                    )
+                    SettingsSwitch(
+                        state = npcModels,
+                        title = { Text("角色 MOD 同时替换对应 NPC", maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) },
+                        shapes = ListItemDefaults.segmentedShapes(1, 2),
+                        onCheckedChange = { state.setNpcModels(it) },
                     )
                 }
             }

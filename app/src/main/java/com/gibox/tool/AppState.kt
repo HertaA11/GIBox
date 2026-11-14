@@ -320,7 +320,12 @@ class AppState(private val activity: Activity) {
         Control.setHideUid(game, on)
         AppLog.info(game, LOGGER, "hide-uid " + if (on) "开启（重启游戏后生效）" else "关闭")
     }
-    /** Replaced characters kept on the full model in the world (the game's LOD held at level 0). */
+    fun npcModels(): Boolean = Control.npcModels(game)
+    fun setNpcModels(on: Boolean) = save("保存") {
+        Control.setNpcModels(game, on)
+        AppLog.info(game, LOGGER, "npc-models $on")
+    }
+    /** Replaced characters kept on the full model (LOD0) by the game's own LOD component. */
     fun lodPin(): Boolean = Control.lodPin(game)
     fun setLodPin(on: Boolean) = save("保存") {
         Control.setLodPin(game, on)

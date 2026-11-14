@@ -70,6 +70,8 @@ public final class Control {
     /** Hide the account UID shown in the game's UI (control.json "hideUid", default off; read at the game's start). */
     public static boolean hideUid(String pkg) { return load(pkg).optBoolean("hideUid", false); }
     public static synchronized void setHideUid(String pkg, boolean on) throws Exception { JSONObject j = load(pkg); j.put("hideUid", on); save(pkg, j); }
+    public static boolean npcModels(String pkg) { return load(pkg).optBoolean("npcModels", false); }
+    public static synchronized void setNpcModels(String pkg, boolean on) throws Exception { JSONObject j=load(pkg); j.put("npcModels", on); save(pkg,j); }
     /** Replaced characters held at the full model (LOD0) by the game's own LOD component (control.json "lodPin", default on). */
     public static boolean lodPin(String pkg) { return load(pkg).optBoolean("lodPin", true); }
     public static synchronized void setLodPin(String pkg, boolean on) throws Exception { JSONObject j = load(pkg); j.put("lodPin", on); save(pkg, j); }
