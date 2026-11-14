@@ -530,7 +530,7 @@ struct Runtime::Impl {
  struct TexPixels {std::string generation,error;std::shared_ptr<std::map<std::string,Texture>> pixels;uint64_t bytes=0,ms=0;bool loading=false;};
  std::map<std::string,TexPixels> texPixels;   // texture.json path -> decoded textures (the worker fills it, under sm)
  // Texture2D made from them, per mod (not per strategy or test round): kept while the mod is on.
- struct TexStore:Owned {std::string generation;std::map<std::string,Ptr> made;std::vector<std::pair<std::string,bool>> wanted;size_t next=0;uint64_t ms=0,bytes=0,ticks=0,readyAt=0;unsigned kept=0,lost=0;bool done=false;};
+ struct TexStore:Owned {std::map<std::string,Owned> gliderAssets;std::string generation;std::map<std::string,Ptr> made;std::vector<std::pair<std::string,bool>> wanted;size_t next=0;uint64_t ms=0,bytes=0,ticks=0,readyAt=0;unsigned kept=0,lost=0;bool done=false;};
  std::map<std::string,std::unique_ptr<TexStore>> texStores;std::vector<std::unique_ptr<TexStore>> texStoresKept;
  struct TexDone {texdiag::Write write;Ptr before=0,ours=0;};
  struct TexSlot {std::string rule,evidence,label,mesh,plan;std::vector<size_t> rules;Ptr renderer=0,native=0,material=0,materialNative=0,clone=0;int slot=-1;bool lod=false;std::vector<TexDone> writes;unsigned again=0;bool gaveUp=false;uint64_t writtenAt=0;
@@ -624,21 +624,24 @@ struct Runtime::Impl {
  void texSeen(Ptr native,const std::string& via){auto& t=texTimes[native];if(!t.seen){t.seen=texClock();t.via=via;}if(texTimes.size()>512)texTimes.clear();}
  // The decoded textures, read by the worker once per generation of the file.
  bool texPixelsReady(const std::string& path,const TexDiagFile& f,std::shared_ptr<std::map<std::string,Texture>>& out,std::string& why){
-  bool post=false;{std::lock_guard<std::mutex> l(sm);auto& p=texPixels[path];if(p.generation!=f.mod->generation){p=TexPixels{};p.generation=f.mod->generation;p.loading=true;post=true;}
+  std::set<std::string> requested;const bool glider=gliderMod(*f.mod);std::string readGeneration=f.mod->generation;
+  if(glider){requested=gliderResources(*f.mod);for(const auto& r:requested){readGeneration+="|"+r;}}
+  bool post=false;{std::lock_guard<std::mutex> l(sm);auto& p=texPixels[path];if(p.generation!=readGeneration){p=TexPixels{};p.generation=readGeneration;p.loading=true;post=true;}
    else if(p.pixels){out=p.pixels;return true;}else if(!p.error.empty()){why=p.error;return false;}}
-  if(post){auto mod=f.mod;auto dir=f.dir;worker.post([this,path,mod,dir]{auto t0=std::chrono::steady_clock::now();TexPixels r;r.generation=mod->generation;
-    try{auto px=std::make_shared<std::map<std::string,Texture>>();for(auto& t:mod->textures){auto b=read(dir+"/"+t.file,64u<<20);require(b.size()==size_t(t.width)*t.height*4,"贴图 "+t.file+" 尺寸");r.bytes+=b.size();(*px)[t.resource]=Texture{t.width,t.height,std::move(b)};}r.pixels=px;}
+  if(post){auto mod=f.mod;auto dir=f.dir;worker.post([this,path,mod,dir,glider,requested,readGeneration]{auto t0=std::chrono::steady_clock::now();TexPixels r;r.generation=readGeneration;
+    try{auto px=std::make_shared<std::map<std::string,Texture>>();for(auto& t:mod->textures){if(glider&&!requested.count(t.resource)){continue;}auto b=read(dir+"/"+t.file,64u<<20);require(b.size()==size_t(t.width)*t.height*4,"贴图 "+t.file+" 尺寸");r.bytes+=b.size();(*px)[t.resource]=Texture{t.width,t.height,std::move(b)};}r.pixels=px;}
     catch(const std::exception& ex){r.error=ex.what();}
     r.ms=uint64_t(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now()-t0).count());std::lock_guard<std::mutex> l(sm);auto& p=texPixels[path];if(p.generation==r.generation)p=std::move(r);});}
   {std::lock_guard<std::mutex> l(sm);auto& p=texPixels[path];if(p.pixels){out=p.pixels;return true;}why=p.error.empty()?"正在读取贴图":p.error;}return false;}
  // As soon as a mod is on: its pixels are read, then one Texture2D is made per tick; a model handed over later finds them.
  void texPrepare(){
   for(auto it=texStores.begin();it!=texStores.end();){auto f=texDiagDocs.find(it->first);bool keep=f!=texDiagDocs.end()&&f->second.mod&&texModOn(f->second.mod->name)&&it->second->generation==f->second.mod->generation;
-   if(keep){++it;continue;}bool held=false;for(auto& L:texStranded)held=held||L->path==it->first;auto live=texLive.find(it->first);held=held||(live!=texLive.end()&&live->second&&!live->second->slots.empty());
-   if(held)texStoresKept.push_back(std::move(it->second));else freeOwned(*it->second);it=texStores.erase(it);}
+   if(keep){++it;continue;}{std::lock_guard<std::mutex> lock(sm);texPixels.erase(it->first);}bool held=false;for(auto& L:texStranded)held=held||L->path==it->first;auto live=texLive.find(it->first);held=held||(live!=texLive.end()&&live->second&&!live->second->slots.empty());
+   if(held)texStoresKept.push_back(std::move(it->second));else freeTexStore(*it->second);it=texStores.erase(it);}
   for(auto& kv:texDiagDocs){auto& f=kv.second;if(!f.mod||!texModOn(f.mod->name))continue;auto& S=texStores[kv.first];
    if(!S){S=std::make_unique<TexStore>();S->generation=f.mod->generation;std::set<std::pair<std::string,bool>> seenKeys;
     for(auto& r:f.mod->doc.rules)for(auto& b:r.textures){if(b.resource.empty()||(b.role!="diffuse"&&b.role!="lightmap"))continue;auto k=std::make_pair(b.resource,b.role!="diffuse");if(seenKeys.insert(k).second)S->wanted.push_back(k);}}
+   if(gliderMod(*f.mod)){std::vector<std::pair<std::string,bool>> wanted;for(const auto& r:gliderResources(*f.mod)){wanted.push_back({r,false});}if(S->wanted!=wanted){S->wanted=std::move(wanted);S->next=0;S->done=false;}}
    // A texture destroyed under us (before 0.7.74 the game's unused-asset unload at a scene change took the ones no material
    // held yet, and co-op showed the mod's slots with null textures: the whole body lit): made again, and slots wait for it.
    if(S->done){std::vector<std::string> dead;for(auto& m:S->made)if(!alive(m.second))dead.push_back(m.first);
@@ -648,7 +651,7 @@ struct Runtime::Impl {
     log("texture-lost",f.mod->name+"：GIBox 的 Texture2D 有 "+std::to_string(dead.size())+" 个被游戏销毁（例如 "+dead[0]+"），逐帧重新创建，相关槽等待");}
    std::shared_ptr<std::map<std::string,Texture>> px;std::string why;if(!texPixelsReady(kv.first,f,px,why))continue;
    while(S->next<S->wanted.size()&&!px->count(S->wanted[S->next].first))S->next++;   // a resource the import could not decode
-   if(S->next<S->wanted.size()){auto& w=S->wanted[S->next++];auto key=w.first+(w.second?"#linear":"");if(!S->made.count(key)){auto t0=std::chrono::steady_clock::now();auto& p=px->at(w.first);S->made[key]=texMake(*S,p,w.second);S->bytes+=uint64_t(p.w)*p.h*4;
+   if(S->next<S->wanted.size()){auto& w=S->wanted[S->next++];auto key=w.first+(w.second?"#linear":"");if(!S->made.count(key)){auto t0=std::chrono::steady_clock::now();auto& p=px->at(w.first);S->made[key]=texStoreMake(*S,p,w.second,key,gliderMod(*f.mod));S->bytes+=uint64_t(p.w)*p.h*4;
       S->ms+=uint64_t(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now()-t0).count());}S->ticks++;}
    if(S->next>=S->wanted.size()){S->done=true;S->readyAt=texClock();uint64_t readMs=0,readBytes=0;{std::lock_guard<std::mutex> l(sm);auto& p=texPixels[kv.first];readMs=p.ms;readBytes=p.bytes;}
     log("texture-ready",f.mod->name+"：在游戏线程逐帧创建 Texture2D "+std::to_string(S->made.size())+" 个，共 "+std::to_string(S->ms/1000)+" ms，"+std::to_string(S->bytes>>20)+" MiB RGBA32，无 mipmap；后台读取像素 "+std::to_string(readMs)+" ms（"+std::to_string(readBytes>>20)+" MiB）；已防止游戏卸载未用资源 "+std::to_string(S->kept)+"/"+std::to_string(S->made.size())+" 个（HideFlags 已回读）"+(S->lost?"；此前被游戏销毁 "+std::to_string(S->lost)+" 个":""));}}}
@@ -657,7 +660,14 @@ struct Runtime::Impl {
  Ptr texOurs(TexLive& L,const std::map<std::string,Texture>& px,const texdiag::Write& w,std::string& note){auto key=w.resource+(w.linear?"#linear":"");auto& S=texStores[L.path];if(!S){S=std::make_unique<TexStore>();}
   auto it=S->made.find(key);if(it!=S->made.end()&&alive(it->second))return it->second;bool lost=it!=S->made.end();if(lost){S->made.erase(it);S->lost++;}
   auto p=px.find(w.resource);require(p!=px.end(),"贴图 "+w.resource+" 导入时未解码");
-  Ptr t=texMake(*S,p->second,w.linear);S->made[key]=t;note=lost?"（已重新创建：之前的被游戏销毁）":"（按需创建，尚未预先准备）";return t;}
+  auto doc=texDiagDocs.find(L.path);bool glider=doc!=texDiagDocs.end()&&doc->second.mod&&gliderMod(*doc->second.mod);Ptr t=texStoreMake(*S,p->second,w.linear,key,glider);S->made[key]=t;note=lost?"（已重新创建：之前的被游戏销毁）":"（按需创建，尚未预先准备）";return t;}
+ void freeTexStore(TexStore& S){for(auto& x:S.gliderAssets){freeOwned(x.second);}S.gliderAssets.clear();freeOwned(S);}
+ Ptr texStoreMake(TexStore& S,const Texture& p,bool linear,const std::string& key,bool glider){if(!glider){return texMake(S,p,linear);}auto& asset=S.gliderAssets[key];freeOwned(asset);bool kept=false;Ptr t=makeTexture(asset,p,linear,&kept);if(kept){S.kept++;}return t;}
+ void pruneGliderTextures(){for(auto& kv:texStores){auto& S=*kv.second;if(S.gliderAssets.size()<=8){continue;}std::set<Ptr> held;
+   auto keep=[&](const TexLive& L){if(L.path==kv.first){for(const auto& slot:L.slots){for(const auto& w:slot.writes){held.insert(w.ours);}}}};
+   for(const auto& L:texLive){keep(*L.second);}for(const auto& L:texStranded){keep(*L);}
+   for(auto it=S.gliderAssets.begin();it!=S.gliderAssets.end()&&S.gliderAssets.size()>8;){Ptr texture=S.made[it->first];bool wanted=false;for(const auto& w:S.wanted){wanted=wanted||(it->first==w.first+(w.second?"#linear":""));}
+    if(wanted||held.count(texture)){++it;continue;}freeOwned(it->second);S.made.erase(it->first);it=S.gliderAssets.erase(it);}}}
  Ptr texMake(TexStore& S,const Texture& p,bool linear){bool k=false;Ptr x=makeTexture(S,p,linear,&k);if(k)S.kept++;return x;}
  std::vector<int32_t> texIds(Ptr m){std::vector<int32_t> ids;Owned tmp;try{Ptr a=e.get(abi::getTextureIds,m);if(a){pin(tmp,a);auto n=length(a,64);for(uint64_t i=0;i<n;i++)ids.push_back(load<int32_t>(a+0x20+4*i));}}catch(...){freeOwned(tmp);throw;}freeOwned(tmp);return ids;}
  // A light read for matching (hand-off): names, mesh features, the submesh layout through the engine getters, the
@@ -753,6 +763,17 @@ struct Runtime::Impl {
   if(all){auto n=pcdb::indices(m.subs);auto k=capKey(m.mesh,m.vertices,n);
    if(!sceneByKey.count(k)){try{m.owner=avatarIdentity(r);if(m.owner.empty())m.owner=ownerOf(r);}catch(const std::exception&){}sceneByKey[k]=m;sceneShapes.insert({{n,uint64_t(m.vertices)},k});}}
   return sceneMeshes[key]=m;}
+ static bool gliderMod(const texdiag::TextureMod& m){return !m.doc.rules.empty()&&m.doc.rules.front().kind=="glider-owner";}
+ std::string gliderOwner(Ptr r){Owned tmp;std::string owner;try{Ptr go=e.get(abi::gameObject,r);if(alive(go)){Ptr type=managedName("Transform");pin(tmp,type);Ptr t=e.call<Ptr>(abi::componentByName,go,type,Ptr(0));if(alive(t)){pin(tmp,t);}
+   for(unsigned i=0;i<32&&alive(t);i++){auto n=meshName(name(t));if(n.rfind("avatar_",0)==0){owner=n.substr(0,n.find("_manekin"));break;}t=e.get(abi::getParent,t);}}if(owner.empty()&&!rigidRenderer(r)){owner=avatarIdentity(r);}}
+  catch(...){freeOwned(tmp);throw;}freeOwned(tmp);return owner;}
+ void gliderTargetsFor(const texdiag::TextureMod& m,Ptr r,std::vector<TexTarget>& out){try{if(!alive(r)||attachments.count(r)||swapped.count(r)){return;}Ptr mesh=meshGet(r);if(!alive(mesh)){return;}auto fp=fingerprint(mesh);if(meshName(fp.mesh).rfind("flycloak_",0)!=0){return;}
+  auto owner=gliderOwner(r);if(owner.empty()){return;}unsigned id=previewId(owner);size_t chosen=m.doc.rules.size();bool exact=false;
+  for(size_t i=0;i<m.doc.rules.size();i++){const auto& rule=m.doc.rules[i];if(rule.ownerId!=id){continue;}if(!rule.ownerAvatar.empty()){if(rule.ownerAvatar!=owner){continue;}chosen=i;exact=true;}else if(!exact&&owner.find("costume")==std::string::npos){chosen=i;}}
+  if(chosen==m.doc.rules.size()){return;}Ptr array=e.get(abi::getMaterials,r);if(!array){return;}auto materials=pointers(array,64);Ptr native=load<Ptr>(r+0x10);for(size_t i=0;i<materials.size();i++){if(alive(materials[i])){out.push_back({r,native,int(i),{chosen},"风之翼挂载角色 "+owner,rendererName(r)+"#"+hex(native),fp.mesh,false});}}
+ }catch(const std::exception&){}}
+ std::vector<TexTarget> gliderTargets(const texdiag::TextureMod& m){std::vector<Ptr> pool=sceneRenderers(texClock());try{for(Ptr r:worldRenderers()){pool.push_back(r);}}catch(const std::exception&){}for(const auto& r:rigidRefs){pool.push_back(r.first);}std::set<Ptr> seen;std::vector<TexTarget> out;for(Ptr r:pool){if(seen.insert(r).second){gliderTargetsFor(m,r,out);}}return out;}
+ std::set<std::string> gliderResources(const texdiag::TextureMod& m){std::set<std::string> out;for(const auto& t:gliderTargets(m)){for(size_t i:t.rules){for(const auto& b:m.doc.rules[i].textures){out.insert(b.resource);}}}return out;}
  // The rules an NPC / monster / glider mod can match here: each index-buffer hash rule whose mesh the hash table has.
  typedef std::vector<std::pair<size_t,const pcdb::Mesh*>> SceneWant;
  SceneWant sceneWant(const texdiag::TextureMod& m,std::string& missing,unsigned& usable){SceneWant want;missing.clear();usable=0;const pcdb::DeviceMap* dm=deviceMap();
@@ -774,6 +795,7 @@ struct Runtime::Impl {
       +(rule.kind=="whole-ib"?std::string("没有 match_first_index：整个网格"):"子网格起点 "+std::to_string(rule.first)+" = 材质槽 "+std::to_string(sl)),label,sm.mesh,false});}}}
   catch(const std::exception&){}}
  std::vector<TexTarget> texSceneTargets(const texdiag::TextureMod& m,TexLive* L){std::vector<TexTarget> out;sceneWhy.clear();texDeferred.clear();
+  if(gliderMod(m)){auto targets=gliderTargets(m);if(targets.empty()){sceneWhy="等待可确认所属角色的风之翼展开";}return targets;}
   std::string missing;unsigned usable=0;auto want=sceneWant(m,missing,usable);
   if(!usable){sceneWhy="没有按索引缓冲 hash 写的规则；只按贴图 hash 的规则在安卓上对不上（游戏贴图的压缩格式不同）";return out;}
   // While the hashes are read, every scene mesh is read once so that an upload of a missing hash can be tied to it.
@@ -788,23 +810,23 @@ struct Runtime::Impl {
  // Every tick, between the scans: the controlled character's renderers, the hand-off's and those seen (a glider comes
  // out for a few seconds; the 2 s scene scan alone could miss it), written at once.
  void texSceneQuick(TexLive& L,const std::string& path,const texdiag::TextureMod& m,const std::map<std::string,Texture>& px,const std::vector<Ptr>& pool){
-  std::string missing,why;unsigned usable=0;auto want=sceneWant(m,missing,usable);if(want.empty()||!texStoreReady(path,why))return;
+  std::string missing,why;unsigned usable=0;auto want=sceneWant(m,missing,usable);if((want.empty()&&!gliderMod(m))||!texStoreReady(path,why))return;
   std::vector<TexTarget> targets;std::set<std::pair<Ptr,int>> taken;for(auto& x:L.slots)taken.insert({x.renderer,x.slot});unsigned shown=0;
-  for(Ptr r:pool)sceneTargetsFor(m,&L,r,want,false,targets,taken,shown);
+  for(Ptr r:pool){if(gliderMod(m)){std::vector<TexTarget> found;gliderTargetsFor(m,r,found);for(auto& t:found){if(taken.insert({t.renderer,t.slot}).second){targets.push_back(std::move(t));}}}else{sceneTargetsFor(m,&L,r,want,false,targets,taken,shown);}}
   for(auto& t:targets){try{if(texAssetWait(L,t,"逐帧检查"))continue;texSeen(t.native,"逐帧检查");auto& tt=texTimes[t.native];if(!tt.matched)tt.matched=texClock();TexSlot fresh;texApply(L,m,px,t,fresh);L.slots.push_back(std::move(fresh));}
    catch(const std::exception& ex){texSay(L,"err|"+hex(t.renderer)+"|"+std::to_string(t.slot)+"|"+ex.what(),"texture-error",texTag(L)+"："+t.label+" 槽位 "+std::to_string(t.slot)+"："+ex.what());}}}
  // One slot: what the strategy writes, read back at once; the log line names everything needed to follow it.
  bool texApply(TexLive& L,const texdiag::TextureMod& m,const std::map<std::string,Texture>& px,const TexTarget& t,TexSlot& s){
   std::vector<std::string> skipped;auto plan=texdiag::writesFor(m.doc,t.rules,texVars(m),skipped);
   s=TexSlot{};s.rule=texdiag::sections(m.doc,t.rules);s.rules=t.rules;s.evidence=t.evidence;s.label=t.label;s.mesh=t.mesh;s.renderer=t.renderer;s.native=t.native;s.slot=t.slot;s.lod=t.lod;for(auto& w:plan)s.plan+=w.property+"="+w.resource+";";
-  std::string line=texTag(L)+"：规则 "+s.rule+" → "+(m.character==texdiag::kScene?std::string("NPC / 怪物"):"角色 "+std::to_string(ch.config))+"，"+t.label+"，网格 "+t.mesh+"，精度 "+(t.lod?"低精度":"完整")+"，槽 "+std::to_string(t.slot)+"，依据 "+t.evidence;
+  std::string line=texTag(L)+"：规则 "+s.rule+" → "+(m.character==texdiag::kScene?std::string(gliderMod(m)?"风之翼":"NPC / 怪物"):"角色 "+std::to_string(ch.config))+"，"+t.label+"，网格 "+t.mesh+"，精度 "+(t.lod?"低精度":"完整")+"，槽 "+std::to_string(t.slot)+"，依据 "+t.evidence;
   Ptr arr=e.get(abi::getMaterials,t.renderer);require(arr!=0,"没有材质数组");auto current=pointers(arr,64);require(size_t(t.slot)<current.size(),"槽 "+std::to_string(t.slot)+" 超出材质数 "+std::to_string(current.size()));
   Ptr mat=current[size_t(t.slot)];require(alive(mat),"槽位材质已销毁");line+="，材质 "+texMaterial(mat);
   std::string shared;for(auto& kv:texDiagSeen){if(kv.first==t.renderer||!alive(kv.first))continue;for(auto& x:kv.second.info.materials)if(x.material==mat)shared+=(shared.empty()?"":", ")+texdiag::label(kv.second.info);}
   if(!shared.empty())line+="，同时用于 "+shared;
   auto ids=texIds(mat);Ptr target=mat;
-  bool copy=L.strategy=="clone";
-  if(L.strategy=="auto"){copy=instanceId(mat)>=0||!shared.empty();line+=copy?(instanceId(mat)>=0?"，自动方式：资源材质，复制后写入":"，自动方式：其他渲染器也在用，复制后写入"):"，自动方式：游戏自己的实例，原位写入";}
+  bool copy=L.strategy=="clone"||gliderMod(m);
+  if(L.strategy=="auto"&&!gliderMod(m)){copy=instanceId(mat)>=0||!shared.empty();line+=copy?(instanceId(mat)>=0?"，自动方式：资源材质，复制后写入":"，自动方式：其他渲染器也在用，复制后写入"):"，自动方式：游戏自己的实例，原位写入";}
   if(copy){Ptr c=clone(L,mat);s.clone=c;target=c;line+="，副本 "+hex(c);}
   pin(L,mat);s.material=mat;s.materialNative=load<Ptr>(mat+0x10);bool ok=true;
   for(auto& w:plan){int32_t id=propertyId(w.property.c_str());if(std::find(ids.begin(),ids.end(),id)==ids.end()){line+="；"+w.property+"：材质没有这个贴图属性，不写入";continue;}
@@ -864,7 +886,7 @@ struct Runtime::Impl {
  bool texRestoreAll(TexLive& L,const std::string& why){bool ok=true;for(auto& s:L.slots)ok=texRestore(L,s,why)&&ok;L.slots.clear();return ok;}
  void texDrop(std::unique_ptr<TexLive> L,bool ok){if(ok){freeOwned(*L);return;}log("texture-restore",texTag(*L)+"：仍有 GIBox 的对象留在游戏中，相关贴图和副本保留，不销毁");texStranded.push_back(std::move(L));}
  void texRestoreEverything(const std::string& why){for(auto& kv:texLive){if(!kv.second)continue;bool ok=texRestoreAll(*kv.second,why);texDrop(std::move(kv.second),ok);}texLive.clear();
-  for(auto& kv:texStores){bool held=false;for(auto& L:texStranded)held=held||L->path==kv.first;if(held)texStoresKept.push_back(std::move(kv.second));else freeOwned(*kv.second);}texStores.clear();}
+  for(auto& kv:texStores){bool held=false;for(auto& L:texStranded)held=held||L->path==kv.first;if(held)texStoresKept.push_back(std::move(kv.second));else freeTexStore(*kv.second);}texStores.clear();}
  // The slots of one renderer, checked now (every tick, at the game's mesh binding, after its hand-off callback): a
  // material the game replaced or a texture it overwrote is logged with the time since our write and done again.
  void texWatchRenderer(TexLive& L,const texdiag::TextureMod& m,const std::map<std::string,Texture>& px,Ptr r,const std::string& via){
@@ -914,7 +936,7 @@ struct Runtime::Impl {
  // A model the game handed over first shows the loaded asset material, then the game's instance made from it: direct
  // waits for the instance on every path (writing the asset reaches every copy made from it, and an instance made from
  // a written asset would hide the texture to restore).
- bool texAssetWait(TexLive& L,const TexTarget& t,const std::string& via){if(L.strategy!="direct")return false;Ptr arr=e.get(abi::getMaterials,t.renderer);auto mats=arr?pointers(arr,64):std::vector<Ptr>{};
+ bool texAssetWait(TexLive& L,const TexTarget& t,const std::string& via){if(L.strategy!="direct")return false;auto doc=texDiagDocs.find(L.path);if(doc!=texDiagDocs.end()&&doc->second.mod&&gliderMod(*doc->second.mod)){return false;}Ptr arr=e.get(abi::getMaterials,t.renderer);auto mats=arr?pointers(arr,64):std::vector<Ptr>{};
   if(size_t(t.slot)>=mats.size()||instanceId(mats[size_t(t.slot)])<0){return false;}texPend(t.renderer);
   texSay(L,"asset|"+hex(t.renderer),"texture-wait",texTag(L)+"："+t.label+"（"+via+"）上仍是资源材质；直接写入方式等待游戏的实例（写资源材质会影响所有由它复制的材质）");return true;}
  void texQuickApply(TexLive& L,const std::string& path,const texdiag::TextureMod& m,const std::map<std::string,Texture>& px,Ptr r,const std::string& via,bool handoff){
@@ -1040,10 +1062,10 @@ struct Runtime::Impl {
    size_t done=0;for(auto& t:targets){TexSlot* s=nullptr;for(auto& x:L->slots)if(x.renderer==t.renderer&&x.slot==t.slot)s=&x;
     try{if(s){if(!s->gaveUp)done++;continue;}if(texAssetWait(*L,t,"扫描"))continue;texSeen(t.native,"扫描");auto& tt=texTimes[t.native];if(!tt.matched)tt.matched=texClock();TexSlot fresh;bool ok=texApply(*L,m,*px,t,fresh);L->slots.push_back(std::move(fresh));if(ok)done++;}
     catch(const std::exception& ex){texSay(*L,"err|"+hex(t.renderer)+"|"+std::to_string(t.slot)+"|"+ex.what(),"texture-error",texTag(*L)+"："+t.label+" 槽位 "+std::to_string(t.slot)+"："+ex.what());}}
-   if(targets.empty()&&scene){status+=(status.empty()?"":"；")+who+"NPC / 怪物：等待（"+sceneWhy+"）";texSay(*L,"scene|"+sceneWhy,"texture-wait",texTag(*L)+"：NPC / 怪物 MOD 等待："+sceneWhy);}
+   if(targets.empty()&&scene){status+=(status.empty()?"":"；")+who+(gliderMod(m)?"风之翼：等待（":"NPC / 怪物：等待（")+sceneWhy+"）";texSay(*L,"scene|"+sceneWhy,"texture-wait",texTag(*L)+(gliderMod(m)?"：风之翼 MOD 等待：":"：NPC / 怪物 MOD 等待：")+sceneWhy);}
    else if(targets.empty())status+=(status.empty()?"":"；")+who+"等待映射（没有确定匹配的槽位："+(ctl.tex.lod=="migrate"?"打开队伍预览或角色详情让完整模型出现一次":"大世界多为低精度模型；打开队伍预览或角色详情，或允许迁移到 LOD")+"）";
    else{status+=(status.empty()?"":"；")+who+(strategy=="auto"?"自动":strategy=="direct"?"直接改材质":"克隆材质")+"，"+std::to_string(done)+" / "+std::to_string(targets.size())+" 个槽位已写入";texApplied=texApplied||done>0;}}
-  texStatus=status;
+  pruneGliderTextures();texStatus=status;
   if(texTest.active&&texTest.phase==2&&now>=texTest.until)texTest.phase=3;}
 
  // ---------------------------------------------------------------- index-buffer hashes (vk_capture.hpp, 0.7.56)
@@ -1530,7 +1552,7 @@ struct Runtime::Impl {
   require(alive(r)&&load<Ptr>(r+0x10)==v.native&&alive(v.filter)&&load<Ptr>(v.filter+0x10)==v.filterNative,"武器 MeshFilter 已失效");e.set(abi::filterSetMesh,v.filter,mesh);}
  Ptr rigidType(Ptr component){Ptr cls=load<Ptr>(component);require(byvalOffset&&e.call<Ptr>(abi::classFromType,cls+byvalOffset,1)==cls,"静态组件 Type 校验失败");
   Ptr type=e.call<Ptr>(abi::typeObject,cls+byvalOffset);require(type&&load<Ptr>(type+0x10),"静态组件 Type 尚未就绪");pin(rigidTypeRoots,type);return type;}
- void rigidDiscover(std::vector<Ptr>& out,uint64_t now){bool wanted=false;for(auto* m:wantedNow)for(const auto& t:m->sceneTargets)wanted=wanted||t.target.bones==0;
+ void rigidDiscover(std::vector<Ptr>& out,uint64_t now){bool gliders=false;for(const auto& f:texDiagDocs){gliders=gliders||(f.second.mod&&texModOn(f.second.mod->name)&&gliderMod(*f.second.mod));}bool wanted=gliders;for(auto* m:wantedNow)for(const auto& t:m->sceneTargets)wanted=wanted||t.target.bones==0;
   if(!wanted){bool attached=false;for(const auto& a:attachments)attached=attached||rigidRenderer(a.first);if(!attached){for(auto& r:rigidRefs){freeOwned(r.second);}rigidRefs.clear();}return;}
   if(abi::at(abi::filterMesh)>=abi::notFound||abi::at(abi::filterSetMesh)>=abi::notFound){return;}
   for(auto it=rigidRefs.begin();it!=rigidRefs.end();){const auto& r=it->second;bool valid=alive(it->first)&&load<Ptr>(it->first+0x10)==r.native&&alive(r.filter)&&load<Ptr>(r.filter+0x10)==r.filterNative;
@@ -1546,7 +1568,7 @@ struct Runtime::Impl {
        Ptr filter=e.call<Ptr>(abi::componentByName,child,filterName,Ptr(0));if(alive(filter)){rigidFilterType=rigidType(filter);log("weapon-static-ready","MeshFilter Type 已确认，静态武器使用独立网格接口");break;}}}}}}
    if(rigidFilterType){Ptr array=e.call<Ptr>(abi::findObjectsOfType,rigidFilterType,Ptr(0));if(array){pin(tmp,array);auto filters=pointers(array,262144);if(rigidScanOffset>=filters.size())rigidScanOffset=0;size_t end=std::min(filters.size(),rigidScanOffset+1024);
     for(;rigidScanOffset<end;rigidScanOffset++){Ptr filter=filters[rigidScanOffset];if(!alive(filter))continue;
-     Ptr mesh=e.get(abi::filterMesh,filter);if(!alive(mesh))continue;auto fp=fingerprint(mesh);if(fp.bones)continue;bool candidate=false;
+     Ptr mesh=e.get(abi::filterMesh,filter);if(!alive(mesh))continue;auto fp=fingerprint(mesh);if(fp.bones)continue;bool candidate=gliders&&meshName(fp.mesh).rfind("flycloak_",0)==0;
      for(auto* m:wantedNow){for(const auto& t:m->sceneTargets){candidate=candidate||(t.target.bones==0&&matches(t.target,fp));}}
      if(!candidate){for(const auto& set:sets)for(size_t i=0;i<set->parts.size();i++)candidate=candidate||set->parts[i].mesh==mesh||animationMesh(*set,i,mesh);}
      if(!candidate)continue;

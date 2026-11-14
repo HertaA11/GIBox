@@ -20,7 +20,7 @@ struct Fake {
  Ptr stringBase=0x7020000000ull,base=0,manager=0,owner=0,klass=0,typeObj=0,meshTypeObj=0;unsigned meshFinds=0;std::map<Ptr,Obj> obj;std::vector<void*> allocated;std::map<unsigned,Ptr> handles;unsigned nextHandle=1,nextId=1;
  // Each built part now clones one restoration snapshot and one mod mesh; count both engine allocations.
  unsigned clones=0,meshClones=0,textures=0,weightAllocs=0,typeLookups=0,findCalls=0,findAllCalls=0,childCalls=0,bindposeReads=0;std::map<Ptr,Ptr> goOfRenderer;std::map<Ptr,std::vector<Ptr>> goChildren;Ptr lastWeights=0;std::map<Ptr,std::string> strings;std::string lightProperty;bool failMaterials=false,failFind=false,failPosition=false;
- std::map<Ptr,Ptr> extraTypes,filterByGo,rendererByGo;std::vector<Ptr> rigidFilters,rigidTransforms;
+ std::map<Ptr,Ptr> extraTypes,filterByGo,rendererByGo,transformByGo;std::vector<Ptr> rigidFilters,rigidTransforms;
  unsigned expectedVertices=3;std::map<Ptr,unsigned> textureBytes;
  std::map<Ptr,Ptr> diffuse;std::map<Ptr,std::map<int32_t,Ptr>> named;std::map<Ptr,float> glow; // material properties copied by Instantiate, including copies made by the game
  std::map<Ptr,unsigned> nameReads,boneReads; // actual engine getter counts, used to check binding hot-path work
@@ -118,7 +118,7 @@ int32_t texSide(Ptr t,Ptr){assert(t&&load<Ptr>(t+0x10));return 4;}int32_t texFor
 // The game's LOD loaders (MiHoYoLodLoader): found by GameObject.GetComponent("MiHoYoLodLoader"); level byte 0xff while
 // the loader switches by itself, else the level it is held at (IsLodLoaderSelfPaused: != 0xff).
 std::map<Ptr,Ptr> lodOnGo;std::map<Ptr,unsigned> lodHeld,lodNow;unsigned lodLookups=0;
-Ptr byName(Ptr go,Ptr name,Ptr){assert(f->obj.at(go).kind=="gameobject");auto label=f->strings.at(name);if(label=="MeshFilter")return f->filterByGo[go];if(label=="MeshRenderer")return f->rendererByGo[go];assert(label=="MiHoYoLodLoader");lodLookups++;auto it=lodOnGo.find(go);return it==lodOnGo.end()?0:it->second;}
+Ptr byName(Ptr go,Ptr name,Ptr){assert(f->obj.at(go).kind=="gameobject");auto label=f->strings.at(name);if(label=="Transform")return f->transformByGo[go];if(label=="MeshFilter")return f->filterByGo[go];if(label=="MeshRenderer")return f->rendererByGo[go];assert(label=="MiHoYoLodLoader");lodLookups++;auto it=lodOnGo.find(go);return it==lodOnGo.end()?0:it->second;}
 uint32_t lodSelf(Ptr l,Ptr){assert(f->obj.at(l).kind=="lodloader");return lodHeld[l]!=0xff;}
 void lodPauseAt(Ptr l,int32_t level,Ptr){assert(f->obj.at(l).kind=="lodloader"&&level>=0&&level<=7);lodHeld[l]=unsigned(level);lodNow[l]=unsigned(level);}
 void lodResumeFn(Ptr l,Ptr){assert(f->obj.at(l).kind=="lodloader");lodHeld[l]=0xff;}
@@ -1512,6 +1512,38 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
   destroy(handed,0);f->scene={body,twin};run(2000);
   assert(f->diffuse[mat]==ours&&count("TexMod：Body#")>=1&&text(logC).find("不再是替换目标")==std::string::npos);
   c.shutdown();assert(f->diffuse[mat]==gameTex&&f->diffuse[tmat]==gameTex&&f->handles.size()==handles0);}   // earlier blocks leave their own handles
+ // Gliders choose the renderer's actual owner, including a reused renderer, never the controlled avatar.
+ {size_t handles0=f->handles.size();std::string media=root+"/glider-media",shared=media+"/"+pkg+"/GIBox",mod=shared+"/models/Gliders";
+  std::filesystem::create_directories(mod+"/textures");Bytes px(16,17);write(mod+"/textures/0.rgba",px.data(),px.size());px.assign(16,34);write(mod+"/textures/1.rgba",px.data(),px.size());
+  write(shared+"/skeleton-policy.json",R"J({"models":{"citlali":10000107,"kaveh":10000081},"outfits":{},"builtin":[],"npcs":{}})J");
+  write(shared+"/control.json",R"J({"enabled":true,"selected":["Gliders"],"textureMods":{"strategy":"direct"}})J");
+  write(mod+"/texture.json",R"J({"format":"gibox-texture-mod","version":1,"name":"Gliders","generation":"g1","character":{"id":1},"variants":{"vars":[],"default":{}},"textures":[{"resource":"a","file":"textures/0.rgba","width":2,"height":2},{"resource":"b","file":"textures/1.rgba","width":2,"height":2},{"resource":"unseen","file":"textures/2.rgba","width":2,"height":2}],"diag":{"format":"gibox-texture-diag","version":1,"name":"Gliders","character":1,"rules":[{"section":"CitlaliWing","kind":"glider-owner","ownerId":10000107,"textures":[{"resource":"a","role":"diffuse","slot":"ps-t0"}]},{"section":"KavehWing","kind":"glider-owner","ownerId":10000081,"textures":[{"resource":"b","role":"diffuse","slot":"ps-t0"}]},{"section":"UnseenWing","kind":"glider-owner","ownerId":10000099,"textures":[{"resource":"unseen","role":"diffuse","slot":"ps-t0"}]}],"resources":[]}})J");
+  std::string manifest=text(mod+"/texture.json"),moreTextures,moreRules,policy="{\"models\":{\"citlali\":10000107,\"kaveh\":10000081},\"outfits\":{";
+  for(int i=0;i<11;i++){auto n=std::to_string(i);write(mod+"/textures/"+std::to_string(10+i)+".rgba",px.data(),px.size());
+   moreTextures+=",{\"resource\":\"c"+n+"\",\"file\":\"textures/"+std::to_string(10+i)+".rgba\",\"width\":2,\"height\":2}";
+   moreRules+=",{\"section\":\"Cache"+n+"\",\"kind\":\"glider-owner\",\"ownerId\":"+std::to_string(10000100+i)+",\"ownerAvatar\":\"avatar_test_"+n+"\",\"textures\":[{\"resource\":\"c"+n+"\",\"role\":\"diffuse\",\"slot\":\"ps-t0\"}]}";
+   policy+=(i?",":"")+std::string("\"avatar_test_")+n+"\":"+std::to_string(10000100+i);}
+  fixture::replaceIn(manifest,"],\"diag\":",moreTextures+"],\"diag\":");fixture::replaceIn(manifest,"],\"resources\":[]",moreRules+"],\"resources\":[]");write(mod+"/texture.json",manifest);write(shared+"/skeleton-policy.json",policy+"},\"builtin\":[],\"npcs\":{}}");
+  Ptr cr=f->object("transform","Avatar_Girl_Catalyst_Citlali"),kr=f->object("transform","Avatar_Boy_Sword_Kaveh"),unknown=f->object("transform","Scene");
+  Ptr body=f->renderer(f->mesh("Body"),"Bip001","Body",cr);f->world(body);Ptr mat=load<Ptr>(f->obj[body].materials+0x20),gameTex=f->object("texture","GameDiffuse");f->diffuse[mat]=gameTex;
+  auto wing=[&](Ptr root0){Ptr r=f->renderer(f->mesh("Flycloak_Normal_Model"),"Wing","Flycloak_Normal_Model",unknown);f->obj[r].materials=f->obj[body].materials;Ptr go=f->object("gameobject","WingGO"),t=f->object("transform","Flycloak");f->goOfRenderer[r]=go;f->transformByGo[go]=t;f->obj[t].parent=root0;return std::make_pair(r,t);};
+  auto a=wing(cr),b=wing(kr),orphan=wing(unknown);f->scene={body,a.first,b.first,orphan.first};unsigned made=f->textures;
+  Ptr staticMesh=f->mesh("Flycloak_Normal_Model"),filter=f->object("filter","Flycloak_Normal_Model"),staticWing=f->object("rigidrenderer","Flycloak_Normal_Model"),staticGo=f->object("gameobject","StaticWing"),staticTransform=f->object("transform","Flycloak");
+  store<uint64_t>(f->obj[staticMesh].shared+0xe0,0);f->obj[filter].mesh=staticMesh;f->obj[staticWing].materials=f->obj[body].materials;f->obj[staticTransform].parent=cr;
+  for(Ptr component:{filter,staticWing,staticTransform}){f->goOfRenderer[component]=staticGo;}f->filterByGo[staticGo]=filter;f->rendererByGo[staticGo]=staticWing;f->transformByGo[staticGo]=staticTransform;f->rigidFilters={filter};f->rigidTransforms={staticTransform};
+
+  Runtime c(e,pkg,root+"/glider-private",media,false);uint64_t clock=7870000;auto run=[&](unsigned ms){for(uint64_t end=clock+ms;clock<end;clock+=100){c.tick(clock);}};run(3500);
+  auto material=[&](Ptr r){return load<Ptr>(f->obj[r].materials+0x20);};
+  if(std::getenv("GLIDER_PRINT")){std::cerr<<text(shared+"/GIBox Log.txt");}
+  assert(material(a.first)!=mat&&material(b.first)!=mat&&material(a.first)!=material(b.first));assert(f->diffuse[material(a.first)]!=f->diffuse[material(b.first)]&&f->diffuse[mat]==gameTex&&material(orphan.first)==mat&&f->textures==made+2);
+  assert(material(staticWing)!=mat&&f->diffuse[material(staticWing)]==f->diffuse[material(a.first)]&&f->boneReads[staticWing]==0);
+  Ptr kavehTex=f->diffuse[material(b.first)];f->obj[a.second].parent=kr;run(1500);assert(f->diffuse[material(a.first)]==kavehTex&&f->diffuse[mat]==gameTex);
+  f->obj[a.second].parent=unknown;run(1500);assert(material(a.first)==mat&&material(b.first)!=mat);
+  std::vector<Ptr> cached;f->obj[a.second].parent=cr;
+  for(int i=0;i<11;i++){f->obj[cr].name="Avatar_Test_"+std::to_string(i);run(1500);assert(material(a.first)!=mat);cached.push_back(f->diffuse[material(a.first)]);}
+  unsigned aliveCached=0;for(Ptr t:cached){aliveCached+=load<Ptr>(t+0x10)!=0;}assert(aliveCached<=8&&load<Ptr>(cached.front()+0x10)==0);
+  c.shutdown();assert(material(b.first)==mat&&material(staticWing)==mat&&f->diffuse[mat]==gameTex&&f->handles.size()==handles0);f->rigidFilters.clear();f->rigidTransforms.clear();
+ }
  // 42c. NPC / monster texture mods (1.0.3): "character" 1, no AvatarId. A rule's index-buffer hash names a mesh in this
  //      device's hash table; every active renderer of the scene showing it has the submesh at match_first_index written,
  //      whoever is controlled; a renderer that goes is put back. With the hashes read ("match"), an upload of a hash not
