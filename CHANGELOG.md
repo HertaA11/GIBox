@@ -1,3 +1,8 @@
+# 1.0.12
+
+- 修复风之翼转换器错误读取 Android/media 下 outfits.json，导致 NoSuchFileException 的问题；改用 App 从 APK 加载的内置衣装表，无需手动复制文件。
+- 补充共享目录没有 outfits.json 时的整包、单独角色文件夹及单独衣装文件夹导入测试。
+
 # 1.0.11
 
 - 支持 Signature Gliders V2.12 这类按角色切换图片的风之翼包：整包作为一个场景 MOD 导入，识别 56 个角色及衣装配置，使用其 1024 分辨率模型贴图；图鉴图标暂不转换。

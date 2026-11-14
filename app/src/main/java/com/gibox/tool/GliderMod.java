@@ -1,8 +1,6 @@
 package com.gibox.tool;
 
 import java.io.File;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.util.*;
 import java.util.regex.*;
 
@@ -13,8 +11,8 @@ final class GliderMod {
     static File ini(File root){for(File f:ModConfig.allInis(root)){String text=ModConfig.source(f);if(text.toLowerCase(Locale.ROOT).contains("signaturegliders")&&text.contains("[TextureOverride")&&text.contains("Glider1024.dds"))return f;}return null;}
     private static String key(String s){return s.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]","");}
     private static Map<String,String> values(ModelConverter.Section s){Map<String,String> out=new LinkedHashMap<>();for(String l:s.lines){int p=l.indexOf('=');if(p>=0)out.put(l.substring(0,p).trim().toLowerCase(Locale.ROOT),l.substring(p+1).trim());}return out;}
-    static Importer.Result install(File root,File dest,File shared,ModelConverter.TextureDecoder decoder,StringBuilder log)throws Exception {
-        Outfits outfits=Outfits.parse(new String(Files.readAllBytes(new File(shared,"outfits.json").toPath()),StandardCharsets.UTF_8));
+    static Importer.Result install(File root,File dest,ModelConverter.TextureDecoder decoder,StringBuilder log)throws Exception {
+        Outfits outfits=Outfits.current();
         List<Object> rules=new ArrayList<>(),resources=new ArrayList<>();Set<String> owners=new HashSet<>();
         for(File file:ModConfig.allInis(root)){
             if(!ModConfig.source(file).toLowerCase(Locale.ROOT).contains("signaturegliders"))continue;
