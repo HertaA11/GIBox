@@ -70,6 +70,10 @@ public final class Control {
     /** Hide the account UID shown in the game's UI (control.json "hideUid", default off; read at the game's start). */
     public static boolean hideUid(String pkg) { return load(pkg).optBoolean("hideUid", false); }
     public static synchronized void setHideUid(String pkg, boolean on) throws Exception { JSONObject j = load(pkg); j.put("hideUid", on); save(pkg, j); }
+    public static final String[] LOADING_FITS={"original","cover","stretch"};
+    public static final String[] LOADING_FIT_LABELS={"保持原图","铺满全屏","强制拉伸"};
+    public static String loadingFit(String pkg){String v=load(pkg).optString("loadingFit","original");for(String s:LOADING_FITS)if(s.equals(v))return v;return "original";}
+    public static synchronized void setLoadingFit(String pkg,String value)throws Exception{boolean valid=false;for(String s:LOADING_FITS)valid|=s.equals(value);if(!valid)throw new IllegalArgumentException("加载图片比例无效");JSONObject j=load(pkg);j.put("loadingFit",value);save(pkg,j);}
     public static boolean npcModels(String pkg) { return load(pkg).optBoolean("npcModels", false); }
     public static synchronized void setNpcModels(String pkg, boolean on) throws Exception { JSONObject j=load(pkg); j.put("npcModels", on); save(pkg,j); }
     /** Replaced characters held at the full model (LOD0) by the game's own LOD component (control.json "lodPin", default on). */

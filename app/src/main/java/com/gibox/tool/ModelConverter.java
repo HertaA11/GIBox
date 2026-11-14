@@ -182,7 +182,7 @@ public final class ModelConverter {
         bindings.put("texture-role:lightmap",bindings.getOrDefault("ps-t1","null"));
     }
     private static String streamKey(int kind){return "vertex-stream:"+kind;}
-    private static String streamName(int kind){return new String[]{"Position","Blend","Texcoord"}[kind];}
+    private static String streamName(int kind){return new String[]{"Position","Blend","Texcoord","Packed28"}[kind];}
     private static int streamKind(Resource r){
         String n=lower(r.file.getName());
         if(n.contains("texcoord"))return 2;
@@ -190,6 +190,7 @@ public final class ModelConverter {
         if(n.contains("position"))return 0;
         if(r.stride>=40)return 0;
         if(r.stride==32)return 1;
+        if(r.stride==28)return 3;
         if(r.stride>=12&&r.stride<=36&&(r.stride-4)%8==0)return 2;
         return -1;
     }
@@ -230,7 +231,7 @@ public final class ModelConverter {
         check(hits.size()<=1,"局部 "+streamName(kind)+" 顶点流有歧义："+hits.keySet());
         return hits.isEmpty()?null:hits.values().iterator().next();
     }
-    private static Resource stream(Map<String,Resource> rs,Map<String,String> bindings,int kind){Resource r=localStream(rs,bindings,kind);check(r!=null,"缺少 "+streamName(kind)+" 顶点流");return r;}
+    private static Resource stream(Map<String,Resource> rs,Map<String,String> bindings,int kind){Resource r=localStream(rs,bindings,kind);if(r==null&&(kind==0||kind==2))r=localStream(rs,bindings,3);check(r!=null,"缺少 "+streamName(kind)+" 顶点流");return r;}
     private static boolean declaresDraw(Ini ini,Section s,Set<String> visited){
         if(!visited.add(lower(s.name)))return false;
         for(String l:s.lines){String[] a=kv(l);if(a==null)continue;if(a[0].equals("drawindexed"))return true;if(a[0].equals("run")){Section target=ini.run(a[1]);if(target!=null&&declaresDraw(ini,target,visited))return true;if(target==null&&texFxComponent(a[1]))return true;}}
@@ -255,6 +256,13 @@ public final class ModelConverter {
     }
     private static void resolveStreams(Draw d,List<Evaluated> providers,Map<String,Resource> rs,boolean rigid){
         Set<String> scopes=new HashSet<>();for(Evaluated p:providers)if(!p.scope.isEmpty())scopes.add(p.scope);
+        if(rigid){
+            if(localStream(rs,d.bindings,3)!=null)return;
+            int best=-1;LinkedHashMap<String,String> packed=new LinkedHashMap<>();
+            for(Evaluated p:providers){String value=p.bindings.get(streamKey(3));if(value==null)continue;int score=scopeScore(p.scope,d,rs);if(score<0&&scopes.size()<=1)score=0;if(score<0)continue;if(score>best){packed.clear();best=score;}if(score==best)packed.put(identity(resource(rs,value)),value);}
+            check(packed.size()<=1,"部件 "+d.part+" 的 Packed28 顶点流有歧义");
+            if(!packed.isEmpty()){d.bindings.put(streamKey(3),packed.values().iterator().next());return;}
+        }
         for(int kind=0;kind<3;kind++){
             if(rigid&&kind==1)continue;
             // Explicit draw/CommandList bindings take precedence over defaults.
@@ -272,7 +280,7 @@ public final class ModelConverter {
         List<Evaluated> sections=new ArrayList<>(),providers=new ArrayList<>();List<Draw> draws=new ArrayList<>();Set<String> autoHashes=new HashSet<>(),usedHashes=new HashSet<>();Map<String,String> autoIssuer=new HashMap<>();
         for(Section s:ini.sections.values())if(lower(s.name).startsWith("textureoverride")){
             Evaluated e=new Evaluated(ini,s,vars,rs);sections.add(e);
-            if(!e.declaresDraw&&!e.bindings.containsKey("ib")&&(e.bindings.containsKey(streamKey(0))||e.bindings.containsKey(streamKey(1))||e.bindings.containsKey(streamKey(2))))providers.add(e);
+            if(!e.declaresDraw&&!e.bindings.containsKey("ib")&&(e.bindings.containsKey(streamKey(0))||e.bindings.containsKey(streamKey(1))||e.bindings.containsKey(streamKey(2))||e.bindings.containsKey(streamKey(3))))providers.add(e);
             for(Draw d:e.draws){d.hash=e.hash;
                 if(d.bindings.containsKey("ib")){if(!unbound(d.bindings.get("ib"))){draws.add(d);usedHashes.add(e.hash);}continue;}
                 // Standard GIMI: a hash-level auto draw uses the IB of its
@@ -582,7 +590,21 @@ public final class ModelConverter {
         }
         return trimmed;
     }
+    private static float half(short bits){int h=bits&65535,sign=(h&32768)<<16,exp=(h>>>10)&31,m=h&1023;
+        if(exp==0)return Math.scalb((float)((h&32768)==0?m:-m),-24);
+        return Float.intBitsToFloat(sign|((exp==31?255:exp+112)<<23)|(m<<13));}
+    private static Vertex packed28(byte[] data,int index){
+        check(data.length%28==0&&index>=0&&(long)(index+1)*28<=data.length,"Packed28 顶点缓冲长度或索引无效");
+        ByteBuffer in=buf(data);int at=index*28;check(half(in.getShort(at+6))==1f,"不支持的 Packed28 位置格式");
+        Vertex v=new Vertex();v.pos=new byte[12];v.norm=new byte[12];v.tangent=new byte[16];v.color=Arrays.copyOfRange(data,at+12,at+16);v.weights=new byte[32];buf(v.weights).putFloat(1f);
+        float norm=0;for(int k=0;k<3;k++){float x=half(in.getShort(at+k*2));check(Float.isFinite(x),"非法几何数值");buf(v.pos).putFloat(k*4,x);float n=Math.max(-1f,data[at+8+k]/127f);buf(v.norm).putFloat(k*4,n);norm+=n*n;}
+        check(norm>=0.85f&&norm<=1.15f,"不支持的 Packed28 法线格式");
+        for(int k=0;k<4;k++)buf(v.tangent).putFloat(k*4,Math.max(-1f,data[at+24+k]/127f));
+        for(int channel=0;channel<2;channel++){float u=half(in.getShort(at+16+channel*4)),w=half(in.getShort(at+18+channel*4));check(Float.isFinite(u)&&Float.isFinite(w),"非法 UV");byte[] uv=buf(new byte[8]).putFloat(u).putFloat(1-w).array();if(channel==0)v.uv=uv;else v.extra.add(uv);}
+        return v;
+    }
     private static Vertex vertex(Resource position,Resource blend,Resource tex,byte[] p,byte[] b,byte[] t,int i,int boneCount,ExtraBoneFallback fallback){
+        if(position.stride==28)return packed28(p,i);
         check(position.stride>=40&&blend.stride==32&&tex.stride>=12&&tex.stride<=36&&(tex.stride-4)%8==0,"顶点流 stride 不兼容");check(i>=0&&(long)(i+1)*position.stride<=p.length&&(long)(i+1)*32<=b.length&&(long)(i+1)*tex.stride<=t.length,"顶点索引越界");int po=i*position.stride,bo=i*32,to=i*tex.stride;Vertex v=new Vertex();v.pos=Arrays.copyOfRange(p,po,po+12);v.norm=Arrays.copyOfRange(p,po+12,po+24);v.tangent=Arrays.copyOfRange(p,po+24,po+40);v.color=Arrays.copyOfRange(t,to,to+4);v.uv=uv(t,to+4);for(int k=12;k+8<=tex.stride;k+=8)v.extra.add(uv(t,to+k));v.weights=new byte[32];ByteBuffer bi=buf(b),wo=buf(v.weights);float[] w=new float[4];int[] ids=new int[4];for(int k=0;k<4;k++){w[k]=bi.getFloat(bo+4*k);ids[k]=bi.getInt(bo+16+4*k);}
         if(fallback!=null)fallback.apply(w,ids,boneCount,blend.file.getName(),i);
         try{v.trimmedWeights=cleanWeights(w,ids,boneCount);}catch(IllegalArgumentException ex){float[] originalWeights=new float[4];int[] originalIndices=new int[4];for(int k=0;k<4;k++){originalWeights[k]=bi.getFloat(bo+4*k);originalIndices[k]=bi.getInt(bo+16+4*k);}
@@ -717,7 +739,7 @@ public final class ModelConverter {
             boolean rigid=rigid(target);
             Resource pos=stream(rs,d.bindings,0),blend=rigid?new Resource(pos.file,32,""):stream(rs,d.bindings,1),tex=stream(rs,d.bindings,2),indices=resource(rs,d.bindings.get("ib"));check(indices!=null,"缺少索引流");
             if(combo==0)log.append(d.part).append(": Position=").append(pos.file.getName()).append(", Blend=").append(blend.file.getName()).append(", Texcoord=").append(tex.file.getName()).append('\n');
-            byte[] p=b.cache.get(pos.file),bl=rigid?null:b.cache.get(blend.file),t=b.cache.get(tex.file),ix=b.cache.get(indices.file);if(p==null){p=read(pos.file);b.cache.put(pos.file,p);}if(rigid){check(pos.stride>=40,"静态武器 Position 顶点布局尚不支持：stride="+pos.stride);bl=new byte[p.length/pos.stride*32];ByteBuffer weights=buf(bl);for(int v=0;v<bl.length;v+=32)weights.putFloat(v,1f);}else if(bl==null){bl=read(blend.file);b.cache.put(blend.file,bl);}if(t==null){t=read(tex.file);b.cache.put(tex.file,t);}if(ix==null){ix=read(indices.file);b.cache.put(indices.file,ix);}
+            byte[] p=b.cache.get(pos.file),bl=rigid?null:b.cache.get(blend.file),t=b.cache.get(tex.file),ix=b.cache.get(indices.file);if(p==null){p=read(pos.file);b.cache.put(pos.file,p);}if(rigid){check(pos.stride>=40||pos.stride==28,"静态武器 Position 顶点布局尚不支持：stride="+pos.stride);bl=new byte[p.length/pos.stride*32];ByteBuffer weights=buf(bl);for(int v=0;v<bl.length;v+=32)weights.putFloat(v,1f);}else if(bl==null){bl=read(blend.file);b.cache.put(blend.file,bl);}if(t==null){t=read(tex.file);b.cache.put(tex.file,t);}if(ix==null){ix=read(indices.file);b.cache.put(indices.file,ix);}
             int stride=lower(indices.format).contains("r16_uint")?2:lower(indices.format).contains("r32_uint")?4:indices.stride;check(stride==2||stride==4,"索引格式必须为 R16_UINT 或 R32_UINT");check(ix.length%stride==0,"索引流长度");int count=d.count==-1?ix.length/stride-d.start:d.count;check(count>0&&count%3==0&&(long)d.start+count<=ix.length/stride,"drawindexed 范围");
             // The same draw in several combinations shares one index range.
             String rangeKey=pos.file.getPath()+"|"+blend.file+"|"+tex.file+"|"+indices.file+"|"+stride+"|"+d.start+"|"+count;int[] range=g.ranges.get(rangeKey);
@@ -862,7 +884,7 @@ public final class ModelConverter {
     private static void memoryBudget(Ini ini,File src,List<Bones> bones,Map<String,String> map,List<Map<String,Integer>> assignments,String fallback,StringBuilder log)throws Exception {
         Map<String,Long> streams=new HashMap<>();Set<String> ranges=new HashSet<>();long indices=0,input=0;
         for(Map<String,Integer> vars:assignments){Map<String,Resource> rs=resources(ini,src,vars);for(Map.Entry<Draw,Bones> entry:resolve(ini,src,bones,map,vars,rs,null,fallback).entrySet()){Draw d=entry.getKey();boolean rigid=rigid(entry.getValue());
-            Resource p=stream(rs,d.bindings,0),b=rigid?null:stream(rs,d.bindings,1),t=stream(rs,d.bindings,2),ix=resource(rs,d.bindings.get("ib"));check(ix!=null&&p.stride>=40&&(rigid||b.stride==32)&&t.stride>=12,"顶点流或索引流无效");
+            Resource p=stream(rs,d.bindings,0),b=rigid?null:stream(rs,d.bindings,1),t=stream(rs,d.bindings,2),ix=resource(rs,d.bindings.get("ib"));check(ix!=null&&(p.stride>=40||(rigid&&p.stride==28))&&(rigid||b.stride==32)&&t.stride>=12,"顶点流或索引流无效");
             int stride=lower(ix.format).contains("r16_uint")?2:lower(ix.format).contains("r32_uint")?4:ix.stride;check(stride==2||stride==4,"索引格式必须为 R16_UINT 或 R32_UINT");
             long count=d.count<0?ix.file.length()/stride-d.start:d.count;check(count>0&&count<=15000000,"drawindexed 范围");String id=identity(p)+"|"+(rigid?"rigid":identity(b))+"|"+identity(t);
             long vertices=Math.min(p.file.length()/p.stride,Math.min(rigid?p.file.length()/p.stride:b.file.length()/32,t.file.length()/t.stride));streams.put(id,vertices);
@@ -1048,6 +1070,7 @@ public final class ModelConverter {
         List<LogicSection> sections=logicSections(ini,why);if(sections==null)return null;
         for(LogicSection x:sections)L.byName.put(x.name,x);
         Map<String,Integer> vars0=assignments.get(0);Map<String,Resource> rs0=resources(ini,src,vars0);
+        for(Resource resource:rs0.values())if(streamKind(resource)==3){why.append("合并静态顶点流使用内置转换器");return null;}
         // The vertex-buffer sections that serve every part (no draw, no IB): their hash and the slot they bind.
         String[] hash=new String[3],slot=new String[3];
         for(Section s:ini.sections.values())if(lower(s.name).startsWith("textureoverride")){Evaluated e=new Evaluated(ini,s,vars0,rs0);

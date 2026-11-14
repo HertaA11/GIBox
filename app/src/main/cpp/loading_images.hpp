@@ -41,11 +41,14 @@ class LoadingScreens {
    bool duplicate=false;for(const auto& h:hidden){duplicate=duplicate||h.go==go;}
    if(duplicate){continue;}pin(hiddenRefs,go);bool active=(e.call<uint32_t>(abi::goActiveSelf,go,Ptr(0))&1)!=0;hidden.push_back({go,load<Ptr>(go+0x10),active});if(active)e.op(abi::goSetActive,go,0);}}
  void capture(){original=e.get(abi::imageSprite,image);release(originalRefs);pin(originalRefs,original);originalType=e.call<int>(abi::imageType,image,Ptr(0));originalAspect=(e.call<uint32_t>(abi::imageAspect,image,Ptr(0))&1)!=0;originalColor=e.call<Color>(abi::graphicColor,image,Ptr(0));}
- void apply(){if(!live()||!prepared||prepared->name.empty()||!prepared->error.empty()||prepared->cycle!=cycle.load())return;if(appliedKey==prepared->key)return;restore();capture();
-  const auto& t=prepared->image;Ptr descriptor=e.call<Ptr>(abi::textureType);require(descriptor!=0,"缺少加载图片纹理类型");Ptr texture=e.call<Ptr>(abi::objectNew,load<Ptr>(descriptor));require(texture!=0,"加载图片分配失败");assets.push_back(texture);pin(assetRefs,texture);
-  e.call<void>(abi::textureInit,texture,int(t.w),int(t.h),4,0,0,Ptr(0));require(alive(texture),"加载图片初始化失败");e.call<void>(abi::texturePixels,texture,reinterpret_cast<Ptr>(t.pixels.data()),int(t.pixels.size()),Ptr(0));e.action(abi::textureApply,texture);
-  sprite=e.call<Ptr>(abi::spriteCreate,texture,Rect{0,0,float(t.w),float(t.h)},Pivot{.5f,.5f},Ptr(0));require(alive(sprite),"加载图片 Sprite 创建失败");assets.push_back(sprite);pin(assetRefs,sprite);
-  applied=true;e.op(abi::imageSetType,image,0);e.op(abi::imageSetAspect,image,1);e.call<void>(abi::graphicSetColor,image,Color{1,1,1,originalColor.a},Ptr(0));e.set(abi::imageSetSprite,image,sprite);if(prepared->hide)hideUi();appliedKey=prepared->key;
+ void apply(const std::string& fit){if(!live()||!prepared||prepared->name.empty()||!prepared->error.empty()||prepared->cycle!=cycle.load())return;const auto& t=prepared->image;Rect crop{0,0,float(t.w),float(t.h)};std::string key=prepared->key+":"+fit;
+  if(fit=="cover"){Ptr transform=e.get(abi::graphicRect,image);require(alive(transform),"加载背景尺寸尚未就绪");auto bounds=e.call<Rect>(abi::rectBounds,transform,Ptr(0));require(std::isfinite(bounds.w)&&std::isfinite(bounds.h)&&bounds.w>0&&bounds.h>0,"加载背景尺寸无效");
+   float ratio=bounds.w/bounds.h;if(float(t.w)/t.h>ratio){crop.w=t.h*ratio;crop.x=(t.w-crop.w)*.5f;}else{crop.h=t.w/ratio;crop.y=(t.h-crop.h)*.5f;}key+=':'+std::to_string(crop.w)+':'+std::to_string(crop.h);}
+  if(appliedKey==key){return;}restore();capture();
+  Ptr descriptor=e.call<Ptr>(abi::textureType);require(descriptor!=0,"缺少加载图片纹理类型");Ptr texture=e.call<Ptr>(abi::objectNew,load<Ptr>(descriptor));require(texture!=0,"加载图片分配失败");assets.push_back(texture);pin(assetRefs,texture);
+  e.call<void>(abi::textureInit,texture,int(t.w),int(t.h),4,0,0,Ptr(0));require(alive(texture),"加载图片初始化失败");e.call<void>(abi::texturePixels,texture,reinterpret_cast<Ptr>(t.pixels.data()),int(t.pixels.size()),Ptr(0));e.op(abi::textureWrap,texture,1);e.op(abi::textureFilter,texture,1);e.action(abi::textureApply,texture);
+  sprite=e.call<Ptr>(abi::spriteCreate,texture,crop,Pivot{.5f,.5f},Ptr(0));require(alive(sprite),"加载图片 Sprite 创建失败");assets.push_back(sprite);pin(assetRefs,sprite);
+  applied=true;e.op(abi::imageSetType,image,0);e.op(abi::imageSetAspect,image,fit=="original"?1:0);e.call<void>(abi::graphicSetColor,image,Color{1,1,1,originalColor.a},Ptr(0));e.set(abi::imageSetSprite,image,sprite);if(prepared->hide)hideUi();appliedKey=key;
  }
  public:
  std::atomic<unsigned> cycle{0};explicit LoadingScreens(Engine& engine):e(engine){}
@@ -57,9 +60,9 @@ class LoadingScreens {
   shutdown();owner=canvas;ownerNative=load<Ptr>(canvas+0x10);image=background;imageNative=load<Ptr>(background+0x10);pin(refs,owner);pin(refs,image);
   capture();}
  void event(Ptr background,bool shown){if(busy||!matches(background))return;if(!shown&&visible){busy=true;restore();visible=false;cycle.fetch_add(1);busy=false;}else if(shown)visible=true;}
- void tick(bool enabled,const std::vector<std::string>& selected){if(busy)return;busy=true;try{bool selectedNow=false;if(prepared){for(const auto& n:selected){selectedNow=selectedNow||n==prepared->name;}}
+ void tick(bool enabled,const std::vector<std::string>& selected,const std::string& fit="original"){if(busy)return;busy=true;try{bool selectedNow=false;if(prepared){for(const auto& n:selected){selectedNow=selectedNow||n==prepared->name;}}
    if(!live()){restore();busy=false;return;}bool shown=(e.call<uint32_t>(abi::imageActive,image,Ptr(0))&1)!=0;
-   if(!shown&&visible){restore();visible=false;cycle.fetch_add(1);}else if(shown){visible=true;if(enabled&&selectedNow)apply();else restore();}
+   if(!shown&&visible){restore();visible=false;cycle.fetch_add(1);}else if(shown){visible=true;if(enabled&&selectedNow)apply(fit);else restore();}
   }catch(...){try{restore();}catch(...){}busy=false;throw;}busy=false;}
  void destroyed(Ptr canvas){if(canvas==owner){if(visible)cycle.fetch_add(1);shutdown();}}
  void shutdown(){restore();release(refs);release(originalRefs);owner=0;image=0;visible=false;}

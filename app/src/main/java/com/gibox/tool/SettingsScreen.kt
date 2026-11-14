@@ -1,5 +1,15 @@
 package com.gibox.tool
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
@@ -50,19 +60,38 @@ fun SettingsScreen(state: AppState) {
                 val rev = state.revision
                 val hideUid = remember(rev) { state.hideUid() }
                 val npcModels = remember(rev) { state.npcModels() }
+                val fit = remember(rev) { state.loadingFit() }
+                var fitMenu by remember { mutableStateOf(false) }
                 SettingsGroup(title = { SectionTitle("通用") }, verticalArrangement = gap) {
                     SettingsSwitch(
                         state = hideUid,
                         title = { Text("隐藏用户UID") },
-                        shapes = ListItemDefaults.segmentedShapes(0, 2),
+                        shapes = ListItemDefaults.segmentedShapes(0, 3),
                         onCheckedChange = { state.setHideUid(it) },
                     )
                     SettingsSwitch(
                         state = npcModels,
                         title = { Text("角色 MOD 同时替换对应 NPC", maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) },
-                        shapes = ListItemDefaults.segmentedShapes(1, 2),
+                        shapes = ListItemDefaults.segmentedShapes(1, 3),
                         onCheckedChange = { state.setNpcModels(it) },
                     )
+                    Box {
+                        SettingsMenuLink(
+                            title = { Text("加载图片比例") },
+                            subtitle = { Text(Control.LOADING_FIT_LABELS[Control.LOADING_FITS.indexOf(fit).coerceAtLeast(0)]) },
+                            shapes = ListItemDefaults.segmentedShapes(2, 3),
+                            onClick = { fitMenu = true },
+                        )
+                        DropdownMenu(expanded = fitMenu, onDismissRequest = { fitMenu = false }, modifier = Modifier.widthIn(min = 184.dp)) {
+                            Control.LOADING_FITS.forEachIndexed { index, value ->
+                                DropdownMenuItem(
+                                    text = { Text(Control.LOADING_FIT_LABELS[index]) },
+                                    modifier = Modifier.background(if (fit == value) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent),
+                                    onClick = { fitMenu = false; state.setLoadingFit(value) },
+                                )
+                            }
+                        }
+                    }
                 }
             }
             item {

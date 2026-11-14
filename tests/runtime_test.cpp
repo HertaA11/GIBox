@@ -996,7 +996,7 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
  // Static weapons use MeshFilter exclusively: no bone getter, skin allocation or skinned renderer setter.
  {std::string mediaR=root+"/mediaRigid",sp=mediaR+"/"+pkg+"/GIBox";
   auto target=fixture::target("Equip_Sword_Test");fixture::replaceIn(target,"\"bones\":1","\"bones\":0");
-  Spec spec;spec.id=1;spec.withTarget(target);spec.edit=[target](std::string& json){fixture::replaceIn(json,"\"id\":1,\"names\":[]","\"id\":1,\"names\":[],\"targets\":[{\"target\":"+target+",\"owners\":[\"@renderer:Equip_Sword_Test\"]}]");};
+  Spec spec;spec.id=1;spec.withTarget(target);spec.edit=[target](std::string& json){fixture::replaceIn(json,"\"id\":1,\"names\":[]","\"id\":1,\"names\":[],\"targets\":[{\"target\":"+target+",\"owners\":[\"@renderer:equip_sword_test\"]}]");};
   writeModel(sp+"/models/Sword",spec);Ptr player=f->renderer(f->mesh());f->world(player);f->scene={player};
   Ptr original=f->mesh("Equip_Sword_Test");store<uint64_t>(f->obj[original].shared+0xe0,0);store<uint32_t>(f->obj[original].shared+0xf8,0);f->obj[original].arrays[abi::getBindposes]=f->array(64,0);
   auto weapon=[&](const char* name){Ptr filter=f->object("filter",name),renderer=f->object("rigidrenderer",name),go=f->object("gameobject",name),t=f->object("transform",name);

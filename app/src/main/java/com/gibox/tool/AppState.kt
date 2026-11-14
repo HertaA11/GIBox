@@ -320,6 +320,8 @@ class AppState(private val activity: Activity) {
         Control.setHideUid(game, on)
         AppLog.info(game, LOGGER, "hide-uid " + if (on) "开启（重启游戏后生效）" else "关闭")
     }
+    fun loadingFit(): String = Control.loadingFit(game)
+    fun setLoadingFit(value: String) = save("保存加载图片比例") { Control.setLoadingFit(game, value) }
     fun npcModels(): Boolean = Control.npcModels(game)
     fun setNpcModels(on: Boolean) = save("保存") {
         Control.setNpcModels(game, on)

@@ -58,7 +58,7 @@ struct KeyPress {long long seq=0;size_t file=0;std::string section;bool back=fal
 // auto (0.7.60): the game's own per-renderer instance is written in place (its effects keep running on it); a loaded asset
 // or a material another renderer shows is copied first, and the game's instance made from that copy is followed in place.
 struct TexModControl {std::string strategy="auto",lod="full";bool capture=false;vkcap::Mode hash=vkcap::Mode::Off;long long testRequest=0;std::vector<std::string> testStrategies{"auto","direct","clone"};int observeMs=4000;};
-struct ControlState {TexModControl tex;Experiments exp;bool enabled=false,lodPin=true,hideUid=false,npcModels=false;int logLevel=int(Level::Info);std::vector<std::string> selected;long long exportBones=0,refreshBones=0,renderMark=0;unsigned refreshBonesCharacter=0;std::map<std::string,std::map<std::string,int>> variables;std::map<std::string,std::vector<KeyPress>> keys;};
+struct ControlState {std::string loadingFit="original";TexModControl tex;Experiments exp;bool enabled=false,lodPin=true,hideUid=false,npcModels=false;int logLevel=int(Level::Info);std::vector<std::string> selected;long long exportBones=0,refreshBones=0,renderMark=0;unsigned refreshBonesCharacter=0;std::map<std::string,std::map<std::string,int>> variables;std::map<std::string,std::vector<KeyPress>> keys;};
 ControlState parseControl(const std::string& raw){
  Json c=JsonParser(raw).parse();require(c.type==Json::Object,"control.json 不是对象");ControlState s;
  const auto& a=c.at("selected");require(a.type==Json::Array&&a.array.size()<=128,"selected 列表无效");
@@ -68,6 +68,7 @@ ControlState parseControl(const std::string& raw){
  s.lodPin=c.at("lodPin").type!=Json::Bool||c.at("lodPin").boolean;   // default on (0.7.103)
  s.hideUid=c.at("hideUid").type==Json::Bool&&c.at("hideUid").boolean;
  s.npcModels=c.at("npcModels").type==Json::Bool&&c.at("npcModels").boolean;
+ const auto& fit=c.at("loadingFit");if(fit.type==Json::String&&(fit.string=="original"||fit.string=="cover"||fit.string=="stretch"))s.loadingFit=fit.string;
  s.renderMark=integerOf(c.at("renderMark"));require(s.renderMark>=0,"renderMark 计数值无效");
  s.refreshBones=integerOf(c.at("refreshBones"));auto refreshId=integerOf(c.at("refreshBonesCharacter"));
  require(s.refreshBones>=0&&(!s.refreshBones||(refreshId>=10000000&&refreshId<=10001999)),"骨骼重采的角色或请求无效");
@@ -188,9 +189,9 @@ template<class K,class V> struct Recent {size_t limit;std::map<K,V> now,before;e
 struct Runtime::Impl {
  Engine e;std::string pkg,priv,shared,modelRoot,boneRoot;
  LoadingScreens loading{e};LoadingReader loadingReader;ControlState loadingWorkerControl;std::shared_ptr<LoadingPrepared> loadingPending;uint64_t loadingAt=0,loadingFrameAt=0;std::string loadingError;
- void pollLoading(){std::shared_ptr<LoadingPrepared> ready;bool enabled=ctl.enabled;std::vector<std::string> selected=ctl.selected;
-  {std::lock_guard<std::mutex> lock(sm);ready.swap(loadingPending);if(pendingControl){enabled=pendingControl->enabled;selected=pendingControl->selected;}}
-  if(ready){if(!ready->error.empty())log("loading-image-error",ready->name+"："+ready->error);loading.receive(std::move(ready));}loading.tick(enabled,selected);}
+ void pollLoading(){std::shared_ptr<LoadingPrepared> ready;bool enabled=ctl.enabled;std::string fit=ctl.loadingFit;std::vector<std::string> selected=ctl.selected;
+  {std::lock_guard<std::mutex> lock(sm);ready.swap(loadingPending);if(pendingControl){enabled=pendingControl->enabled;selected=pendingControl->selected;fit=pendingControl->loadingFit;}}
+  if(ready){if(!ready->error.empty())log("loading-image-error",ready->name+"："+ready->error);loading.receive(std::move(ready));}loading.tick(enabled,selected,fit);}
  // ---- shared with the worker (guarded by sm)
  std::mutex sm;std::optional<ControlState> pendingControl;std::string controlError;std::vector<ModelInfo> scanned;bool scannedFresh=false;
  struct LoadResult {std::string generation,error;std::shared_ptr<ModelFile> data;uint64_t bytes=0;};
@@ -1787,7 +1788,7 @@ struct Runtime::Impl {
   auto a=avatarOf(r);if(have)*have=a;return a.empty()||a==want;}
  bool sceneFits(const std::vector<SceneTarget>& targets,Ptr r,const Fingerprint& fp){if(targets.empty()){return false;}
   std::set<std::string> allowed;for(const auto& t:targets)if(matches(t.target,fp))allowed.insert(t.owners.begin(),t.owners.end());
-  if(allowed.empty()){return false;}if(allowed.count("@renderer:"+name(r))){return true;}if(rigidRenderer(r)){return false;}
+  if(allowed.empty()){return false;}for(const auto& owner:allowed){if(owner.rfind("@renderer:",0)==0&&meshName(owner.substr(10))==meshName(name(r))){return true;}}if(rigidRenderer(r)){return false;}
   Owned tmp;bool found=false;try{Ptr array=bonesGet(r);if(array){pin(tmp,array);auto bones=pointers(array,512);Ptr t=bones.empty()?0:bones[0];
    for(unsigned i=0;i<32&&alive(t);i++){if(allowed.count(meshName(name(t)))){found=true;break;}t=e.get(abi::getParent,t);}}}
   catch(...){freeOwned(tmp);throw;}freeOwned(tmp);return found;}
@@ -3058,7 +3059,7 @@ struct Runtime::Impl {
    seen.erase(std::remove_if(seen.begin(),seen.end(),[&](const Seen& sn){return !seenLive(sn);}),seen.end());
    tickPhase="读取文件与当前角色";wantedNow.clear();bindingTargets.clear();bindingReady=false;if(!worker.background()){workerTick(now);}consume();ch=current();bindingStats();tickPhase="骨骼库与预览";
    if(ch.config!=shownCharacter){shownCharacter=ch.config;log("character",ch.entity?std::to_string(ch.config):std::string("无"));}
-   try{loading.tick(ctl.enabled,ctl.selected);}catch(const std::exception& ex){if(loadingError!=ex.what()){loadingError=ex.what();log("loading-image-error",loadingError);}}
+   try{loading.tick(ctl.enabled,ctl.selected,ctl.loadingFit);}catch(const std::exception& ex){if(loadingError!=ex.what()){loadingError=ex.what();log("loading-image-error",loadingError);}}
    try{textureDiagTick(now);}catch(const std::exception& ex){log("texture-diag-unsupported",std::string("本轮诊断中止：")+ex.what());}
    try{textureModTick(now);}catch(const std::exception& ex){log("texture-error",std::string("本轮纯贴图 MOD 处理中止：")+ex.what());}
    try{ibHashTick(now);}catch(const std::exception& ex){log("ib-capture",std::string("本轮中止：")+ex.what());}
