@@ -48,6 +48,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -189,11 +190,7 @@ fun PickScreen(state: AppState, pick: Screen.Pick) {
                         trailingContent = if (recommended) { { Icon(Icons.Filled.Star, contentDescription = "推荐", tint = MaterialTheme.colorScheme.primary) } } else null,
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(a.name, fontWeight = if (recommended) FontWeight.Bold else null)
-                            if (recommended) {
-                                Spacer(Modifier.width(4.dp))
-                                Text("（推荐）", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                            }
+                            Text(a.name, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = if (recommended) FontWeight.Bold else null)
                         }
                     }
                     // The outfits of the chosen character: the mod is converted for one of them (its bones are that outfit's).
