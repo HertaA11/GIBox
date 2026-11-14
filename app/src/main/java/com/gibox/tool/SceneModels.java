@@ -47,7 +47,12 @@ final class SceneModels {
                 chosen=r;allowed.addAll(owners.get(candidate.getKey()));
             }
             if(chosen==null) {
-                if(weapon(String.valueOf(hash.get("mesh"))))throw new IllegalArgumentException("武器 "+hash.get("mesh")+" 没有可用的蒙皮骨骼记录。普通 MeshRenderer 武器尚需 MeshFilter 接口适配，不能按角色网格转换");
+                if(!weapon(String.valueOf(hash.get("mesh"))))continue;
+                String alias="Scene"+out.renderers.size();
+                Map<String,Object> target=Json.of("renderer",hash.get("renderer"),"mesh",hash.get("mesh"),"vertices",hash.get("vertices"),"submeshes",subs.size(),"bones",0);
+                List<Object> identity=new ArrayList<>();for(int k=0;k<16;k++)identity.add(k%5==0?1:0);
+                out.renderers.add(Json.of("name",alias,"target",target,"bones",Arrays.asList("__rigid__"),"parents",Arrays.asList(-1),"bindposes",identity));
+                out.targets.add(Json.of("target",target,"owners",Arrays.asList("@renderer:"+hash.get("renderer"))));out.hashes.put(entry.getKey(),alias);
                 continue;
             }
             String sig=shape(chosen)+"|"+subs.size()+"|"+Json.write(chosen.get("bones"))+Json.write(chosen.get("parents"))+Json.write(chosen.get("bindposes"));
@@ -77,11 +82,11 @@ final class SceneModels {
             File folder=new File(shared,"skeletons-scene");Json.check(folder.isDirectory()||folder.mkdirs(),"无法创建场景骨骼缓存");
             library=File.createTempFile("scene-",".json",folder);
             Files.write(library.toPath(),Json.write(Json.of("format","gibox-skeleton","version",1,"id",Characters.SCENE,"root","Scene","renderers",s.renderers)).getBytes(StandardCharsets.UTF_8));
-            log.append("场景网格：按 ").append(s.hashes.size()).append(" 个索引缓冲 hash 使用内置骨骼，目标 ").append(s.renderers.size()).append(" 个网格\n");
+            log.append("场景网格：按 ").append(s.hashes.size()).append(" 个索引缓冲 hash 匹配目标 ").append(s.renderers.size()).append(" 个网格（静态武器不需要骨骼）\n");
         }
         try{Importer.Result result=new Importer.Result();result.id=Characters.SCENE;result.library=library!=null;
             result.model=ModelConverter.convert(src,library,dest,Characters.SCENE,opt,decoder,log);
-            result.summary=library==null?"场景纯贴图 MOD：目标出现时按 hash 匹配":"场景网格 MOD：使用内置骨骼，目标出现在场景或角色身上时自动替换";return result;
+            result.summary=library==null?"场景纯贴图 MOD：目标出现时按 hash 匹配":"场景网格 MOD：按 hash 匹配网格，目标出现时自动替换";return result;
         }finally{if(library!=null)library.delete();}
     }
 }

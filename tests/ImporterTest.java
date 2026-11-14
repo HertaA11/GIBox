@@ -39,7 +39,7 @@ public class ImporterTest {
   // NPC / monster (1.0.3): last in the plain list, found by its words, never a character's alias or recommendation.
   {List<Characters.Avatar> plain=Characters.ordered(new Characters.Guess(),"");ok(plain.get(plain.size()-1)==Characters.SCENE_AVATAR&&Characters.byId(Characters.SCENE)==Characters.SCENE_AVATAR
     &&ids(Characters.search("怪物")).equals(Collections.singletonList(Characters.SCENE))&&ids(Characters.search("npc")).equals(Collections.singletonList(Characters.SCENE))
-    &&!Characters.all().contains(Characters.SCENE_AVATAR)&&"NPC / 怪物 / 武器 / 风之翼".equals(Characters.nameOf(Characters.SCENE))&&ids(Characters.search("风之翼")).equals(Collections.singletonList(Characters.SCENE)),"NPC / monster choice");}
+    &&!Characters.all().contains(Characters.SCENE_AVATAR)&&"场景 MOD".equals(Characters.nameOf(Characters.SCENE))&&ids(Characters.search("风之翼")).equals(Collections.singletonList(Characters.SCENE)),"NPC / monster choice");}
   File lumine=renamed(download,"Traveler","TravelerGirl"),both=renamed(download,"traveler x","Traveler");
   ok(ids(Characters.guess(lumine,"Traveler",null).recommended).equals(Collections.singletonList(10000007))&&ids(Characters.guess(both,"traveler x",null).recommended).equals(Arrays.asList(10000005,10000007)),"traveler: girl wins, plain is a tie");
   // 4. Staging: a folder is copied (one extra level is fine), a zip unpacked; unsafe archives leave nothing behind.
@@ -150,6 +150,9 @@ public class ImporterTest {
    Files.write(new File(sh,"device-hashes.json").toPath(),Json.write(Json.of("meshes",Arrays.asList(Json.of("ib","aaaabbbb","renderer","Body","mesh","Body","vertices",3,"submeshes",Arrays.asList(Arrays.asList(0,3)))))).getBytes(StandardCharsets.UTF_8));
    SceneModels.Selection scene=SceneModels.select(sh,Collections.singletonList("aaaabbbb"));
    ok(scene.renderers.size()==1&&"Scene0".equals(scene.hashes.get("aaaabbbb"))&&Json.arr(Json.obj(scene.targets.get(0),"target").get("owners"),"owners",1,20).equals(Collections.singletonList("npc_avatar_girl_catalyst_citlali")),"scene import selects exact hash and prefab, no avatar wildcard");
+   Files.write(new File(sh,"hash-map.json").toPath(),Json.write(Json.of("meshes",Arrays.asList(Json.of("ib","abcd1234","renderer","Equip_Sword_Test","mesh","Equip_Sword_Test","vertices",3,"submeshes",Arrays.asList(Arrays.asList(0,3)))))).getBytes(StandardCharsets.UTF_8));
+   SceneModels.Selection rigid=SceneModels.select(sh,Collections.singletonList("abcd1234"));
+   ok(rigid.hashes.containsKey("abcd1234")&&((Number)Json.obj(Json.obj(rigid.targets.get(0),"target").get("target"),"fingerprint").get("bones")).intValue()==0,"weapon without a skin record uses an explicit zero-bone static target");
    try{SceneModels.select(sh,Collections.singletonList("unknown"));ok(false,"unknown scene hash accepted");}catch(IllegalArgumentException expected){ok(expected.getMessage().contains("hash"),"unknown scene hash diagnostic");}
    ModLibrary.Character lib=os.library("Avatar_Girl_Catalyst_Citlali",10000107,new File(sh,"skeletons-offline"));
    List<ModelConverter.Bones> bs=ModelConverter.bones(lib.bones,10000107);ByteBuffer bb=ByteBuffer.wrap(bs.get(0).binds).order(ByteOrder.LITTLE_ENDIAN);

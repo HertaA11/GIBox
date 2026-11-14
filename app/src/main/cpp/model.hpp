@@ -39,7 +39,7 @@ inline std::string jnumber(double v){char b[32];std::snprintf(b,sizeof(b),"%.9g"
 // ---------------------------------------------------------------- mesh identity (targets)
 inline Fingerprint fingerprintOf(const Json& j){Fingerprint f;require(j.type==Json::Object,"目标网格信息不是对象");f.renderer=jstr(j,"renderer",256);
  const auto& m=j.at("mesh");if(m.type!=Json::Null){require(m.type==Json::String&&m.string.size()<=256,"目标网格名称无效");f.mesh=m.string;}
- f.vertices=unsigned(juint(j,"vertices",1,model::maxVertices));f.submeshes=unsigned(juint(j,"submeshes",1,model::maxDraws));f.bones=unsigned(juint(j,"bones",1,model::maxBones));return f;}
+ f.vertices=unsigned(juint(j,"vertices",1,model::maxVertices));f.submeshes=unsigned(juint(j,"submeshes",1,model::maxDraws));f.bones=unsigned(juint(j,"bones",0,model::maxBones));return f;}
 inline std::string fingerprintJson(const Fingerprint& f){return "{\"renderer\":"+quote(f.renderer)+",\"mesh\":"+quote(f.mesh)+",\"vertices\":"+std::to_string(f.vertices)+",\"submeshes\":"+std::to_string(f.submeshes)+",\"bones\":"+std::to_string(f.bones)+"}";}
 
 // ---------------------------------------------------------------- variants
@@ -119,7 +119,7 @@ inline ModelSummary summaryOf(const Json& m){checkFormat(m);ModelSummary s;s.ani
  auto version=unsigned(juint(m,"version",1,4));s.variants=variantsOf(m.at("variants"),version);require(version>=3||m.at("replaceWhen").type==Json::Null,"replaceWhen 需要模型格式版本 3");s.replaceWhen=whenOf(m.at("replaceWhen"),s.variants,"replacement");
  {const auto& o=m.at("character").at("outfit");if(o.type!=Json::Null){require(o.type==Json::String&&o.string.size()<=128&&o.string.compare(0,7,"avatar_")==0&&o.string.find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789_")==std::string::npos,"角色外观名称无效");s.outfit=o.string;}}
  for(auto& p:jarr(m,"parts",1,model::maxParts)){PartSummary ps;ps.name=jstr(p,"name",64);require(safeName(ps.name)&&seen.insert(ps.name).second,"部件名称无效或重复："+ps.name);ps.renderer=jstr(p,"renderer",256);
-  ps.bones=unsigned(juint(p,"bones",1,model::maxBones));ps.indexedBones=p.at("skeleton").type==Json::Null;if(p.at("target").type!=Json::Null){ps.target=fingerprintOf(p.at("target"));ps.hasTarget=true;}s.parts.push_back(ps);}
+  ps.bones=unsigned(juint(p,"bones",1,model::maxBones));ps.indexedBones=p.at("skeleton").type==Json::Null;if(p.at("target").type!=Json::Null){ps.target=fingerprintOf(p.at("target"));require(ps.target.bones>0||s.id==1,"静态目标仅用于场景模型");ps.hasTarget=true;}s.parts.push_back(ps);}
  if(s.id==1){for(const auto& p:s.parts){bool found=false;for(const auto& t:s.sceneTargets)found=found||(p.hasTarget&&matches(t.target,p.target));require(found&&!p.indexedBones,"场景部件必须指定目标和骨骼");}}
  return s;}
 inline std::string manifestText(const std::string& dir){auto b=read(dir+"/model.json",4*1024*1024);return std::string(b.begin(),b.end());}

@@ -42,6 +42,7 @@ public final class ModelConverter {
 
     static final class Section { final String name;final List<String> lines=new ArrayList<>(); Section(String n){name=n;} }
     static final class Ini {
+        final Set<String> rigidHashes=new HashSet<>();
         /** The 3DMigoto backend's draws per assignment (coreDraws); resolve uses them instead of the converter's own. */
         Map<Map<String,Integer>,List<Draw>> coreDraws=null;
         final LinkedHashMap<String,Section> sections=new LinkedHashMap<>();
@@ -252,9 +253,10 @@ public final class ModelConverter {
         }
         return -1;
     }
-    private static void resolveStreams(Draw d,List<Evaluated> providers,Map<String,Resource> rs){
+    private static void resolveStreams(Draw d,List<Evaluated> providers,Map<String,Resource> rs,boolean rigid){
         Set<String> scopes=new HashSet<>();for(Evaluated p:providers)if(!p.scope.isEmpty())scopes.add(p.scope);
         for(int kind=0;kind<3;kind++){
+            if(rigid&&kind==1)continue;
             // Explicit draw/CommandList bindings take precedence over defaults.
             if(localStream(rs,d.bindings,kind)!=null)continue;
             int best=-1;List<Evaluated> candidates=new ArrayList<>();
@@ -283,7 +285,7 @@ public final class ModelConverter {
         // drawindexed = auto under a hash no section gives a mod IB: 3DMigoto draws the game's own geometry there, which
         // is nothing to convert (ModFix deleted such sections by hand).
         for(String hash:autoHashes)if(!usedHashes.contains(hash))ini.compatibility.add("hash "+hash+" 上的 drawindexed = auto 没有 MOD 自己的索引缓冲：在游戏里画的是游戏原有的几何，不转换");
-        for(Draw d:draws)if(!"skip".equalsIgnoreCase(mapping.get(lower(d.part))))resolveStreams(d,providers,rs);
+        for(Draw d:draws)if(!"skip".equalsIgnoreCase(mapping.get(lower(d.part))))resolveStreams(d,providers,rs,ini.rigidHashes.contains(d.hash));
         return draws;
     }
     /** No replacement draw can mean the mod's geometry switch is off, or a deliberate hide. Active vertex/index
@@ -495,7 +497,7 @@ public final class ModelConverter {
     static Map<String,Object> fingerprint(Object v){
         if(!(v instanceof Map))return null;
         try{Map<String,Object> t=Json.obj(v,"target");Object mesh=t.get("mesh");check(mesh==null||(mesh instanceof String&&((String)mesh).length()<=256),"mesh");
-            return Json.of("renderer",Json.str(t.get("renderer"),"renderer",256),"mesh",mesh==null?"":mesh,"vertices",Json.integer(t.get("vertices"),"vertices",1,500000),"submeshes",Json.integer(t.get("submeshes"),"submeshes",1,64),"bones",Json.integer(t.get("bones"),"bones",1,512));}
+            return Json.of("renderer",Json.str(t.get("renderer"),"renderer",256),"mesh",mesh==null?"":mesh,"vertices",Json.integer(t.get("vertices"),"vertices",1,500000),"submeshes",Json.integer(t.get("submeshes"),"submeshes",1,64),"bones",Json.integer(t.get("bones"),"bones",0,512));}
         catch(IllegalArgumentException e){return null;}
     }
     /**
@@ -512,7 +514,7 @@ public final class ModelConverter {
             String r=h==null?null:o.deviceRenderers.get(h),part=s.name.substring(15);if(r==null||map.containsKey(lower(part)))continue;
             Bones have=null;for(Bones b:bones)if(b.name.equalsIgnoreCase(r))have=b;
             if(have==null&&synthetic){have=new Bones(r);bones.add(have);}
-            if(have!=null){map.put(lower(part),have.name);if(draws)log.append(part).append(" -> ").append(have.name).append("（IB hash ").append(h).append(" 在设备 hash 表中是游戏的 ").append(have.name).append("）\n");}
+            if(have!=null){if(rigid(have))ini.rigidHashes.add(h);map.put(lower(part),have.name);if(draws)log.append(part).append(" -> ").append(have.name).append("（IB hash ").append(h).append(" 在设备 hash 表中是游戏的 ").append(have.name).append("）\n");}
             else{map.put(lower(part),"skip");if(draws)log.append(part).append("：IB hash ").append(h).append(" 在设备 hash 表中是游戏的 ").append(r).append("，骨骼库中没有它的记录，此部件不转换（让角色出场一次更新骨骼库后重新转换）\n");}}
     }
     private static Bones target(String part,List<Bones> bones,Map<String,String> map){String manual=map.get(lower(part));if(manual!=null){for(Bones b:bones)if(b.name.equalsIgnoreCase(manual))return b;throw new IllegalArgumentException("映射目标不存在："+manual);}String a=lower(part).replaceFirst("[a-z]$","");Bones best=null;int score=0;boolean tie=false;for(Bones b:bones){String n=lower(b.name).replaceFirst("_lod[0-9]+$","");int k=lower(part).endsWith(n)||a.endsWith(n)?n.length():0;if(k>score){score=k;best=b;tie=false;}else if(k>0&&k==score)tie=true;}check(!tie,"渲染器映射有歧义："+part);if(best!=null)return best;if(bones.size()==1)return bones.get(0);throw new IllegalArgumentException("请手工映射部件："+part);}
@@ -688,6 +690,7 @@ public final class ModelConverter {
                 String v=a[1].trim(),lv=lower(v);if(lv.startsWith("ref "))v=v.substring(4).trim();else if(lv.startsWith("copy "))v=v.substring(5).trim();roles.put(role,v);}
             else if(a[0].equals("run")){Section t=ini.sections.get(lower(a[1].trim()));if(t!=null)gimiScan(ini,t,vars,roles,run,depth+1);else if(gimiSetTextures(a[1]))run[0]=true;}}}
     private static boolean gimiSetTextures(String commandList){return lower(commandList).replace(" ","").endsWith("\\settextures")&&lower(commandList).contains("gimi");}
+    private static boolean rigid(Bones b){return b.target!=null&&((Number)b.target.get("bones")).intValue()==0;}
     private static String path(Resource r){return r==null?"-":r.file.getPath();}
     /**
      * The renderer material slot of a draw: a part name ending in a capital letter picks it (BodyA = 0, BodyB = 1 …);
@@ -706,14 +709,15 @@ public final class ModelConverter {
         Map<String,Resource> rs=resources(ini,src,vars);LinkedHashMap<Draw,Bones> resolved=resolve(ini,src,boneRecords,mapping,vars,rs,null,fallback);
         StringBuilder s=new StringBuilder(!resolved.isEmpty()||geometryOverride(ini,vars,rs)?"replace\n":"original\n");
         for(Map.Entry<Draw,Bones> e:resolved.entrySet()){Draw d=e.getKey();Resource[] t=textures(d,rs);
-            s.append(e.getValue().name).append('|').append(d.part).append('#').append(slot(ini,d)).append('|').append(path(stream(rs,d.bindings,0))).append('|').append(path(stream(rs,d.bindings,1))).append('|').append(path(stream(rs,d.bindings,2))).append('|').append(path(resource(rs,d.bindings.get("ib")))).append('|').append(d.start).append('|').append(d.count).append('|').append(path(t[0])).append(path(t[1])).append(path(t[2])).append('\n');}
+            s.append(e.getValue().name).append('|').append(d.part).append('#').append(slot(ini,d)).append('|').append(path(stream(rs,d.bindings,0))).append('|').append(path(rigid(e.getValue())?null:stream(rs,d.bindings,1))).append('|').append(path(stream(rs,d.bindings,2))).append('|').append(path(resource(rs,d.bindings.get("ib")))).append('|').append(d.start).append('|').append(d.count).append('|').append(path(t[0])).append(path(t[1])).append(path(t[2])).append('\n');}
         return s.toString();}
     private static void collect(Ini ini,File src,List<Bones> boneRecords,Map<String,String> mapping,Map<String,Integer> vars,int combo,Build b,StringBuilder log,String fallback)throws Exception {
         Map<String,Resource> rs=resources(ini,src,vars);LinkedHashMap<Draw,Bones> targets=resolve(ini,src,boneRecords,mapping,vars,rs,combo==0?log:null,fallback);
         for(Map.Entry<Draw,Bones> entry:targets.entrySet()){Draw d=entry.getKey();Bones target=entry.getValue();Group g=b.groups.computeIfAbsent(lower(target.name),k->new Group(target,"Part"+b.groups.size()));
-            Resource pos=stream(rs,d.bindings,0),blend=stream(rs,d.bindings,1),tex=stream(rs,d.bindings,2),indices=resource(rs,d.bindings.get("ib"));check(indices!=null,"缺少索引流");
+            boolean rigid=rigid(target);
+            Resource pos=stream(rs,d.bindings,0),blend=rigid?new Resource(pos.file,32,""):stream(rs,d.bindings,1),tex=stream(rs,d.bindings,2),indices=resource(rs,d.bindings.get("ib"));check(indices!=null,"缺少索引流");
             if(combo==0)log.append(d.part).append(": Position=").append(pos.file.getName()).append(", Blend=").append(blend.file.getName()).append(", Texcoord=").append(tex.file.getName()).append('\n');
-            byte[] p=b.cache.get(pos.file),bl=b.cache.get(blend.file),t=b.cache.get(tex.file),ix=b.cache.get(indices.file);if(p==null){p=read(pos.file);b.cache.put(pos.file,p);}if(bl==null){bl=read(blend.file);b.cache.put(blend.file,bl);}if(t==null){t=read(tex.file);b.cache.put(tex.file,t);}if(ix==null){ix=read(indices.file);b.cache.put(indices.file,ix);}
+            byte[] p=b.cache.get(pos.file),bl=rigid?null:b.cache.get(blend.file),t=b.cache.get(tex.file),ix=b.cache.get(indices.file);if(p==null){p=read(pos.file);b.cache.put(pos.file,p);}if(rigid){check(pos.stride>=40,"静态武器 Position 顶点布局尚不支持：stride="+pos.stride);bl=new byte[p.length/pos.stride*32];ByteBuffer weights=buf(bl);for(int v=0;v<bl.length;v+=32)weights.putFloat(v,1f);}else if(bl==null){bl=read(blend.file);b.cache.put(blend.file,bl);}if(t==null){t=read(tex.file);b.cache.put(tex.file,t);}if(ix==null){ix=read(indices.file);b.cache.put(indices.file,ix);}
             int stride=lower(indices.format).contains("r16_uint")?2:lower(indices.format).contains("r32_uint")?4:indices.stride;check(stride==2||stride==4,"索引格式必须为 R16_UINT 或 R32_UINT");check(ix.length%stride==0,"索引流长度");int count=d.count==-1?ix.length/stride-d.start:d.count;check(count>0&&count%3==0&&(long)d.start+count<=ix.length/stride,"drawindexed 范围");
             // The same draw in several combinations shares one index range.
             String rangeKey=pos.file.getPath()+"|"+blend.file+"|"+tex.file+"|"+indices.file+"|"+stride+"|"+d.start+"|"+count;int[] range=g.ranges.get(rangeKey);
@@ -857,13 +861,13 @@ public final class ModelConverter {
     }
     private static void memoryBudget(Ini ini,File src,List<Bones> bones,Map<String,String> map,List<Map<String,Integer>> assignments,String fallback,StringBuilder log)throws Exception {
         Map<String,Long> streams=new HashMap<>();Set<String> ranges=new HashSet<>();long indices=0,input=0;
-        for(Map<String,Integer> vars:assignments){Map<String,Resource> rs=resources(ini,src,vars);for(Draw d:resolve(ini,src,bones,map,vars,rs,null,fallback).keySet()){
-            Resource p=stream(rs,d.bindings,0),b=stream(rs,d.bindings,1),t=stream(rs,d.bindings,2),ix=resource(rs,d.bindings.get("ib"));check(ix!=null&&p.stride>=40&&b.stride==32&&t.stride>=12,"顶点流或索引流无效");
+        for(Map<String,Integer> vars:assignments){Map<String,Resource> rs=resources(ini,src,vars);for(Map.Entry<Draw,Bones> entry:resolve(ini,src,bones,map,vars,rs,null,fallback).entrySet()){Draw d=entry.getKey();boolean rigid=rigid(entry.getValue());
+            Resource p=stream(rs,d.bindings,0),b=rigid?null:stream(rs,d.bindings,1),t=stream(rs,d.bindings,2),ix=resource(rs,d.bindings.get("ib"));check(ix!=null&&p.stride>=40&&(rigid||b.stride==32)&&t.stride>=12,"顶点流或索引流无效");
             int stride=lower(ix.format).contains("r16_uint")?2:lower(ix.format).contains("r32_uint")?4:ix.stride;check(stride==2||stride==4,"索引格式必须为 R16_UINT 或 R32_UINT");
-            long count=d.count<0?ix.file.length()/stride-d.start:d.count;check(count>0&&count<=15000000,"drawindexed 范围");String id=identity(p)+"|"+identity(b)+"|"+identity(t);
-            long vertices=Math.min(p.file.length()/p.stride,Math.min(b.file.length()/32,t.file.length()/t.stride));streams.put(id,vertices);
+            long count=d.count<0?ix.file.length()/stride-d.start:d.count;check(count>0&&count<=15000000,"drawindexed 范围");String id=identity(p)+"|"+(rigid?"rigid":identity(b))+"|"+identity(t);
+            long vertices=Math.min(p.file.length()/p.stride,Math.min(rigid?p.file.length()/p.stride:b.file.length()/32,t.file.length()/t.stride));streams.put(id,vertices);
             if(ranges.add(id+"|"+identity(ix)+"|"+d.start+"|"+count))indices+=count;
-            input=Math.max(input,p.file.length()+b.file.length()+t.file.length()+ix.file.length());}}
+            input=Math.max(input,p.file.length()+(rigid?0:b.file.length())+t.file.length()+ix.file.length());}}
         long vertices=0;for(long n:streams.values())vertices+=n;
         long estimate=vertices*128+indices*6+input+16L*1024*1024,budget=Math.min(160L*1024*1024,Runtime.getRuntime().maxMemory()/2);
         log.append("转换内存预算：几何估算 ").append(estimate/1024/1024).append(" MiB，预算 ").append(budget/1024/1024).append(" MiB\n");

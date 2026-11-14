@@ -199,6 +199,14 @@ public final class CompatibilityTest {
         ModelConverter.convert(src,sceneBones,meshOut,Characters.SCENE,sceneOpt,DECODE,new StringBuilder());
         ok(ModelManifest.read(meshOut).id==Characters.SCENE&&Fixtures.part(meshOut,0).get("skeleton")!=null,"scene mesh keeps explicit target and embedded skeleton");
         if(nativeChecker!=null){Process check=new ProcessBuilder(nativeChecker,meshOut.getAbsolutePath()).inheritIO().start();ok(check.waitFor()==0,"native loader accepts scene mesh metadata");}
+        File rigidSrc=GimiPatternsTest.mod(base,"rigid-weapon",text.replace("vb1 = ResourceCitlaliBlend\n", "").replace("draw = 6,0\n", ""));
+        Map<String,Object> rigidTarget=Fixtures.target("Equip_Sword_Test",6,2,0);File rigidBones=new File(base,"rigid-bones");
+        Fixtures.skeleton(rigidBones,Characters.SCENE,"Static",new String[]{"Scene0"},new String[]{"__rigid__"},Collections.singletonMap("Scene0",rigidTarget));
+        ModelConverter.Options rigidOpt=new ModelConverter.Options().variants(true).deviceRenderers(Collections.singletonMap("44444444","Scene0"));
+        rigidOpt.sceneTargets=Arrays.asList(Json.of("target",rigidTarget,"owners",Arrays.asList("@renderer:Equip_Sword_Test")));
+        File rigidOut=new File(base,"rigid-out");ModelConverter.convert(rigidSrc,rigidBones,rigidOut,Characters.SCENE,rigidOpt,DECODE,new StringBuilder());
+        ok(((Number)Json.obj(Fixtures.part(rigidOut,0).get("target"),"target").get("bones")).intValue()==0,"static weapon converts without a Blend binding");
+        if(nativeChecker!=null){Process check=new ProcessBuilder(nativeChecker,rigidOut.getAbsolutePath()).inheritIO().start();ok(check.waitFor()==0,"native loader reads rigid weapon");}
         sceneOpt.deviceRenderers(Collections.singletonMap("11111111","Scene0"));
         try{ModelConverter.convert(src,sceneBones,new File(base,"scene-mesh-wrong-hash"),Characters.SCENE,sceneOpt,DECODE,new StringBuilder());ok(false,"scene draw borrowed another hash's skeleton");}
         catch(IllegalArgumentException expected){ok(expected.getMessage().contains("没有可用的内置骨骼"),"unmapped scene draw explains missing skeleton: "+expected);}

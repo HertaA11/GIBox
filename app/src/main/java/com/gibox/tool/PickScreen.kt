@@ -48,7 +48,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -182,7 +181,7 @@ fun PickScreen(state: AppState, pick: Screen.Pick) {
                         leadingContent = { RadioButton(selected = a.id == chosen, onClick = null) },
                         supportingContent = {
                             Text(
-                                if (Characters.isScene(a.id)) "按 hash 匹配场景贴图及有内置骨骼的网格" + (if (a.id == pick.current) " · 当前" else "")
+                                if (Characters.isScene(a.id)) "NPC、怪物、武器、风之翼" + (if (a.id == pick.current) " · 当前" else "")
                                 else "${a.id}" + (if (recorded.contains(a.id)) " · 已记录骨骼" else "") + (if (a.id == pick.current) " · 当前" else ""),
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -190,7 +189,7 @@ fun PickScreen(state: AppState, pick: Screen.Pick) {
                         trailingContent = if (recommended) { { Icon(Icons.Filled.Star, contentDescription = "推荐", tint = MaterialTheme.colorScheme.primary) } } else null,
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(a.name, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = if (recommended) FontWeight.Bold else null)
+                            Text(a.name, modifier = Modifier.weight(1f), fontWeight = if (recommended) FontWeight.Bold else null)
                         }
                     }
                     // The outfits of the chosen character: the mod is converted for one of them (its bones are that outfit's).

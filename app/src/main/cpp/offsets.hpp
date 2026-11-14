@@ -69,6 +69,8 @@ inline constexpr bool found(uintptr_t rva){return rva!=0&&rva<notFound;}
 inline constexpr uintptr_t uiTextString=0xd8;
 enum Offset:uintptr_t {
  tick=0x7e8cb08,manager=0x158095a0,
+ // CN 7.2 dump.cs, UnityEngine.MeshFilter MethodIndex 19618 / 19619. Global stays unavailable until verified.
+ filterMesh=0xc537e84,filterSetMesh=0xc53803c,
  getMesh=0x8f4217c,setMesh=0x8f4235c,getBones=0x8f420b4,getMaterials=0x8f03940,setMaterials=0x8f0399c,
  clone=0x8ffeb20,destroy=0x8ffe3a0,getName=0x8ffe494,getParent=0x8fffc18,
  arrayNew=0x43beb7c,objectNew=0x43cdaf8,pin=0xed0741c,unpin=0xed07434,

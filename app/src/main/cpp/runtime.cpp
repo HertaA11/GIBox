@@ -421,14 +421,14 @@ struct Runtime::Impl {
  void texDiagLog(const std::string& state,const std::string& key,const std::string& line){auto& old=texDiagLogged[key];if(old==line)return;
   if(texDiagLogged.size()>4096){texDiagLogged.clear();}texDiagLogged[key]=line;log(state,line);}
  std::string texDiagKey(Ptr r){auto a=attachments.find(r);bool ours=a!=attachments.end()&&a->second->native==load<Ptr>(r+0x10);
-  Ptr mesh=ours?a->second->original:e.get(abi::getMesh,r);std::string k=hex(load<Ptr>(r+0x10))+"|"+hex(mesh)+"|"+(alive(mesh)?hex(load<Ptr>(mesh+0x10))+":"+std::to_string(load<uint32_t>(load<Ptr>(mesh+0x10)+8)):"-");
+  Ptr mesh=ours?a->second->original:meshGet(r);std::string k=hex(load<Ptr>(r+0x10))+"|"+hex(mesh)+"|"+(alive(mesh)?hex(load<Ptr>(mesh+0x10))+":"+std::to_string(load<uint32_t>(load<Ptr>(mesh+0x10)+8)):"-");
   Ptr arr=ours?a->second->originalMaterials:e.get(abi::getMaterials,r);if(arr)for(Ptr m:pointers(arr,64))k+="|"+hex(m);return k;}
  texdiag::Renderer texDiagRead(Ptr r){texdiag::Renderer info;info.renderer=r;Owned roots;
   try{info.native=load<Ptr>(r+0x10);info.name=rendererName(r);auto a=attachments.find(r);bool ours=a!=attachments.end()&&a->second->native==info.native;
    if(ours)info.takenBy=a->second->set->name+"/"+a->second->set->parts[a->second->part].name;
    auto sw=swapped.find(r);if(sw!=swapped.end()&&sw->second->set)info.swap=sw->second->set->name+"（读到的贴图可能是 GIBox 的）";
    try{info.avatar=avatarIdentity(r);if(ctl.npcModels){auto src=npcSource(r);if(!src.empty()&&src!="?")info.avatar=src;}}catch(const std::exception&){}
-   Ptr mesh=ours?a->second->original:e.get(abi::getMesh,r);info.mesh=mesh;
+   Ptr mesh=ours?a->second->original:meshGet(r);info.mesh=mesh;
    if(alive(mesh)){auto fp=fingerprint(mesh,true);info.meshName=fp.mesh;info.vertices=fp.vertices;info.submeshes=fp.submeshes;info.bones=fp.bones;info.lod=lowerLod(fp.mesh);
     texDiagMesh(mesh,info.layout);}
    else info.error="网格已失效";
@@ -657,7 +657,7 @@ struct Runtime::Impl {
  // material names; no texture details.
  texdiag::Renderer texLightRead(Ptr r){texdiag::Renderer info;info.renderer=r;info.native=load<Ptr>(r+0x10);info.name=rendererName(r);
   try{info.avatar=avatarIdentity(r);}catch(const std::exception&){}
-  Ptr mesh=e.get(abi::getMesh,r);info.mesh=mesh;if(!alive(mesh)){info.error="网格已失效";return info;}
+  Ptr mesh=meshGet(r);info.mesh=mesh;if(!alive(mesh)){info.error="网格已失效";return info;}
   auto fp=fingerprint(mesh);info.meshName=fp.mesh;info.vertices=fp.vertices;info.submeshes=fp.submeshes;info.bones=fp.bones;info.lod=lowerLod(fp.mesh);
   info.layout.status="未采集: 尚未读取";texDiagMesh(mesh,info.layout);
   Ptr arr=e.get(abi::getMaterials,r);if(arr)for(Ptr m:pointers(arr,64)){texdiag::Material mat;mat.material=m;if(alive(m))mat.name=name(m);info.materials.push_back(mat);}
@@ -667,7 +667,7 @@ struct Runtime::Impl {
  // A renderer against the records: the full mesh by all its features, a lower LOD (migrate only) by renderer, mesh base
  // name, avatar, submesh count and the slot materials' part names. why: what keeps it from being written, when nothing does.
  std::vector<TexTarget> texRecordTargets(const std::string& path,const texdiag::TextureMod& m,Ptr r,std::string& why){std::vector<TexTarget> out;
-  auto ri=texRecords.find(path);if(ri==texRecords.end()||ri->second.empty()||!alive(r))return out;Ptr native=load<Ptr>(r+0x10);Ptr mesh=e.get(abi::getMesh,r);if(!alive(mesh))return out;Ptr mn=load<Ptr>(mesh+0x10);
+  auto ri=texRecords.find(path);if(ri==texRecords.end()||ri->second.empty()||!alive(r))return out;Ptr native=load<Ptr>(r+0x10);Ptr mesh=meshGet(r);if(!alive(mesh))return out;Ptr mn=load<Ptr>(mesh+0x10);
   if(texQuickNo.count({path,native,mn})){return out;}if(texWaitLod!=ctl.tex.lod){texWaitLod=ctl.tex.lod;texWaitUntil.clear();}
   // Not checked again yet: not a "no" (texDeferred keeps what was written there until the check is made).
   {auto w=texWaitUntil.find({path,native,mn});if(w!=texWaitUntil.end()&&texClock()<w->second){texDeferred.insert(r);return out;}}auto fp=fingerprint(mesh);bool lod=lowerLod(fp.mesh);bool near=false;auto rn=rendererName(r);
@@ -715,7 +715,7 @@ struct Runtime::Impl {
      for(Ptr r:pool)try{if(!alive(r)||rootOf(r)!=root)continue;Ptr arr=e.get(abi::getMaterials,r);if(!arr)continue;size_t count=pointers(arr,64).size();
       for(size_t s=0;s<count;s++){if(r==base.renderer&&int(s)==base.slot)continue;if(texOriginal(L,r,int(s),p.c_str())!=original)continue;
        if(!taken.insert({r,int(s)}).second){for(auto& o:out)if(o.renderer==r&&o.slot==int(s)&&std::find(o.rules.begin(),o.rules.end(),k)==o.rules.end())o.rules.push_back(k);continue;}
-       Ptr native=load<Ptr>(r+0x10);std::string label=rendererName(r)+"#"+hex(native);Ptr mesh=e.get(abi::getMesh,r);std::string meshName=alive(mesh)?fingerprint(mesh).mesh:std::string();bool lod=lowerLod(meshName);
+       Ptr native=load<Ptr>(r+0x10);std::string label=rendererName(r)+"#"+hex(native);Ptr mesh=meshGet(r);std::string meshName=alive(mesh)?fingerprint(mesh).mesh:std::string();bool lod=lowerLod(meshName);
        if(!texUsable(L,r,label)||(lod&&ctl.tex.lod!="migrate")){taken.erase({r,int(s)});continue;}
        out.push_back({r,native,int(s),{k},"与 "+base.label+" 槽 "+std::to_string(base.slot)+" 共用游戏贴图 "+texDescribe(original)+"（"+p+"）：PC 按贴图 hash "+rule.hash+" 替换，绑定这张贴图的绘制都会换",label,meshName,lod});}}catch(const std::exception&){}}}}}
  std::vector<TexTarget> texTargets(const std::string& path,const texdiag::TextureMod& m,TexLive* L){std::vector<TexTarget> out;std::set<std::pair<Ptr,int>> taken;texDeferred.clear();
@@ -756,7 +756,7 @@ struct Runtime::Impl {
  // One renderer against them: its slots to write go to out (taken: slots already counted). learn: read its mesh even when
  // no rule names it (an upload of a missing hash may be tied to it).
  void sceneTargetsFor(const texdiag::TextureMod& m,TexLive* L,Ptr r,const SceneWant& want,bool learn,std::vector<TexTarget>& out,std::set<std::pair<Ptr,int>>& taken,unsigned& shown){
-  try{if(!alive(r)||attachments.count(r)||swapped.count(r))return;(void)L;Ptr mesh=e.get(abi::getMesh,r);if(!alive(mesh))return;auto fp=fingerprint(mesh);
+  try{if(!alive(r)||attachments.count(r)||swapped.count(r))return;(void)L;Ptr mesh=meshGet(r);if(!alive(mesh))return;auto fp=fingerprint(mesh);
    bool any=false;for(auto& w:want)any=any||(w.second->mesh==fp.mesh&&w.second->vertices==fp.vertices);if(!any&&!learn)return;
    const auto& sm=sceneMeshOf(r,mesh);if(!any||!sm.known)return;
    Ptr arr=e.get(abi::getMaterials,r);size_t mats=arr?pointers(arr,64).size():0;Ptr native=load<Ptr>(r+0x10);std::string label=rendererName(r)+"#"+hex(native);
@@ -1198,7 +1198,7 @@ struct Runtime::Impl {
  // character within seconds), every 30 s while it does not.
  void capScanLoaded(uint64_t now,const std::vector<Ptr>& pool){if(capOpen.empty())return;std::string key;for(auto& kv:capOpen)key+=kv.first;
   if(now<capAllLast+(key==capAllKey?30000u:1000u))return;
-  Ptr sample=0;for(Ptr r:pool){if(!alive(r)||attachments.count(r))continue;Ptr m=e.get(abi::getMesh,r);if(alive(m)){sample=m;break;}}if(!sample&&!meshTypeObject)return;
+  Ptr sample=0;for(Ptr r:pool){if(!alive(r)||attachments.count(r))continue;Ptr m=meshGet(r);if(alive(m)){sample=m;break;}}if(!sample&&!meshTypeObject)return;
   capAllLast=now;capAllKey=key;
   std::set<std::pair<uint64_t,uint64_t>> want;std::set<uint64_t> verts;
   for(auto& kv:capOpen){auto& t=kv.second;if(t.form!=2){want.insert({t.bytes/2,uint64_t(t.max16)+1});verts.insert(uint64_t(t.max16)+1);}if(t.form!=1&&t.bytes%4==0){want.insert({t.bytes/4,uint64_t(t.max32)+1});verts.insert(uint64_t(t.max32)+1);}}
@@ -1222,7 +1222,7 @@ struct Runtime::Impl {
   std::vector<Ptr> pool;try{pool=worldRenderers();}catch(const std::exception&){}for(auto& sn:seen)if(seenLive(sn))pool.push_back(sn.renderer);
   {auto& sc=sceneRenderers(now);pool.insert(pool.end(),sc.begin(),sc.end());}unsigned reads=0;size_t before=capMeshes.size();
   for(Ptr r:pool){if(reads>=32)break;try{if(!alive(r))continue;if(attachments.count(r)){if(capRead.insert({load<Ptr>(r+0x10),0}).second)capSkippedOurs++;continue;}
-    Ptr native=load<Ptr>(r+0x10);Ptr mesh=e.get(abi::getMesh,r);if(!alive(mesh))continue;if(!capRead.insert({native,load<Ptr>(mesh+0x10)}).second)continue;reads++;
+    Ptr native=load<Ptr>(r+0x10);Ptr mesh=meshGet(r);if(!alive(mesh))continue;if(!capRead.insert({native,load<Ptr>(mesh+0x10)}).second)continue;reads++;
     auto info=texLightRead(r);if(!info.known())continue;CapMesh c;c.renderer=info.name;c.mesh=info.meshName;c.avatar=info.avatar;c.vertices=info.vertices;c.bones=info.bones;c.lod=info.lod;
     if(c.avatar.empty()){try{c.owner=ownerOf(r);}catch(const std::exception&){}if(c.owner.empty())continue;}
     for(auto& sb:info.layout.subs){c.subs.push_back({uint32_t(sb.start),uint32_t(sb.count)});}c.indices=pcdb::indices(c.subs);if(!c.indices)continue;
@@ -1505,9 +1505,52 @@ struct Runtime::Impl {
   if(!lay.known){calibrate(m);if(!lay.known)return {};}
   unsigned id=load<uint32_t>(m+lay.current);if(!id)return {};for(Ptr ent:managerEntities(m,lay.list)){if(load<uint32_t>(ent+lay.runtime)==id){unsigned config=load<uint32_t>(ent+lay.config);if(config>=10000000&&config<=10001999)return {ent,id,config};}}return {};}
  // The renderer owner is null while the character is still loading: no renderers yet, not an error.
- std::vector<Ptr> worldRenderers(){if(!ch.entity)return {};Ptr o=load<Ptr>(ch.entity+abi::entityVisual);if(!o)return {};Ptr list=load<Ptr>(o+abi::visualRenderers);if(!list)return {};return pointers(list,64);}
+ std::vector<Ptr> worldRenderers(){if(!ch.entity)return {};Ptr o=load<Ptr>(ch.entity+abi::entityVisual);if(!o)return {};Ptr list=load<Ptr>(o+abi::visualRenderers);if(!list)return {};auto renderers=pointers(list,64);if(!skinnedRendererClass)for(Ptr r:renderers)if(alive(r)){skinnedRendererClass=load<Ptr>(r);break;}return renderers;}
  // Original mesh asset under a renderer, even while one of our meshes is attached to it.
- Ptr originalMesh(Ptr r){auto a=attachments.find(r);if(a!=attachments.end()&&a->second->native==load<Ptr>(r+0x10))return a->second->original;return e.get(abi::getMesh,r);}
+ // MeshFilter components are kept distinct from skinned renderers, including their GC roots and native identities.
+ Ptr skinnedRendererClass=0;
+ bool skinnedRenderer(Ptr r)const{return r&&skinnedRendererClass&&load<Ptr>(r)==skinnedRendererClass&&load<Ptr>(r+0x10)>4096;}
+ Ptr bonesGet(Ptr r){return skinnedRenderer(r)?e.get(abi::getBones,r):0;}
+ struct SceneRoots {Owned roots;std::vector<Ptr> arrays;};SceneRoots sceneCacheRoots,sceneListRoots;
+ void scenePin(SceneRoots& roots,Ptr array){if(array){pin(roots.roots,array);roots.arrays.push_back(array);}}
+ void sceneClear(SceneRoots& roots){freeOwned(roots.roots);roots.arrays.clear();}
+ struct RigidRef:Owned {Ptr native=0,filter=0,filterNative=0;};std::map<Ptr,RigidRef> rigidRefs;Owned rigidTypeRoots;
+ Ptr rigidFilterType=0,rigidTransformType=0;uint64_t rigidScanAt=0;size_t rigidSeedOffset=0,rigidScanOffset=0;
+ bool rigidRenderer(Ptr r)const{return rigidRefs.count(r)!=0;}
+ Ptr meshGet(Ptr r){auto it=rigidRefs.find(r);if(it==rigidRefs.end())return skinnedRenderer(r)?e.get(abi::getMesh,r):0;const auto& v=it->second;
+  if(!alive(r)||load<Ptr>(r+0x10)!=v.native||!alive(v.filter)||load<Ptr>(v.filter+0x10)!=v.filterNative){return 0;}return e.get(abi::filterMesh,v.filter);}
+ void meshSet(Ptr r,Ptr mesh){auto it=rigidRefs.find(r);if(it==rigidRefs.end()){e.set(abi::setMesh,r,mesh);return;}const auto& v=it->second;
+  require(alive(r)&&load<Ptr>(r+0x10)==v.native&&alive(v.filter)&&load<Ptr>(v.filter+0x10)==v.filterNative,"武器 MeshFilter 已失效");e.set(abi::filterSetMesh,v.filter,mesh);}
+ Ptr rigidType(Ptr component){Ptr cls=load<Ptr>(component);require(byvalOffset&&e.call<Ptr>(abi::classFromType,cls+byvalOffset,1)==cls,"静态组件 Type 校验失败");
+  Ptr type=e.call<Ptr>(abi::typeObject,cls+byvalOffset);require(type&&load<Ptr>(type+0x10),"静态组件 Type 尚未就绪");pin(rigidTypeRoots,type);return type;}
+ void rigidDiscover(std::vector<Ptr>& out,uint64_t now){bool wanted=false;for(auto* m:wantedNow)for(const auto& t:m->sceneTargets)wanted=wanted||t.target.bones==0;
+  if(!wanted){bool attached=false;for(const auto& a:attachments)attached=attached||rigidRenderer(a.first);if(!attached){for(auto& r:rigidRefs){freeOwned(r.second);}rigidRefs.clear();}return;}
+  if(abi::at(abi::filterMesh)>=abi::notFound||abi::at(abi::filterSetMesh)>=abi::notFound){return;}
+  for(auto it=rigidRefs.begin();it!=rigidRefs.end();){const auto& r=it->second;bool valid=alive(it->first)&&load<Ptr>(it->first+0x10)==r.native&&alive(r.filter)&&load<Ptr>(r.filter+0x10)==r.filterNative;
+   if(!valid&&!attachments.count(it->first)){freeOwned(it->second);it=rigidRefs.erase(it);}else ++it;}
+  if(now<rigidScanAt){for(const auto& r:rigidRefs)if(alive(r.first))out.push_back(r.first);return;}rigidScanAt=now+2000;
+  Owned tmp;try{Ptr filterName=managedName("MeshFilter"),rendererName0=managedName("MeshRenderer");pin(tmp,filterName);pin(tmp,rendererName0);
+   // Bootstrap Type from a real component in a bounded slice of the avatar hierarchy, then enumerate MeshFilters.
+   if(!rigidFilterType&&byvalOffset){Ptr root=0;for(Ptr r:out)if(alive(r)&&!rigidRenderer(r)){root=avatarRoot(r);if(root)break;}
+    if(root){if(!rigidTransformType)rigidTransformType=rigidType(root);Ptr up=e.get(abi::getParent,root);if(alive(up))root=up;
+     Ptr go=e.get(abi::gameObject,root);if(alive(go)){Ptr array=e.call<Ptr>(abi::componentsInChildren,go,rigidTransformType,uint32_t(1),Ptr(0));if(array){pin(tmp,array);auto transforms=pointers(array,8192);
+      if(rigidSeedOffset>=transforms.size()){rigidSeedOffset=0;}size_t end=std::min(transforms.size(),rigidSeedOffset+256);
+      for(;rigidSeedOffset<end;rigidSeedOffset++){Ptr t=transforms[rigidSeedOffset];if(!alive(t))continue;Ptr child=e.get(abi::gameObject,t);if(!alive(child))continue;
+       Ptr filter=e.call<Ptr>(abi::componentByName,child,filterName,Ptr(0));if(alive(filter)){rigidFilterType=rigidType(filter);log("weapon-static-ready","MeshFilter Type 已确认，静态武器使用独立网格接口");break;}}}}}}
+   if(rigidFilterType){Ptr array=e.call<Ptr>(abi::findObjectsOfType,rigidFilterType,Ptr(0));if(array){pin(tmp,array);auto filters=pointers(array,262144);if(rigidScanOffset>=filters.size())rigidScanOffset=0;size_t end=std::min(filters.size(),rigidScanOffset+1024);
+    for(;rigidScanOffset<end;rigidScanOffset++){Ptr filter=filters[rigidScanOffset];if(!alive(filter))continue;
+     Ptr mesh=e.get(abi::filterMesh,filter);if(!alive(mesh))continue;auto fp=fingerprint(mesh);if(fp.bones)continue;bool candidate=false;
+     for(auto* m:wantedNow){for(const auto& t:m->sceneTargets){candidate=candidate||(t.target.bones==0&&matches(t.target,fp));}}
+     if(!candidate){for(const auto& set:sets)for(size_t i=0;i<set->parts.size();i++)candidate=candidate||set->parts[i].mesh==mesh||animationMesh(*set,i,mesh);}
+     if(!candidate)continue;
+     Ptr go=e.get(abi::gameObject,filter);if(!alive(go))continue;Ptr renderer=e.call<Ptr>(abi::componentByName,go,rendererName0,Ptr(0));if(!alive(renderer))continue;
+     auto it=rigidRefs.find(renderer);if(it==rigidRefs.end()&&rigidRefs.size()>=256)continue;
+     auto& ref=rigidRefs[renderer];if(ref.filter!=filter||ref.filterNative!=load<Ptr>(filter+0x10)){freeOwned(ref);pin(ref,renderer);pin(ref,filter);}
+     ref.native=load<Ptr>(renderer+0x10);ref.filter=filter;ref.filterNative=load<Ptr>(filter+0x10);
+   }}}
+  }catch(const std::exception& ex){log("weapon-static-wait",ex.what());rigidScanAt=now+5000;}freeOwned(tmp);
+  for(const auto& r:rigidRefs)if(alive(r.first))out.push_back(r.first);}
+ Ptr originalMesh(Ptr r){auto a=attachments.find(r);if(a!=attachments.end()&&a->second->native==load<Ptr>(r+0x10))return a->second->original;return meshGet(r);}
  Fingerprint fingerprint(Ptr mesh,bool fresh=false){Ptr native=load<Ptr>(mesh+0x10);auto key=std::make_pair(native,load<uint32_t>(native+8));if(!fresh)if(auto* hit=fpCache.find(key))return *hit;
   Ptr data=load<Ptr>(native+0x48);Fingerprint f;f.mesh=name(mesh);f.vertices=load<uint32_t>(data+0x74);f.submeshes=load<uint32_t>(data+0xc0);f.bones=uint32_t(load<uint64_t>(data+0xe0));
   fpCache.put(key,f);return f;}
@@ -1524,7 +1567,7 @@ struct Runtime::Impl {
  static bool typePair(Ptr c,unsigned b,unsigned t){Ptr x=c+b,y=c+t;if(load<uint64_t>(x)!=load<uint64_t>(y)||load<uint16_t>(x+8)!=load<uint16_t>(y+8))return false;
   uint8_t k=load<uint8_t>(x+0xa);if(k==0||k>0x1e||k!=load<uint8_t>(y+0xa))return false;uint8_t fb=load<uint8_t>(x+0xb),ft=load<uint8_t>(y+0xb),d=uint8_t(fb^ft);return d&&!(d&(d-1))&&(ft&d);}
  std::string classDump(const char* label,Ptr c){std::string out=std::string(label)+" "+hex(c)+"\n";for(unsigned off=0;off<typeSpan;off+=8)out+=hex(off)+"="+hex(load<uint64_t>(c+off))+(off%32==24?"\n":" ");return out;}
- Ptr rendererType(Ptr renderer){if(rendererTypeObject)return rendererTypeObject;Ptr klass=load<Ptr>(renderer);require(klass!=0,"缺少渲染器类");
+ Ptr rendererType(Ptr renderer){if(!skinnedRendererClass&&alive(renderer))skinnedRendererClass=load<Ptr>(renderer);if(rendererTypeObject)return rendererTypeObject;Ptr klass=load<Ptr>(renderer);require(klass!=0,"缺少渲染器类");
   std::vector<Ptr> elements,arrays;
   for(abi::Offset getter:{abi::getMaterials,abi::getBones}){Owned tmp;
    try{Ptr arr=e.get(getter,renderer);if(arr){pin(tmp,arr);Ptr ak=load<Ptr>(arr),ek=0;for(Ptr el:pointers(arr,512)){if(el&&(ek=load<Ptr>(el)))break;}
@@ -1551,25 +1594,25 @@ struct Runtime::Impl {
   throw std::runtime_error("未找到 SkinnedMeshRenderer 的 Il2CppType（类 "+std::to_string(elements.size()+1)+" 个，配对 "+std::to_string(pairs.size())+" 个，数组票数 "+std::to_string(votes.size())+"）");}
  // Every active SkinnedMeshRenderer (FindObjectsOfType), plus the world character's own list. Since 0.3.5 this is the
  // fallback (world character, renderers that did not come through the async hand-off), so it runs every 500 ms.
- std::vector<Ptr> allRenderers(uint64_t now){std::vector<Ptr> out;try{out=worldRenderers();}catch(const std::exception& ex){log("world-renderers",ex.what());}
+ std::vector<Ptr> allRenderers(uint64_t now){SceneRoots nextRoots;std::vector<Ptr> out;try{out=worldRenderers();if(ch.entity){Ptr visual=load<Ptr>(ch.entity+abi::entityVisual);if(visual)scenePin(nextRoots,load<Ptr>(visual+abi::visualRenderers));}}catch(const std::exception& ex){log("world-renderers",ex.what());}
   scanWorld=int(out.size());scanAll=-1;
   if(!findOff&&now>=findAt){Ptr sample=0;for(Ptr r:out)if(alive(r)){sample=r;break;}if(!sample)for(auto& a:attachments)if(alive(a.first)){sample=a.first;break;}
-   if(sample||rendererTypeObject){Owned tmp;try{Ptr found=e.call<Ptr>(abi::findObjectsOfType,rendererType(sample),Ptr(0));scanAll=0;if(found){pin(tmp,found);for(Ptr r:pointers(found,8192)){out.push_back(r);scanAll++;}}findFails=0;}
+   if(sample||rendererTypeObject){Owned tmp;try{Ptr found=e.call<Ptr>(abi::findObjectsOfType,rendererType(sample),Ptr(0));scanAll=0;if(found){scenePin(nextRoots,found);for(Ptr r:pointers(found,8192)){out.push_back(r);scanAll++;}}findFails=0;}
     catch(const std::exception& ex){log("find-error",ex.what());findAt=now+5000;if(++findFails>=3){findOff=true;log("find-disabled","改为只处理大世界中的当前角色");}}freeOwned(tmp);}}
   // World character first: it is the preferred template for builds.
-  std::vector<Ptr> unique;std::set<Ptr> once;for(Ptr r:out)if(once.insert(r).second)unique.push_back(r);sceneCache=unique;sceneCacheAt=now;return unique;}
+  std::vector<Ptr> unique;std::set<Ptr> once;for(Ptr r:out)if(once.insert(r).second)unique.push_back(r);sceneClear(sceneCacheRoots);sceneCacheRoots=std::move(nextRoots);sceneCache=unique;sceneCacheAt=now;return unique;}
  std::vector<Ptr> sceneCache;uint64_t sceneCacheAt=0;   // the last scene scan, for previewTick (no scan of its own)
  // Every active skinned renderer (FindObjectsOfType) for the hash collection and the NPC / monster texture mods (1.0.3):
  // the last scan of allRenderers when it is under a second old, else a scan of its own, at most every 2 s.
  std::vector<Ptr> sceneList;uint64_t sceneListAt=0;
  const std::vector<Ptr>& sceneRenderers(uint64_t now){if(now<sceneListAt)return sceneList;sceneListAt=now+2000;
-  if(sceneCacheAt&&now>=sceneCacheAt&&now-sceneCacheAt<1000&&!sceneCache.empty()){sceneList=sceneCache;return sceneList;}
+  if(sceneCacheAt&&now>=sceneCacheAt&&now-sceneCacheAt<1000&&!sceneCache.empty()){sceneClear(sceneListRoots);for(Ptr a:sceneCacheRoots.arrays)scenePin(sceneListRoots,a);sceneList=sceneCache;return sceneList;}
   if(findOff){return sceneList;}Ptr sample=0;try{for(Ptr r:worldRenderers())if(alive(r)){sample=r;break;}}catch(const std::exception&){}if(!sample&&!rendererTypeObject)return sceneList;
-  Owned tmp;try{Ptr found=e.call<Ptr>(abi::findObjectsOfType,rendererType(sample),Ptr(0));sceneList.clear();if(found){pin(tmp,found);for(Ptr r:pointers(found,8192))sceneList.push_back(r);}}
+  Owned tmp;try{Ptr found=e.call<Ptr>(abi::findObjectsOfType,rendererType(sample),Ptr(0));sceneClear(sceneListRoots);sceneList.clear();if(found){scenePin(sceneListRoots,found);for(Ptr r:pointers(found,8192))sceneList.push_back(r);}}
   catch(const std::exception& ex){log("find-error",std::string("场景渲染器：")+ex.what());sceneListAt=now+10000;}freeOwned(tmp);return sceneList;}
  // A renderer of no avatar: the name at the top of its skeleton (the NPC's or monster's object), "(Clone)" dropped.
  std::string ownerOf(Ptr renderer){Owned tmp;std::string top;
-  try{Ptr ba=e.get(abi::getBones,renderer);if(ba){pin(tmp,ba);auto bones=pointers(ba,512);Ptr t=bones.empty()?0:bones[0];for(unsigned i=0;i<32&&alive(t);i++){top=name(t);t=e.get(abi::getParent,t);}}}
+  try{Ptr ba=bonesGet(renderer);if(ba){pin(tmp,ba);auto bones=pointers(ba,512);Ptr t=bones.empty()?0:bones[0];for(unsigned i=0;i<32&&alive(t);i++){top=name(t);t=e.get(abi::getParent,t);}}}
   catch(...){freeOwned(tmp);throw;}freeOwned(tmp);auto c=top.find("(Clone)");if(c!=std::string::npos)top.erase(c);while(!top.empty()&&top.back()==' ')top.pop_back();return top;}
 
  // ---------------------------------------------------------------- models
@@ -1588,7 +1631,7 @@ struct Runtime::Impl {
   if(s.id==1&&(!renderer||!sceneFits(s.sceneTargets,renderer,fp)))return false;
   if(npc&&!modelFits(s.id,s.outfit,renderer))return false;
   for(auto& p:s.parts){
-   if(matches(p.target,fp)||(npc&&npcGeometry(p.target,fp))){if(npc||s.id==1){bool ordered=false;if(!npcPalette(renderer,original,p,ordered))continue;}return true;}
+   if(matches(p.target,fp)||(npc&&npcGeometry(p.target,fp))){if(!rigidRenderer(renderer)&&(npc||s.id==1)){bool ordered=false;if(!npcPalette(renderer,original,p,ordered))continue;}return true;}
   }
   return false;}
  // Every part of the model is also replaced by a model switched on earlier: building it would show nothing, so it waits
@@ -1600,11 +1643,11 @@ struct Runtime::Impl {
  bool outranked(const Attachment& a,const std::vector<Set*>& live){size_t mine=rank(a.set->path);for(Set* s:live)if(s->path!=a.set->path&&rank(s->path)<mine&&claims(*s,a.original,a.renderer))return true;return false;}
  // Lower-case name tokens of the transforms above a renderer's skeleton, e.g. avatar girl catalyst citlali.
  std::vector<std::string> chain(Ptr r,bool fresh=false){auto key=std::make_pair(r,load<Ptr>(r+0x10));if(!fresh)if(auto* hit=chains.find(key))return *hit;std::vector<std::string> out;Owned tmp;
-  try{Ptr ba=e.get(abi::getBones,r);if(ba){pin(tmp,ba);auto bones=pointers(ba,512);Ptr t=bones.empty()?0:bones[0];for(int i=0;i<24&&t&&alive(t);i++){for(auto& x:nameTokens(name(t)))out.push_back(x);t=e.get(abi::getParent,t);}}}catch(...){freeOwned(tmp);throw;}
+  try{Ptr ba=bonesGet(r);if(ba){pin(tmp,ba);auto bones=pointers(ba,512);Ptr t=bones.empty()?0:bones[0];for(int i=0;i<24&&t&&alive(t);i++){for(auto& x:nameTokens(name(t)))out.push_back(x);t=e.get(abi::getParent,t);}}}catch(...){freeOwned(tmp);throw;}
   freeOwned(tmp);chains.put(key,out);return out;}
  // Targets learned this session (also after a game update moved a part) take precedence over the folder's.
- Ptr avatarRoot(Ptr renderer){Owned tmp;Ptr root=0;
-  try{Ptr ba=e.get(abi::getBones,renderer);pin(tmp,ba);auto bones=pointers(ba,512);Ptr t=bones.empty()?0:bones[0];
+ Ptr avatarRoot(Ptr renderer){if(rigidRenderer(renderer)){return 0;}Owned tmp;Ptr root=0;
+  try{Ptr ba=bonesGet(renderer);pin(tmp,ba);auto bones=pointers(ba,512);Ptr t=bones.empty()?0:bones[0];
    for(unsigned i=0;i<24&&alive(t);i++){auto n=meshName(name(t));if(n.compare(0,7,"avatar_")==0){root=t;break;}if(n.compare(0,11,"npc_avatar_")==0)root=t;t=e.get(abi::getParent,t);}
   }catch(...){freeOwned(tmp);throw;}freeOwned(tmp);return root;}
  // The avatar of the character controlled in the world, from its renderers ("" while it has none).
@@ -1676,9 +1719,9 @@ struct Runtime::Impl {
  Set* liveSet(const ModelInfo& m){Set* best=nullptr;for(auto& s:sets)if(s->path==m.path&&s->built){if(s->generation==m.generation)return s.get();best=s.get();}return best;}
  bool wantedSet(const Set& s){for(auto* m:wantedNow)if(liveSet(*m)==&s)return true;return false;}
  // One renderer per part, still showing the original asset: the source of bones, bindposes and the mesh to clone.
- bool usableTemplate(const Seen& s,unsigned minBones,bool lodChecked=false){Owned tmp;bool ok=false;
+ bool usableTemplate(const Seen& s,unsigned minBones,bool lodChecked=false){if(rigidRenderer(s.renderer)){return minBones==0&&alive(s.mesh)&&fingerprint(s.mesh).bones==0;}Owned tmp;bool ok=false;
   try{auto fp=fingerprint(s.mesh,true);require((lodChecked||!lowerLod(fp.mesh))&&fp.bones>=minBones,"模板网格精度或骨骼数不符");
-   Ptr bones=e.get(abi::getBones,s.renderer);require(bones!=0,"模板缺少骨骼");pin(tmp,bones);
+   Ptr bones=bonesGet(s.renderer);require(bones!=0,"模板缺少骨骼");pin(tmp,bones);
    Ptr binds=e.get(abi::getBindposes,s.mesh);require(binds!=0,"模板缺少绑定矩阵");pin(tmp,binds);
    auto n=length(bones,512);require(n>0&&n>=minBones&&n==fp.bones&&n==length(binds,512),"模板骨骼数与绑定矩阵数不符");
    for(Ptr b:pointers(bones,512))require(alive(b)&&!name(b).empty(),"模板骨骼缺失或无名称");
@@ -1726,8 +1769,8 @@ struct Runtime::Impl {
  // The outfit the controlled character shows in the world ("" before its renderers are there).
  std::string worldOutfit(){try{for(Ptr r:worldRenderers())if(alive(r)){auto a=avatarOf(r);if(!a.empty())return a;}}catch(const std::exception&){}return "";}
  // Does this renderer show the outfit the model is for? Unknown on either side: yes (models made before outfits).
- std::string npcOwner(Ptr r){if(!alive(r))return {};Owned tmp;std::string owner;
-  try{Ptr ba=e.get(abi::getBones,r);if(ba){pin(tmp,ba);auto bones=pointers(ba,512);Ptr t=bones.empty()?0:bones[0];
+ std::string npcOwner(Ptr r){if(!skinnedRenderer(r)){return {};}if(!alive(r))return {};Owned tmp;std::string owner;
+  try{Ptr ba=bonesGet(r);if(ba){pin(tmp,ba);auto bones=pointers(ba,512);Ptr t=bones.empty()?0:bones[0];
    for(unsigned i=0;i<32&&alive(t);i++){auto n=meshName(name(t));if(n.compare(0,4,"npc_")==0){owner=n;break;}t=e.get(abi::getParent,t);}}}
   catch(...){freeOwned(tmp);throw;}freeOwned(tmp);return owner;}
  std::string npcSource(Ptr r){auto owner=npcOwner(r);if(owner.empty())return {};if(!bonePolicy)return "?";
@@ -1738,8 +1781,8 @@ struct Runtime::Impl {
   auto a=avatarOf(r);if(have)*have=a;return a.empty()||a==want;}
  bool sceneFits(const std::vector<SceneTarget>& targets,Ptr r,const Fingerprint& fp){if(targets.empty()){return false;}
   std::set<std::string> allowed;for(const auto& t:targets)if(matches(t.target,fp))allowed.insert(t.owners.begin(),t.owners.end());
-  if(allowed.empty()){return false;}if(allowed.count("@renderer:"+name(r))){return true;}
-  Owned tmp;bool found=false;try{Ptr array=e.get(abi::getBones,r);if(array){pin(tmp,array);auto bones=pointers(array,512);Ptr t=bones.empty()?0:bones[0];
+  if(allowed.empty()){return false;}if(allowed.count("@renderer:"+name(r))){return true;}if(rigidRenderer(r)){return false;}
+  Owned tmp;bool found=false;try{Ptr array=bonesGet(r);if(array){pin(tmp,array);auto bones=pointers(array,512);Ptr t=bones.empty()?0:bones[0];
    for(unsigned i=0;i<32&&alive(t);i++){if(allowed.count(meshName(name(t)))){found=true;break;}t=e.get(abi::getParent,t);}}}
   catch(...){freeOwned(tmp);throw;}freeOwned(tmp);return found;}
  bool modelFits(unsigned id,const std::string& want,Ptr r){if(id==1){return true;}auto npc=npcSource(r);if(npc.empty())return outfitFits(want,r);
@@ -1759,10 +1802,10 @@ struct Runtime::Impl {
    bool covered=true;for(unsigned index:part.used)covered=covered&&index<part.legacyBoneNames.size()&&!part.legacyBoneNames[index].empty();
    if(!covered){probe.stamp.clear();report("旧版骨骼映射没有覆盖这次转换用到的全部骨骼");continue;}
    for(const auto& candidate:seen){if(!world.count(candidate.renderer)||!seenLive(candidate)||!alive(candidate.mesh)||!lowerLod(candidate.fp.mesh)||meshName(candidate.fp.mesh)!=meshName(target.mesh)||candidate.fp.bones!=target.bones||candidate.fp.submeshes!=target.submeshes||normalize(rendererName(candidate.renderer))!=normalize(target.renderer))continue;
-    if(attachments.count(candidate.renderer)||skipped.count({candidate.renderer,load<Ptr>(candidate.renderer+0x10)})||e.get(abi::getMesh,candidate.renderer)!=candidate.mesh)continue;
+    if(attachments.count(candidate.renderer)||skipped.count({candidate.renderer,load<Ptr>(candidate.renderer+0x10)})||meshGet(candidate.renderer)!=candidate.mesh)continue;
     Owned roots;try{auto current=fingerprint(candidate.mesh,true);require(lowerLod(current.mesh)&&meshName(current.mesh)==meshName(target.mesh)&&current.bones==target.bones&&current.submeshes==target.submeshes,"候选网格结构已变化");
      if(!m.names.empty()){auto tokens=chain(candidate.renderer,true);require(namesMatch(m.names,tokens)&&std::find(tokens.begin(),tokens.end(),"avatar")!=tokens.end(),"候选渲染器的 avatar 不符");}
-     Ptr array=e.get(abi::getBones,candidate.renderer);pin(roots,array);auto bones=pointers(array,512);require(bones.size()==target.bones&&bones.size()>=info.minBones,"当前骨骼数与已识别的完整目标不同");
+     Ptr array=bonesGet(candidate.renderer);pin(roots,array);auto bones=pointers(array,512);require(bones.size()==target.bones&&bones.size()>=info.minBones,"当前骨骼数与已识别的完整目标不同");
      std::string stamp=m.generation+":"+hex(candidate.renderer)+":"+std::to_string(instanceId(candidate.renderer))+":"+hex(candidate.mesh)+":"+std::to_string(instanceId(candidate.mesh))+":"+describe(current);
      for(size_t n=0;n<bones.size();n++){require(alive(bones[n]),"当前骨骼缺失");auto label=name(bones[n]);require(!label.empty()&&label.size()<=256&&label.find_first_of("\t\r\n")==label.npos,"当前骨骼名称无效");
       if(part.used.count(unsigned(n)))require(label==part.legacyBoneNames[n],"用到的骨骼 "+std::to_string(n)+" 不符：记录为 "+part.legacyBoneNames[n]+"，当前为 "+label);
@@ -1789,13 +1832,14 @@ struct Runtime::Impl {
    embedded.name=t.renderer;embedded.target=t;embedded.bones=data.sourceBones;embedded.parents=data.sourceParents;embedded.bindposes=data.sourceBinds;rec=&embedded;break;}
   if(!rec){return !lib&&saved?legacyLodTemplate(m,t,*saved):std::nullopt;}std::set<Ptr> world;try{for(Ptr r:worldRenderers())world.insert(r);}catch(const std::exception&){return std::nullopt;}
   for(auto& s:seen){if(!world.count(s.renderer)||!seenLive(s)||!alive(s.mesh)||!lowerLod(s.fp.mesh)||meshName(s.fp.mesh)!=meshName(t.mesh)||s.fp.bones!=rec->bones.size()||normalize(rendererName(s.renderer))!=normalize(t.renderer))continue;
-   if(attachments.count(s.renderer)||skipped.count({s.renderer,load<Ptr>(s.renderer+0x10)})||e.get(abi::getMesh,s.renderer)!=s.mesh||!sameBones(s.renderer,rec->bones))continue;
+   if(attachments.count(s.renderer)||skipped.count({s.renderer,load<Ptr>(s.renderer+0x10)})||meshGet(s.renderer)!=s.mesh||!sameBones(s.renderer,rec->bones))continue;
    Owned tmp;bool same=false;try{Ptr binds=e.get(abi::getBindposes,s.mesh);if(binds){pin(tmp,binds);auto b=arrayBytes(binds,64,512);same=b.size()==rec->bindposes.size()&&std::memcmp(b.data(),rec->bindposes.data(),b.size())==0;}}catch(const std::exception&){same=false;}freeOwned(tmp);
    if(!same||!usableTemplate(s,minBones,true))continue;
    auto key=m.path+"|"+t.renderer;if(lodLogged.insert(key).second)log("template-lod",m.name+"："+t.renderer+" 只显示 "+s.fp.mesh+"，其骨骼和绑定矩阵与"+(rec==&embedded?"模型保存的 ":"骨骼库记录的 ")+t.mesh+" 一致，以它为模板构建");
    return s;}
   return std::nullopt;}
  bool npcTemplate(const ModelInfo& m,size_t index,const Seen& sn){if(m.id==1&&!sceneFits(m.sceneTargets,sn.renderer,sn.fp)){return false;}
+  if(rigidRenderer(sn.renderer)){return m.id==1&&sn.fp.bones==0;}
   if(m.id!=1&&npcSource(sn.renderer).empty())return true;
   std::shared_ptr<ModelFile> data;{std::lock_guard<std::mutex> lock(sm);auto it=loaded.find(m.path);if(it!=loaded.end()&&it->second.generation==m.generation)data=it->second.data;}
   if(!data){auto* set=findSet(m.path,m.generation);if(set)data=set->data;}
@@ -1803,14 +1847,14 @@ struct Runtime::Impl {
   const auto& part=data->parts[index];
   if(part.sourceBones.empty()||!sameBones(sn.renderer,part.sourceBones))return false;
   Owned tmp;bool same=false;try{Ptr binds=e.get(abi::getBindposes,sn.mesh);if(binds){pin(tmp,binds);auto bytes=arrayBytes(binds,64,512);same=bytes==part.sourceBinds;}
-   if(same&&!part.sourceParents.empty()){Ptr array=e.get(abi::getBones,sn.renderer);pin(tmp,array);auto bones=pointers(array,512);same=part.sourceParents.size()==bones.size();
+   if(same&&!part.sourceParents.empty()){Ptr array=bonesGet(sn.renderer);pin(tmp,array);auto bones=pointers(array,512);same=part.sourceParents.size()==bones.size();
     for(size_t i=0;same&&i<bones.size();i++){Ptr parent=e.get(abi::getParent,bones[i]);auto at=std::find(bones.begin(),bones.end(),parent);same=part.sourceParents[i]==(at==bones.end()?-1:int(at-bones.begin()));}}}
   catch(...){freeOwned(tmp);throw;}freeOwned(tmp);return same;}
  std::optional<std::vector<Seen>> templatesFor(const ModelInfo& model,const std::vector<Fingerprint>& targets){std::vector<Seen> out;auto outfit=modelOutfit(model);
   for(size_t i=0;i<targets.size();i++){auto& t=targets[i];bool found=false;unsigned min=model.parts[i].minBones;
    // Not a renderer that already failed to attach (another skeleton on the same asset): it would fail the build too.
    // Nor one of another outfit: its bindposes are not the model's (0.7.94).
-   for(auto& s:seen)if(matches(t,s.fp)&&seenLive(s)&&alive(s.mesh)&&!attachments.count(s.renderer)&&!skipped.count({s.renderer,load<Ptr>(s.renderer+0x10)})&&e.get(abi::getMesh,s.renderer)==s.mesh&&modelFits(model.id,outfit,s.renderer)&&npcTemplate(model,i,s)&&usableTemplate(s,min)){out.push_back(s);found=true;break;}
+   for(auto& s:seen)if(matches(t,s.fp)&&seenLive(s)&&alive(s.mesh)&&!attachments.count(s.renderer)&&!skipped.count({s.renderer,load<Ptr>(s.renderer+0x10)})&&meshGet(s.renderer)==s.mesh&&modelFits(model.id,outfit,s.renderer)&&npcTemplate(model,i,s)&&usableTemplate(s,min)){out.push_back(s);found=true;break;}
    if(!found)for(auto& a:attachments)if(alive(a.first)&&alive(a.second->original)&&modelFits(model.id,outfit,a.first)&&matches(t,fingerprint(a.second->original))){Seen s{a.first,a.second->original,fingerprint(a.second->original)};if(npcTemplate(model,i,s)&&usableTemplate(s,min)){out.push_back(s);found=true;break;}}
    if(!found)if(auto lod=lodTemplate(model,t,min)){out.push_back(*lod);found=true;}
    if(!found){for(auto& s:seen)if(matches(t,s.fp)&&seenLive(s)&&alive(s.mesh)&&!usableTemplate(s,min)){staleNote[model.path]=t.renderer+" 的骨骼或绑定矩阵尚未完整，持续等待并重新检测";break;}return std::nullopt;}}
@@ -1861,14 +1905,15 @@ struct Runtime::Impl {
    else log("experiment-mesh",model+"：无法读取游戏的顶点色，改用 (255,128,128,51)");}
   catch(const std::exception&){}freeOwned(tmp);return out;}
  BuiltPart makePart(Set& s,const PartFile& pf,const Seen& tpl,size_t partIndex,bool animationFrame=false,const BuiltPart* full=nullptr){Ptr owner=tpl.renderer,ownerMesh=tpl.mesh;require(alive(owner)&&alive(ownerMesh),"模板渲染器已失效");
-  Owned tmp;
+  bool rigid=rigidRenderer(owner);Owned tmp;
   try{
-   Ptr boneArray=e.get(abi::getBones,owner);pin(tmp,boneArray);auto bones=pointers(boneArray,512);Ptr binds=e.get(abi::getBindposes,ownerMesh);pin(tmp,binds);require(length(binds,512)==bones.size(),"目标骨骼数与绑定矩阵数不符");
+   Ptr boneArray=rigid?0:bonesGet(owner);if(boneArray)pin(tmp,boneArray);auto bones=boneArray?pointers(boneArray,512):std::vector<Ptr>{};Ptr binds=rigid?0:e.get(abi::getBindposes,ownerMesh);if(binds)pin(tmp,binds);require(rigid||length(binds,512)==bones.size(),"目标骨骼数与绑定矩阵数不符");
    std::vector<std::string> target;for(Ptr b:bones)target.push_back(name(b));Skin weights{pf.weights,pf.used};std::vector<int> mapping;
    // A lower-LOD renderer whose bone list differs (Alyosha's Body_LOD1: 149 bones, Body: 148): a model without its own
    // skeleton indexes the full mesh's bones (full->bones); each used one is found by name in the LOD's list and must
    // have the same bindpose there, else the LOD is not used.
-   if(full&&pf.sourceBones.empty()){mapping.assign(pf.spec.bones,-1);Bytes tb=arrayBytes(binds,64,512);
+   if(rigid){require(s.id==1&&s.targets[partIndex].bones==0,"静态模型目标不符");}
+   else if(full&&pf.sourceBones.empty()){mapping.assign(pf.spec.bones,-1);Bytes tb=arrayBytes(binds,64,512);
     for(unsigned i:weights.used){require(i<full->bones.size(),"模型用到骨骼索引 "+std::to_string(i)+"，完整网格只有 "+std::to_string(full->bones.size())+" 根");
      auto at=std::find(target.begin(),target.end(),full->bones[i]);require(at!=target.end(),"低精度网格没有骨骼 "+full->bones[i]);size_t j=size_t(at-target.begin());
      require(full->targetBinds.size()>=64*(size_t(i)+1)&&bindposeAgrees(full->targetBinds,i,tb,j),"骨骼 "+full->bones[i]+" 在低精度网格上的绑定矩阵与完整网格不同");mapping[i]=int(j);}}
@@ -1877,10 +1922,11 @@ struct Runtime::Impl {
     auto bm=mapBones(pf.sourceBones,target,pf.sourceBinds,arrayBytes(binds,64,512),weights.used,pf.sourceParents,parents);mapping=bm.target;
     for(auto& mv:bm.moved){unsigned n=0;for(size_t v=0;v+32<=weights.data.size();v+=32)for(int j=0;j<4;j++)if(f32(weights.data.data()+v+4*j)>0&&u32(weights.data.data()+v+16+4*j)==mv.first){n++;break;}
      log("bone-fallback",s.name+"/"+pf.spec.name+"："+pf.sourceBones[mv.first]+" → "+target[size_t(mv.second)]+"，涉及 "+std::to_string(n)+" 个顶点（游戏骨骼中没有原骨骼）");}}
-   remap(weights,mapping);BuiltPart bp;bp.animationOwner=owner;bp.boneMapping=mapping;bp.targetBinds=arrayBytes(binds,64,512);
+   if(!rigid){remap(weights,mapping);}
+   BuiltPart bp;bp.animationOwner=owner;bp.boneMapping=mapping;bp.targetBinds=rigid?Bytes{}:arrayBytes(binds,64,512);
    for(Ptr bone:bones){Ptr up=e.get(abi::getParent,bone);auto at=std::find(bones.begin(),bones.end(),up);bp.targetParents.push_back(at==bones.end()?-1:int(at-bones.begin()));}
    if(s.parts.empty())ensureTextures(s,drawnBy(s,s.assignment),true);
-   if(!animationFrame&&!full){std::string report="source_index\ttarget_index\tsource_name\ttarget_name\n";for(size_t i=0;i<mapping.size();i++){
+   if(!rigid&&!animationFrame&&!full){std::string report="source_index\ttarget_index\tsource_name\ttarget_name\n";for(size_t i=0;i<mapping.size();i++){
      int observed=pf.sourceBones.empty()&&!pf.used.count(unsigned(i))?-1:mapping[i];report+=std::to_string(i)+'\t'+std::to_string(observed)+'\t'+(pf.sourceBones.empty()?"#"+std::to_string(i):pf.sourceBones[i])+'\t'+(observed>=0?target[size_t(observed)]:"")+"\n";}
     writeLater(s.path+"/bonemap-"+pf.spec.name+".tsv",report);}
    bp.name=pf.spec.name;bp.avatar=avatarIdentity(owner);if(!npcSource(owner).empty())bp.avatar=npcSource(owner);bp.target=s.targets[partIndex];bp.index=partIndex;bp.lod=full!=nullptr;bp.bones=target;bp.draws=pf.draws;bp.indices.assign(pf.geo.idx(),pf.geo.idx()+4ull*pf.geo.ni);
@@ -1891,7 +1937,7 @@ struct Runtime::Impl {
    bp.backup=backup.get();restoreBackups.push_back(std::move(backup));
    s.bytes+=uint64_t(fingerprint(ownerMesh).vertices)*(12+12+8+32+32);}
    const auto& geo=pf.geo;bp.mesh=clone(s,ownerMesh);
-   Ptr native=load<Ptr>(bp.mesh+0x10),data=load<Ptr>(native+0x48);require(data!=0&&load<uint64_t>(data+0xe0)==bones.size()&&load<uint32_t>(data+0xf8)==15,"原生 Mesh 结构不符");
+   Ptr native=load<Ptr>(bp.mesh+0x10),data=load<Ptr>(native+0x48);require(data!=0&&load<uint64_t>(data+0xe0)==bones.size()&&(rigid||load<uint32_t>(data+0xf8)==15),"原生 Mesh 结构不符");
    learnArrayClasses(ownerMesh);const auto& k=arrayClasses;
    e.op(abi::setReadable,bp.mesh,1);e.op(abi::setIndexFormat,bp.mesh,geo.n>65535?1:0);e.set(abi::setTriangles,bp.mesh,arrayOf(tmp,k.i32,nullptr,0,4));
    e.set(abi::setPositions,bp.mesh,arrayOf(tmp,k.v3,geo.pos(),geo.n,12));e.set(abi::setNormals,bp.mesh,arrayOf(tmp,k.v3,geo.norm(),geo.n,12));e.set(abi::setUV,bp.mesh,arrayOf(tmp,k.v2,geo.uv(),geo.n,8));
@@ -1907,7 +1953,7 @@ struct Runtime::Impl {
    if(ctl.exp.noUv2&&!uv2Set){Bytes z(size_t(geo.n)*8,0);e.set(abi::setUV2,bp.mesh,arrayOf(tmp,k.v2,z.data(),geo.n,8));}
    if(ctl.exp.neutralColors||ctl.exp.noUv2)log("experiment-mesh",s.name+"/"+pf.spec.name+"："+(ctl.exp.neutralColors?"顶点色 ("+std::to_string(neutral[0])+","+std::to_string(neutral[1])+","+std::to_string(neutral[2])+","+std::to_string(neutral[3])+")":"")+(ctl.exp.noUv2?(ctl.exp.neutralColors?"，":"")+std::string("UV2 置零"):""));
    e.set(abi::setTriangles,bp.mesh,arrayOf(tmp,k.i32,geo.idx(),geo.ni,4));setSubmeshes(s,bp);
-   data=load<Ptr>(load<Ptr>(bp.mesh+0x10)+0x48);require(data&&load<uint32_t>(data+0x74)==geo.n&&load<uint64_t>(data+0xe0)==bones.size()&&load<uint32_t>(data+0xf8)==15,"Mesh 结构已变化");
+   data=load<Ptr>(load<Ptr>(bp.mesh+0x10)+0x48);require(data&&load<uint32_t>(data+0x74)==geo.n&&load<uint64_t>(data+0xe0)==bones.size()&&(rigid||load<uint32_t>(data+0xf8)==15),"Mesh 结构已变化");
    require(data!=load<Ptr>(load<Ptr>(ownerMesh+0x10)+0x48),"复制的 Mesh 仍与原 Mesh 共用原生数据");
    // Skin weights (32 bytes per vertex): a new block from the engine allocator with the skin label replaces the clone's
    // skin array {data +0xf0, label +0xf8, size +0x100, capacity +0x108}. The clone's previous block is not returned
@@ -1916,7 +1962,7 @@ struct Runtime::Impl {
    // The allocator is the engine's MemoryManager; it is used only when its "initialised" byte is 1 (else Allocate would
    // take its fallback path, which crashed 0.7.78 when GIBox passed the wrong object). With abi::allocVerified off, the
    // clone's own skin block is reused when it has room for the part's vertices; otherwise the part is refused, said why.
-   uint32_t own=load<uint32_t>(data+0xf8);int label=own>=1&&own<0x200?int(own):15;
+   if(!rigid){uint32_t own=load<uint32_t>(data+0xf8);int label=own>=1&&own<0x200?int(own):15;
    Ptr weight=0;uint64_t room=load<uint64_t>(data+0x108);Ptr have=load<Ptr>(data+0xf0);
    if(!abi::allocVerified){
     require(have&&room>=geo.n,"该部件 "+std::to_string(geo.n)+" 个顶点，游戏网格的权重数组只容得下 "+std::to_string(room)+" 个；7.2 的引擎分配调用还没核实，暂不另行分配（不会闪退）");
@@ -1925,7 +1971,7 @@ struct Runtime::Impl {
     require(load<uint8_t>(allocator+abi::managerActive)==1,"引擎内存管理器未就绪（初始化标志不是 1），不分配权重（不会闪退）");
     if(!skinLabelSaid){skinLabelSaid=true;log("skin-label","权重按标签 "+std::to_string(label)+" 分配"+(own>=1&&own<0x200?"（取自网格自带的蒙皮数组）":"（7.1 的标签；网格自带的读数为 "+std::to_string(own)+"）"));}
     weight=e.call<Ptr>(abi::nativeAlloc,allocator,Ptr(0),uint64_t(weights.data.size()),16,label,0,"gibox-weights",1);require(weight!=0,"权重缓冲分配失败");room=geo.n;}
-   std::memcpy(reinterpret_cast<void*>(weight),weights.data.data(),weights.data.size());store<Ptr>(data+0xf0,weight);store<uint64_t>(data+0x100,geo.n);store<uint64_t>(data+0x108,std::max<uint64_t>(room,geo.n));
+   std::memcpy(reinterpret_cast<void*>(weight),weights.data.data(),weights.data.size());store<Ptr>(data+0xf0,weight);store<uint64_t>(data+0x100,geo.n);store<uint64_t>(data+0x108,std::max<uint64_t>(room,geo.n));}
    e.action(abi::meshFinish,bp.mesh);e.op(abi::meshUpload,bp.mesh,0);
    freeOwned(tmp);return bp;
   }catch(...){freeOwned(tmp);throw;}
@@ -1945,7 +1991,7 @@ struct Runtime::Impl {
   if(s.animation.waiting){s.animation.waiting=false;log("animation-wait",s.name+"：模式 "+animationMode(s)+"，角色已回来，继续准备");}
   tpl.mesh=bp.backup->mesh;return tpl;}
  void remapAnimation(Set& s,ModelFile& data){require(data.parts.size()==s.parts.size(),"动画部件数已变化");
-  for(size_t i=0;i<data.parts.size();i++){auto& p=data.parts[i];auto& bp=s.parts[i];std::vector<int> mapping;
+  for(size_t i=0;i<data.parts.size();i++){auto& p=data.parts[i];auto& bp=s.parts[i];if(bp.target.bones==0){continue;}std::vector<int> mapping;
    if(p.sourceBones.empty()){mapping.assign(p.spec.bones,-1);for(size_t n=0;n<mapping.size()&&n<bp.bones.size();n++)mapping[n]=int(n);}
    else mapping=mapBones(p.sourceBones,bp.bones,p.sourceBinds,bp.targetBinds,p.used,p.sourceParents,bp.targetParents).target;
    Skin skin{std::move(p.weights),p.used};remap(skin,mapping);p.weights=std::move(skin.data);}}
@@ -1983,8 +2029,8 @@ struct Runtime::Impl {
   else if(count&&data){std::memcpy(reinterpret_cast<void*>(array+0x20),data,size_t(count)*stride);}
   return array;}
  void updateDynamic(Set& s,size_t i,Ptr mesh,const PartFile& p){auto& bp=s.parts[i];const auto& geo=p.geo;require(alive(mesh),"动画中转网格已失效");
-  Ptr data=load<Ptr>(load<Ptr>(mesh+0x10)+0x48);require(data&&load<uint32_t>(data+0x74)==geo.n&&load<uint64_t>(data+0xe0)==bp.bones.size()&&load<uint32_t>(data+0xf8)==15,"动画原生 Mesh 结构不符");
-  Ptr weights=load<Ptr>(data+0xf0);require(weights&&load<uint64_t>(data+0x108)>=geo.n&&s.animation.cpu[0]->parts[i].weights.size()==size_t(geo.n)*32,"动画权重容量不足");
+  Ptr data=load<Ptr>(load<Ptr>(mesh+0x10)+0x48);require(data&&load<uint32_t>(data+0x74)==geo.n&&load<uint64_t>(data+0xe0)==bp.bones.size()&&(bp.target.bones==0||load<uint32_t>(data+0xf8)==15),"动画原生 Mesh 结构不符");
+  Ptr weights=load<Ptr>(data+0xf0);require(bp.target.bones==0||(weights&&load<uint64_t>(data+0x108)>=geo.n&&s.animation.cpu[0]->parts[i].weights.size()==size_t(geo.n)*32),"动画权重容量不足");
   std::vector<Submesh> draws;std::vector<Material> rows;activeDraws(p.draws,s.assignment,draws,rows);auto subs=mergeDraws(draws,rows,s.mergeDraws);
   require(subs.size()==bp.rows.size(),"动画材质槽数不符");std::string shape=std::to_string(geo.n);for(auto& ch:p.channels)shape+=ch.first;for(size_t n=0;n<subs.size();n++){require(subs[n].row.name==bp.rows[n].name&&subs[n].row.slot==bp.rows[n].slot,"动画材质布局不符");shape+='|'+std::to_string(subs[n].count);}
   if(bp.dynamicShape!=shape){freeOwned(bp.dynamicRoots);bp.dynamicArrays.clear();bp.dynamicShape=shape;}
@@ -1996,16 +2042,16 @@ struct Runtime::Impl {
    else{setter=abi::setTangents;type=cls.v4;stride=16;}
    e.set(setter,mesh,animationArray(bp,channel.first,type,source,geo.n,stride));}
   e.op(abi::setSubmeshCount,mesh,int(subs.size()));for(size_t n=0;n<subs.size();n++){Ptr array=animationArray(bp,"indices"+std::to_string(n),cls.i32,nullptr,subs[n].count,4);auto* dst=reinterpret_cast<uint8_t*>(array+0x20);size_t written=0;for(auto& range:subs[n].ranges){require(4ull*(uint64_t(range.start)+range.count)<=geo.indices.size(),"动画绘制范围越界");std::memcpy(dst+written,geo.idx()+4ull*range.start,4ull*range.count);written+=4ull*range.count;}e.call<void>(abi::setSubmeshTriangles,mesh,array,int(n),0,Ptr(0));}
-  Ptr after=load<Ptr>(load<Ptr>(mesh+0x10)+0x48);require(after==data&&load<Ptr>(after+0xf0)==weights&&load<uint64_t>(after+0x108)>=geo.n,"更新网格时动画权重存储发生变化");
+  Ptr after=load<Ptr>(load<Ptr>(mesh+0x10)+0x48);require(after==data&&load<Ptr>(after+0xf0)==weights&&(bp.target.bones==0||load<uint64_t>(after+0x108)>=geo.n),"更新网格时动画权重存储发生变化");
   // Weight order is verified once for every frame during warm-up. The two native weight buffers remain immutable.
   e.action(abi::meshFinish,mesh);e.op(abi::meshUpload,mesh,0);
  }
  void applyAnimation(Set& s,size_t frame){auto& a=s.animation;std::vector<Ptr> next=a.mode==0?a.meshes.at(frame):a.back;require(next.size()==s.parts.size(),"动画网格缓存不完整");
   if(a.mode==1){require(a.cpu[frame]!=nullptr,"缺少动画 CPU 帧");for(size_t i=0;i<s.parts.size();i++)updateDynamic(s,i,next[i],a.cpu[frame]->parts[i]);}
   std::vector<std::pair<Ptr,Ptr>> changed;
-  try{for(auto& kv:attachments){auto& attachment=*kv.second;if(attachment.set!=&s||!alive(attachment.renderer)||load<Ptr>(attachment.renderer+0x10)!=attachment.native)continue;Ptr old=e.get(abi::getMesh,attachment.renderer);
-    if(!animationMesh(s,attachment.part,old)){continue;}changed.push_back({attachment.renderer,old});e.set(abi::setMesh,attachment.renderer,next[attachment.part]);}}
-  catch(...){for(auto& old:changed)try{e.set(abi::setMesh,old.first,old.second);}catch(const std::exception&){}throw;}
+  try{for(auto& kv:attachments){auto& attachment=*kv.second;if(attachment.set!=&s||!alive(attachment.renderer)||load<Ptr>(attachment.renderer+0x10)!=attachment.native)continue;Ptr old=meshGet(attachment.renderer);
+    if(!animationMesh(s,attachment.part,old)){continue;}changed.push_back({attachment.renderer,old});meshSet(attachment.renderer,next[attachment.part]);}}
+  catch(...){for(auto& old:changed)try{meshSet(old.first,old.second);}catch(const std::exception&){}throw;}
   for(size_t i=0;i<s.parts.size();i++){Ptr old=s.parts[i].mesh;s.parts[i].mesh=next[i];if(a.mode==1)a.back[i]=old;}a.applied=frame;
  }
  std::string animationMemory(const Set& s)const{uint64_t cpu=0;size_t meshes=0;for(auto& frame:s.animation.cpu)if(frame)cpu+=loadedBytes(*frame);for(auto& part:s.animation.owned)meshes+=part.size();return "，CPU 帧 "+std::to_string(cpu>>20)+" MiB，网格实例 "+std::to_string(meshes)+" 个";}
@@ -2147,7 +2193,7 @@ struct Runtime::Impl {
    if(palette)for(Ptr m:pointers(palette,64))if(std::find(b->objects.begin(),b->objects.end(),m)!=b->objects.end())b->handed.insert(m);}}
  void pruneRestoreBackups(bool shutdown=false){for(auto it=restoreBackups.begin();it!=restoreBackups.end();){auto& b=**it;bool held=false;
    try{
-    for(auto u=b.users.begin();u!=b.users.end();){Ptr r=u->first;bool uses=false;if(alive(r)&&load<Ptr>(r+0x10)==u->second.native){Ptr mesh=e.get(abi::getMesh,r),mats=e.get(abi::getMaterials,r);
+    for(auto u=b.users.begin();u!=b.users.end();){Ptr r=u->first;bool uses=false;if(alive(r)&&load<Ptr>(r+0x10)==u->second.native){Ptr mesh=meshGet(r),mats=e.get(abi::getMaterials,r);
       if(mesh==b.mesh){uses=true;}
       if(mats){for(Ptr m:pointers(mats,64)){
        if(std::find(b.objects.begin(),b.objects.end(),m)!=b.objects.end()){uses=true;}
@@ -2214,7 +2260,7 @@ struct Runtime::Impl {
   Owned tmp;try{e.set(abi::setMaterials,a.renderer,array(tmp,a.originalMaterials,mats.data(),mats.size(),8));}catch(...){freeOwned(tmp);throw;}freeOwned(tmp);}
  bool npcGeometry(const Fingerprint& a,const Fingerprint& b){return !lowerLod(b.mesh)&&a.vertices==b.vertices&&a.submeshes==b.submeshes&&meshName(a.mesh)==meshName(b.mesh);}
  bool npcPalette(Ptr r,Ptr mesh,const BuiltPart& bp,bool& ordered){Owned tmp;bool ok=false;ordered=false;
-  try{Ptr array=e.get(abi::getBones,r);if(array){pin(tmp,array);auto refs=pointers(array,512);std::vector<std::string> names;std::vector<int> parents;
+  try{Ptr array=bonesGet(r);if(array){pin(tmp,array);auto refs=pointers(array,512);std::vector<std::string> names;std::vector<int> parents;
     for(Ptr b:refs){if(!alive(b))throw std::runtime_error("NPC 骨骼尚未就绪");names.push_back(name(b));auto parent=e.get(abi::getParent,b);auto at=std::find(refs.begin(),refs.end(),parent);parents.push_back(at==refs.end()?-1:int(at-refs.begin()));}
     Ptr binds=e.get(abi::getBindposes,mesh);if(binds){pin(tmp,binds);auto bytes=arrayBytes(binds,64,512);ok=bytes.size()==64*names.size()&&bp.targetParents.size()==bp.bones.size();
      std::vector<int> map;for(auto& bone:bp.bones){auto at=std::find(names.begin(),names.end(),bone);if(at==names.end()||std::count(names.begin(),names.end(),bone)!=1){ok=false;break;}map.push_back(int(at-names.begin()));}
@@ -2228,12 +2274,12 @@ struct Runtime::Impl {
   for(auto& variant:s.lods)if(variant->npc&&variant->index==i&&sameBones(sn.renderer,variant->bones))return variant.get();
   s.lodWanted.insert({sn.renderer,load<Ptr>(sn.renderer+0x10)});return nullptr;}
  bool attach(Ptr r,Ptr mesh,Set& s,size_t part,uint64_t now,BuiltPart* built=nullptr){
-  if(s.id==1){if(!sceneFits(s.sceneTargets,r,fingerprint(mesh)))return false;bool ordered=false;if(!npcPalette(r,mesh,built?*built:s.parts[part],ordered)||!ordered)return false;}
+  if(s.id==1){if(!sceneFits(s.sceneTargets,r,fingerprint(mesh)))return false;if(!rigidRenderer(r)){bool ordered=false;if(!npcPalette(r,mesh,built?*built:s.parts[part],ordered)||!ordered)return false;}}
   if(!built&&!npcSource(r).empty()){auto* choice=npcPartFor(s,part,Seen{r,mesh,fingerprint(mesh)});if(!choice)return false;if(choice!=&s.parts[part])built=choice;}
-  auto& bp=built?*built:s.parts[part];auto a=std::make_unique<Attachment>();a->renderer=r;a->native=load<Ptr>(r+0x10);a->original=mesh;a->set=&s;a->part=part;a->built=built;a->backup=bp.backup;bool meshSet=false;
+  auto& bp=built?*built:s.parts[part];auto a=std::make_unique<Attachment>();a->renderer=r;a->native=load<Ptr>(r+0x10);a->original=mesh;a->set=&s;a->part=part;a->built=built;a->backup=bp.backup;bool meshChanged=false;
   auto readyKey=s.path+"|attach|"+std::to_string(a->native);auto waiting=[&](const std::string& reason){if(missingLogged[readyKey]!=reason){missingLogged[readyKey]=reason;log("attach-wait",s.name+"/"+bp.name+"："+reason);}freeOwned(*a);return false;};
   {std::string have;if(!modelFits(s.id,s.outfit.empty()?bp.avatar:s.outfit,r))return waiting("外观不符：渲染器为 "+have+"，模型为 "+s.outfit+"（不同外观的骨骼不同）");}
-  try{Ptr ba=e.get(abi::getBones,r);pin(*a,ba);auto bones=ba?pointers(ba,512):std::vector<Ptr>{};
+  try{Ptr ba=rigidRenderer(r)?0:bonesGet(r);if(ba)pin(*a,ba);auto bones=ba?pointers(ba,512):std::vector<Ptr>{};
    if(bones.size()!=bp.bones.size())return waiting("骨骼数组不完整，等待之后的绑定或扫描");
    bool same=true;for(size_t i=0;i<bones.size();i++){if(!alive(bones[i]))return waiting("有骨骼尚未就绪");auto bn=name(bones[i]);if(bn.empty())return waiting("有骨骼尚无名称");same=same&&bn==bp.bones[i];}
    if(!same){skipped.insert({r,a->native});freeOwned(*a);log("attach-skip",name(r)+"：骨骼顺序与 "+s.name+"/"+bp.name+" 不同");return false;}
@@ -2250,9 +2296,9 @@ struct Runtime::Impl {
    // Destroyed by the game anyway (an unload GIBox did not see coming): the set is built again, not given up.
    if(!(a->backup&&alive(a->backup->mesh))||!alive(bp.mesh)){if(!s.lost){s.lost=true;log("model-lost",s.name+"/"+bp.name+"："+(alive(bp.mesh)?"还原快照":"构建的网格")+"被游戏销毁（场景切换），重新构建模型");}freeOwned(*a);return false;}
    snapshotMaterials(*a->backup,a->originalMaterials);
-   e.set(abi::setMesh,r,bp.mesh);meshSet=true;applyMaterials(*a);if(!s.originalMaterials)a->refreshAt=now+(ctl.exp.firstRefreshMs?uint64_t(ctl.exp.firstRefreshMs):1500);
+   meshSet(r,bp.mesh);meshChanged=true;applyMaterials(*a);if(!s.originalMaterials)a->refreshAt=now+(ctl.exp.firstRefreshMs?uint64_t(ctl.exp.firstRefreshMs):1500);
    if(!alive(bp.originMesh)){bp.originMesh=mesh;bp.originMaterials=a->originalMaterials;pin(s,mesh);pin(s,bp.originMaterials);}}
-  catch(...){try{directRestore(*a,"挂载失败");}catch(const std::exception&){}if(meshSet&&alive(r))e.set(abi::setMesh,r,mesh);freeOwned(*a);throw;}
+  catch(...){try{directRestore(*a,"挂载失败");}catch(const std::exception&){}if(meshChanged&&alive(r))meshSet(r,mesh);freeOwned(*a);throw;}
    log("attached",s.name+"/"+bp.name+" → "+name(r));attachments[r]=std::move(a);beginMaterialTrace(*attachments.at(r),now);s.used=now;return true;}
  // Bounded observations, not an effect-parameter fix: identify palette replacements during party hand-off versus
  // unchanged material instances (material-state lines).
@@ -2278,7 +2324,7 @@ struct Runtime::Impl {
  // The log confirms copies named "...(Clone) (Instance) #n" appearing after the hand-off. Only accept that layout
  // on our exact mesh, with the expected row count and original material stem in EVERY slot. Names alone are not proof.
  bool copiedPalette(Attachment& a,const std::vector<Ptr>& current,Ptr materials){auto& bp=partOf(a);
-  if(e.get(abi::getMesh,a.renderer)!=bp.mesh||current.size()!=bp.rows.size()){return false;}
+  if(meshGet(a.renderer)!=bp.mesh||current.size()!=bp.rows.size()){return false;}
   Owned roots;bool result=false;
   try{pin(roots,materials);result=[&]{auto original=pointers(a.originalMaterials,64);bool copied=false;
   for(size_t i=0;i<current.size();i++){
@@ -2348,14 +2394,14 @@ struct Runtime::Impl {
   e.set(abi::setMaterials,a.renderer,palette);}
  void restoreFailure(Attachment& a,const std::string& error){if(a.restoreError!=error){a.restoreError=error;log("restore-error",a.set->name+"/"+partOf(a).name+"："+error+"；保留其资源，只对这个渲染器重试");}}
  bool restore(Attachment& a){if(!alive(a.renderer)||load<Ptr>(a.renderer+0x10)!=a.native)return true;
-  try{Ptr current=e.get(abi::getMesh,a.renderer);bool ours=current==partOf(a).mesh||animationMesh(*a.set,a.part,current),paired=ours||current==a.original;
+  try{Ptr current=meshGet(a.renderer);bool ours=current==partOf(a).mesh||animationMesh(*a.set,a.part,current),paired=ours||current==a.original;
   // The game can instantiate our materials after hand-off, giving them unknown pointers. Owning the mesh is enough
   // evidence to restore the whole saved pair. Restore materials first so a setter failure cannot leave original UVs
   // using mod textures; keep unrelated meshes under the narrower material-identity guard.
    Ptr original=a.original;bool fallback=ours&&!alive(original);
    if(fallback){require(a.backup&&alive(a.backup->mesh),"没有可用的网格还原快照");original=a.backup->mesh;}
    if(ours)keepRestoredResources(a.renderer,original,0);
-   restoreMaterials(a,paired);if(ours)e.set(abi::setMesh,a.renderer,original);
+   restoreMaterials(a,paired);if(ours)meshSet(a.renderer,original);
    if(fallback)log("restore-backup",a.set->name+"/"+partOf(a).name+"：原网格已失效，已用独立的原网格快照还原");
    if(paired){log("restored",a.set->name+"/"+partOf(a).name+"：已还原原网格和材质");}
    a.restoreError.clear();return true;
@@ -2365,23 +2411,23 @@ struct Runtime::Impl {
  // skeleton), ours goes straight back and the game's mesh becomes the one restored later. Materials are re-applied only
  // if the game replaced them too.
  bool reclaim(Attachment& a,Ptr mesh){auto& bp=partOf(a);if(!alive(mesh)||!alive(a.renderer)||load<Ptr>(a.renderer+0x10)!=a.native)return false;
-  if(animationMesh(*a.set,a.part,mesh)){e.set(abi::setMesh,a.renderer,bp.mesh);return true;}
+  if(animationMesh(*a.set,a.part,mesh)){meshSet(a.renderer,bp.mesh);return true;}
   auto fp=fingerprint(mesh);if(meshName(fp.mesh)!=meshName(bp.target.mesh))return false;
   Owned tmp;bool ok=false;
-  try{Ptr ba=e.get(abi::getBones,a.renderer);pin(tmp,ba);auto bones=pointers(ba,512);bool same=bones.size()==bp.bones.size();for(size_t i=0;same&&i<bones.size();i++)same=alive(bones[i])&&name(bones[i])==bp.bones[i];
+  try{bool rigid=rigidRenderer(a.renderer);Ptr ba=rigid?0:bonesGet(a.renderer);if(ba)pin(tmp,ba);auto bones=ba?pointers(ba,512):std::vector<Ptr>{};bool same=rigid?(matches(bp.target,fp)&&sceneFits(a.set->sceneTargets,a.renderer,fp)):bones.size()==bp.bones.size();for(size_t i=0;same&&i<bones.size();i++)same=alive(bones[i])&&name(bones[i])==bp.bones[i];
    if(same){
     // Restoring goes back to the LOD0 original: the renderer's bones stay bound for that layout (ours is built on it).
     if(matches(bp.target,fp)||!alive(a.original)){pin(a,mesh);a.original=mesh;}
     // The backup belongs to the first clean attachment. A later material array may be the game's own copy of our
     // textured clones, so it is not a trustworthy replacement for the backup even when its pointers are unfamiliar.
-    if(!showsOurs(a)){e.set(abi::setMesh,a.renderer,bp.mesh);applyMaterials(a);}
-    else e.set(abi::setMesh,a.renderer,bp.mesh);
+    if(!showsOurs(a)){meshSet(a.renderer,bp.mesh);applyMaterials(a);}
+    else meshSet(a.renderer,bp.mesh);
     ok=true;if(++reclaims<=20)log("reclaimed",a.set->name+"/"+bp.name+" ← "+fp.mesh+(reclaims==20?"（之后的夺回不再记录）":""));}}
   catch(...){freeOwned(tmp);throw;}freeOwned(tmp);return ok;}
  // Between ticks (the Tick hook runs every frame; at most every 5 ms here): put ours back the moment the game has swapped
  // the mesh, so a swap shows for at most one frame.
  void guard(uint64_t now){if(inTick||!ctl.enabled||attachments.empty()||now<guardAt)return;guardAt=now+5;inTick=true;
-  try{for(auto& kv:attachments){auto& a=*kv.second;if(!wantedSet(*a.set)||!alive(a.renderer)||load<Ptr>(a.renderer+0x10)!=a.native)continue;Ptr m=e.get(abi::getMesh,a.renderer);if(m&&m!=partOf(a).mesh)reclaim(a,m);guardMaterials(a,now);}}
+  try{for(auto& kv:attachments){auto& a=*kv.second;if(!wantedSet(*a.set)||!alive(a.renderer)||load<Ptr>(a.renderer+0x10)!=a.native)continue;Ptr m=meshGet(a.renderer);if(m&&m!=partOf(a).mesh)reclaim(a,m);guardMaterials(a,now);}}
   catch(const std::exception& ex){log("guard-error",ex.what());}inTick=false;}
  // A single attachment going away (its renderer died, or the game replaced its mesh): renderers adopted from it still show
  // its material clones, so those move to the first of them instead of being destroyed.
@@ -2407,10 +2453,10 @@ struct Runtime::Impl {
  void releaseSet(Set* s){if(!detachSet(*s))return;freeAnimation(*s);freeOwned(*s);log("model-released",s->name+"：生成号 "+s->generation);sets.erase(std::remove_if(sets.begin(),sets.end(),[&](auto& x){return x.get()==s;}),sets.end());pruneRestoreBackups();}
  bool releaseAll(){bool done=swapsEnd([](Swap&){return true;},"全部释放");done=detachWhere([](Attachment&){return true;})&&done;for(auto it=sets.begin();it!=sets.end();){bool used=false;for(auto& a:attachments)used=used||a.second->set==it->get();
     if(used){++it;}else{freeAnimation(**it);freeOwned(**it);it=sets.erase(it);}}
-  seen.clear();skipped.clear();pruneRestoreBackups();std::lock_guard<std::mutex> l(sm);loaded.clear();return done;}
+  seen.clear();skipped.clear();sceneClear(sceneCacheRoots);sceneClear(sceneListRoots);sceneCache.clear();sceneList.clear();sceneCacheAt=0;sceneListAt=0;pruneRestoreBackups();std::lock_guard<std::mutex> l(sm);loaded.clear();return done;}
  // The bone names of a renderer, in order, equal to a list.
  bool sameBones(Ptr r,const std::vector<std::string>& want){Owned tmp;bool same=false;
-  try{Ptr ba=e.get(abi::getBones,r);if(ba){pin(tmp,ba);auto bones=pointers(ba,512);same=bones.size()==want.size();for(size_t i=0;same&&i<bones.size();i++)same=alive(bones[i])&&name(bones[i])==want[i];}}
+  try{Ptr ba=bonesGet(r);if(ba){pin(tmp,ba);auto bones=pointers(ba,512);same=bones.size()==want.size();for(size_t i=0;same&&i<bones.size();i++)same=alive(bones[i])&&name(bones[i])==want[i];}}
   catch(const std::exception&){same=false;}freeOwned(tmp);return same;}
  // The controlled character's renderer showing a lower level of detail of a part's mesh, on the very bones ours was built
  // for: the game keeps some characters (the world Traveler on some devices) on Body_LOD1. Ours goes on, and the LOD mesh
@@ -2454,7 +2500,7 @@ struct Runtime::Impl {
      if(!matches(s->parts[i].target,sn.fp)&&!(modelFits(s->id,s->outfit,sn.renderer)&&!npcSource(sn.renderer).empty()&&npcGeometry(s->parts[i].target,sn.fp))){if(!lowerLod(sn.fp.mesh))continue;if(!worldRead){worldRead=true;try{for(Ptr r:worldRenderers())world.insert(r);}catch(const std::exception&){}}
       if(!lodOf(*s,i,sn,world)){if(!lodVariantOf(*s,i,sn,world))continue;variant=lodPart(*s,i,sn);if(!variant){s->lodWanted.insert({sn.renderer,load<Ptr>(sn.renderer+0x10)});done=true;continue;}}lod=true;}
      done=true;
-      try{if(e.get(abi::getMesh,sn.renderer)==sn.mesh){if(attach(sn.renderer,sn.mesh,*s,i,now,variant)&&lod)log("attached-lod",s->name+"/"+s->parts[i].name+"：挂载在低精度网格 "+sn.fp.mesh+" 上"+(variant?"（按该网格的 "+std::to_string(variant->bones.size())+" 根骨骼重建）":""));}}catch(const std::exception& ex){skipped.insert({sn.renderer,load<Ptr>(sn.renderer+0x10)});note(s->name+"："+ex.what());}}
+      try{if(meshGet(sn.renderer)==sn.mesh){if(attach(sn.renderer,sn.mesh,*s,i,now,variant)&&lod)log("attached-lod",s->name+"/"+s->parts[i].name+"：挂载在低精度网格 "+sn.fp.mesh+" 上"+(variant?"（按该网格的 "+std::to_string(variant->bones.size())+" 根骨骼重建）":""));}}catch(const std::exception& ex){skipped.insert({sn.renderer,load<Ptr>(sn.renderer+0x10)});note(s->name+"："+ex.what());}}
     if(done)break;}}}
  // A renderer the game made from one of ours (instantiated from a changed prefab, or taken from a pool) already shows our
  // mesh: track it so it is restored with the others. It usually shares the source's material clones.
@@ -2469,13 +2515,13 @@ struct Runtime::Impl {
    pin(*a,r);pin(*a,original);pin(*a,originalMats);a->original=original;a->originalMaterials=originalMats;a->source=src?src->renderer:0;}
   catch(...){freeOwned(*a);throw;}
    if(s.id==1&&!sceneFits(s.sceneTargets,r,fingerprint(a->original))){if(detach(*a,true))return;}
-   if(s.id==1||!npcSource(r).empty()){bool ordered=false;if(!modelFits(s.id,s.outfit,r)||!npcPalette(r,a->original,bp,ordered)||!ordered){if(detach(*a,true))return;}}
+   if(!rigidRenderer(r)&&(s.id==1||!npcSource(r).empty())){bool ordered=false;if(!modelFits(s.id,s.outfit,r)||!npcPalette(r,a->original,bp,ordered)||!ordered){if(detach(*a,true))return;}}
    log("adopted",s.name+"/"+bp.name+" → "+name(r));attachments[r]=std::move(a);beginMaterialTrace(*attachments.at(r),now);s.used=now;}
  void discover(const std::vector<Set*>& live,uint64_t now){materialWait.clear();
   std::map<Ptr,std::pair<Set*,size_t>> ours;for(auto& s:sets)for(size_t i=0;i<s->parts.size();i++){ours[s->parts[i].mesh]={s.get(),i};if(i<s->animation.owned.size())for(Ptr mesh:s->animation.owned[i])ours[mesh]={s.get(),i};}
-  auto list=allRenderers(now);
+  auto list=allRenderers(now);rigidDiscover(list,now);
   for(auto it=attachments.begin();it!=attachments.end();){auto& a=*it->second;bool keep=alive(a.renderer)&&load<Ptr>(a.renderer+0x10)==a.native;
-   if(keep){Ptr m=e.get(abi::getMesh,a.renderer);if(m&&m!=partOf(a).mesh&&!reclaim(a,m)){keep=false;log("attachment-dropped","游戏在 "+rendererName(a.renderer)+" 上放了另一个网格"+(alive(m)?"："+name(m):""));try{restoreMaterials(a);}catch(const std::exception& ex){restoreFailure(a,ex.what());keep=true;}}}
+   if(keep){Ptr m=meshGet(a.renderer);if(m&&m!=partOf(a).mesh&&!reclaim(a,m)){keep=false;log("attachment-dropped","游戏在 "+rendererName(a.renderer)+" 上放了另一个网格"+(alive(m)?"："+name(m):""));try{restoreMaterials(a);}catch(const std::exception& ex){restoreFailure(a,ex.what());keep=true;}}}
    bool npcDrop=keep&&((a.set->id==1&&!sceneFits(a.set->sceneTargets,a.renderer,fingerprint(a.original)))||(!npcSource(a.renderer).empty()&&!modelFits(a.set->id,a.set->outfit,a.renderer)));if(npcDrop)keep=false;
    bool newer=false;for(Set* s:live)newer=newer||(s!=a.set&&s->path==a.set->path);
    bool giveWay=keep&&(newer||outranked(a,live));if(giveWay){keep=false;log("outranked",a.set->name+"/"+partOf(a).name+"，"+rendererName(a.renderer)+"：由更新的或优先级更高的模型替换这个网格");}
@@ -2484,7 +2530,7 @@ struct Runtime::Impl {
    if(keep){try{directTrack(a,true);}catch(const std::exception& ex){log("direct-textures-error",a.set->name+"："+ex.what());}}
    if(!keep){if(detach(a,giveWay||npcDrop))it=attachments.erase(it);else ++it;}else{a.set->used=now;++it;}}
   seen.clear();scanSkipped=0;scanCount++;
-  for(Ptr r:list){try{if(!alive(r)||attachments.count(r))continue;Ptr native=load<Ptr>(r+0x10);if(skipped.count({r,native})){scanSkipped++;continue;}Ptr m=e.get(abi::getMesh,r);if(!alive(m))continue;
+  for(Ptr r:list){try{if(!alive(r)||attachments.count(r))continue;Ptr native=load<Ptr>(r+0x10);if(skipped.count({r,native})){scanSkipped++;continue;}Ptr m=meshGet(r);if(!alive(m))continue;
     auto o=ours.find(m);if(o!=ours.end()){adopt(r,*o->second.first,o->second.second,now);continue;}seen.push_back({r,m,fingerprint(m),load<Ptr>(r),load<Ptr>(r+0x10)});}
    catch(const std::exception& ex){log("discover-skip",ex.what());}}
   attachSeen(live,now);swapTick(list);}
@@ -2523,7 +2569,7 @@ struct Runtime::Impl {
  void timeline(const std::string& what,const std::string& detail){if(!timelineOn())return;timelineLines++;log("appearance",what+" "+detail+"；当前角色 "+(ch.entity?std::to_string(ch.config):std::string("无"))+"，替换"+(ctl.enabled&&!wantedNow.empty()&&bindingReady?"已就绪":"未就绪"));}
  // A bound renderer whose mesh is one a model replaces (any LOD): which avatar, which mesh, on the controlled character?
  void timelineBind(const char* phase,Ptr native){if(!timelineOn()||timelineMeshes.empty())return;
-  try{Ptr r=e.call<Ptr>(abi::wrapperFor,native);if(!alive(r)||load<Ptr>(r+0x10)!=native)return;Ptr mesh=e.get(abi::getMesh,r);if(!alive(mesh))return;auto fp=fingerprint(mesh);
+  try{Ptr r=e.call<Ptr>(abi::wrapperFor,native);if(!alive(r)||load<Ptr>(r+0x10)!=native)return;Ptr mesh=meshGet(r);if(!alive(mesh))return;auto fp=fingerprint(mesh);
    if(!timelineMeshes.count(baseMesh(fp.mesh))){return;}bool world=false;for(Ptr w:worldRenderers()){world=world||w==r;}
    timeline(std::string("bind-")+phase,"渲染器 "+hex(native)+"，avatar "+avatarIdentity(r)+"，网格 "+fp.mesh+"（"+std::to_string(fp.vertices)+" 顶点），"+(world?"当前操控角色":"非当前操控角色")+(attachments.count(r)?"，已挂载":""));}
   catch(const std::exception&){}}
@@ -2540,7 +2586,7 @@ struct Runtime::Impl {
   try{Ptr arr=e.call<Ptr>(abi::componentsInChildren,go,rendererTypeObject,uint32_t(1),Ptr(0));
    if(arr){pin(tmp,arr);std::map<Ptr,std::pair<Set*,size_t>> ours;for(auto& s:sets)for(size_t i=0;i<s->parts.size();i++){ours[s->parts[i].mesh]={s.get(),i};if(i<s->animation.owned.size())for(Ptr mesh:s->animation.owned[i])ours[mesh]={s.get(),i};}
     std::vector<Seen> found;goRenderers=pointers(arr,256);
-    for(Ptr r:goRenderers){if(!alive(r)||attachments.count(r)||skipped.count({r,load<Ptr>(r+0x10)}))continue;Ptr m=e.get(abi::getMesh,r);if(!alive(m))continue;
+    for(Ptr r:goRenderers){if(!alive(r)||attachments.count(r)||skipped.count({r,load<Ptr>(r+0x10)}))continue;Ptr m=meshGet(r);if(!alive(m))continue;
      auto o=ours.find(m);if(o!=ours.end()){adopt(r,*o->second.first,o->second.second,now);adopted++;continue;}found.push_back({r,m,fingerprint(m)});}
     if(!found.empty())for(auto* m:wantedNow){if(liveSet(*m)||shadowed(*m,wantedNow)||!lodTarget(*m).empty())continue;auto f=failed.find(m->path);if(f!=failed.end()&&f->second.first==m->generation)continue;
      std::vector<Fingerprint> targets;if(!targetsFor(*m,targets))continue;std::vector<Seen> tpl;
@@ -2566,7 +2612,7 @@ struct Runtime::Impl {
  void spawnedAfter(){if(!onTickThread("hand-off"))return;
   if(!inTick&&!texHanded.empty()){inTick=true;try{texAfter(texHanded,"交接回调");}catch(const std::exception& ex){log("texture-error",std::string("交接之后：")+ex.what());}texHanded.clear();inTick=false;}
   if(spawnAttached.empty()||inTick){return;}inTick=true;unsigned kept=0,back=0,lost=0;
-  try{for(Ptr r:spawnAttached){auto it=attachments.find(r);if(it==attachments.end()||!alive(r)){lost++;continue;}auto& a=*it->second;Ptr m=e.get(abi::getMesh,r);
+  try{for(Ptr r:spawnAttached){auto it=attachments.find(r);if(it==attachments.end()||!alive(r)){lost++;continue;}auto& a=*it->second;Ptr m=meshGet(r);
      if(m==partOf(a).mesh){kept++;}else if(reclaim(a,m)){back++;}else{lost++;}
      materialState(a,"交接后",clockMs());}}
   catch(const std::exception& ex){log("spawn-error",ex.what());}
@@ -2644,7 +2690,7 @@ struct Runtime::Impl {
    bool ready=liveSet(*m)!=nullptr;if(!ready){std::lock_guard<std::mutex> l(sm);auto x=loaded.find(m->path);ready=x!=loaded.end()&&x->second.generation==m->generation;}
    if(!ready){++it;continue;}
    it=pendingBinds.erase(it);
-   try{Ptr mesh=e.get(abi::getMesh,r);std::vector<Fingerprint> targets;if(!alive(mesh)||!targetsFor(*m,targets))continue;
+   try{Ptr mesh=meshGet(r);std::vector<Fingerprint> targets;if(!alive(mesh)||!targetsFor(*m,targets))continue;
     bindBuild(r,mesh,fingerprint(mesh,true),m,targets);if(attachments.count(r))log("bind-late-attached",m->name+"：文件读取完成后立即接管");}
    catch(const std::exception& ex){log("bind-after-error",ex.what());}}}
  void meshBound(Ptr native){if(!native||!onTickThread("mesh-bound")||inTick)return;
@@ -2654,7 +2700,8 @@ struct Runtime::Impl {
   if(!ctl.enabled||wantedNow.empty()||!bindingReady){if(timelineOn()){inTick=true;timelineBind("early",native);inTick=false;}return;}
   inTick=true;
   try{Ptr r=e.call<Ptr>(abi::wrapperFor,native);if(!alive(r)||load<Ptr>(r+0x10)!=native){inTick=false;return;}
-   Ptr mesh=e.get(abi::getMesh,r);if(!alive(mesh)){inTick=false;return;}
+   if(!skinnedRendererClass)skinnedRendererClass=load<Ptr>(r); // this wrapper came from the verified skinned-mesh binding hook
+   Ptr mesh=meshGet(r);if(!alive(mesh)){inTick=false;return;}
    auto attached=attachments.find(r);if(attached!=attachments.end()){auto& a=*attached->second;
     if(!wantedSet(*a.set)){inTick=false;return;}
     if(mesh!=partOf(a).mesh){reclaim(a,mesh);}else if(!showsOurs(a))applyMaterials(a);
@@ -2744,7 +2791,7 @@ struct Runtime::Impl {
  bool captureBones(uint64_t now,const std::vector<Ptr>& renderers,bool libraryDir,const std::string& outfit,PreviewCapture* pv,unsigned captureId=0){
   unsigned id=captureId?captureId:ch.config;
   std::vector<SkeletonRenderer> records;std::set<std::string> used;std::string chain;Owned roots;unsigned seenCount=0,loading=0,mismatch=0,unnamed=0,badNames=0;std::string example,badList=std::to_string(id)+":";
-  try{for(Ptr r:renderers){seenCount++;if(!alive(r)){loading++;continue;}Ptr mesh=originalMesh(r);if(!alive(mesh)){loading++;continue;}Ptr ba=e.get(abi::getBones,r);if(!ba){loading++;continue;}pin(roots,ba);auto bones=pointers(ba,512);
+  try{for(Ptr r:renderers){seenCount++;if(!alive(r)){loading++;continue;}Ptr mesh=originalMesh(r);if(!alive(mesh)){loading++;continue;}Ptr ba=bonesGet(r);if(!ba){loading++;continue;}pin(roots,ba);auto bones=pointers(ba,512);
     Ptr binds=e.get(abi::getBindposes,mesh);if(!binds||bones.empty()){loading++;continue;}pin(roots,binds);
     auto rn=name(r);if(length(binds,512)!=bones.size()){mismatch++;badList+=rn+" ";if(example.empty())example=rn+" 骨骼 "+std::to_string(bones.size())+" 根，绑定矩阵 "+std::to_string(length(binds,512))+" 个";continue;}
     std::string n;for(char c:rn)if((c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='_'||c=='-')n+=c;if(n.empty()){unnamed++;badList+="（无名称） ";continue;}if(n.size()>60)n.resize(60);auto base=n;for(unsigned duplicate=1;!used.insert(n).second;duplicate++)n=base+"_"+std::to_string(duplicate);
@@ -3044,6 +3091,8 @@ struct Runtime::Impl {
    // A set whose objects the game destroyed (model-lost): released once nothing shows it, then built again below.
    {std::vector<Set*> lost;for(auto& s:sets)if(s->lost){bool used=false;for(auto& a:attachments)used=used||a.second->set==s.get();if(!used)lost.push_back(s.get());}for(Set* s:lost)releaseSet(s);}
    for(auto* m:wanted){
+    bool rigid=false;for(const auto& t:m->sceneTargets)rigid=rigid||t.target.bones==0;
+    if(rigid&&(abi::at(abi::filterMesh)>=abi::notFound||abi::at(abi::filterSetMesh)>=abi::notFound)){errors.push_back(m->name+"：静态武器暂未适配当前客户端，目前仅支持国服 7.2");continue;}
     if(!findSet(m->path,m->generation)&&!liveSet(*m)&&shadowed(*m,wanted))continue;
     auto f=failed.find(m->path);if(f!=failed.end()&&f->second.first==m->generation){errors.push_back(m->name+"："+f->second.second);continue;}
     {auto lod=lodTarget(*m);if(!lod.empty()){errors.push_back(m->name+"：转换时骨骼库记录的是低精度模型 "+lod+"，骨骼不匹配；请在 App 中重新转换此 MOD");continue;}}
@@ -3090,5 +3139,5 @@ void Runtime::spawned(Ptr go)noexcept{try{p->spawned(go);}catch(...){}}
 void Runtime::spawnedAfter()noexcept{try{p->spawnedAfter();}catch(...){}}
 Ptr Runtime::bindMesh(Ptr renderer,Ptr mesh)noexcept{try{return p->bindMesh(renderer,mesh);}catch(...){return mesh;}}
 void Runtime::meshBound(Ptr renderer)noexcept{try{p->meshBound(renderer);}catch(...){}}
-void Runtime::shutdown(){try{p->lodUnpinAll("运行时关闭");}catch(const std::exception&){}try{p->texRestoreEverything("运行时关闭");}catch(const std::exception&){}if(p->releaseAll()){p->pruneRestoreBackups(true);}}
+void Runtime::shutdown(){try{p->lodUnpinAll("运行时关闭");}catch(const std::exception&){}try{p->texRestoreEverything("运行时关闭");}catch(const std::exception&){}if(p->releaseAll()){p->pruneRestoreBackups(true);p->sceneClear(p->sceneCacheRoots);p->sceneClear(p->sceneListRoots);p->sceneCache.clear();p->sceneList.clear();for(auto& r:p->rigidRefs)p->freeOwned(r.second);p->rigidRefs.clear();p->freeOwned(p->rigidTypeRoots);p->rigidFilterType=0;p->rigidTransformType=0;}}
 }

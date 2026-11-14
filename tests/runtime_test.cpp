@@ -20,6 +20,7 @@ struct Fake {
  Ptr stringBase=0x7020000000ull,base=0,manager=0,owner=0,klass=0,typeObj=0,meshTypeObj=0;unsigned meshFinds=0;std::map<Ptr,Obj> obj;std::vector<void*> allocated;std::map<unsigned,Ptr> handles;unsigned nextHandle=1,nextId=1;
  // Each built part now clones one restoration snapshot and one mod mesh; count both engine allocations.
  unsigned clones=0,meshClones=0,textures=0,weightAllocs=0,typeLookups=0,findCalls=0,findAllCalls=0,childCalls=0,bindposeReads=0;std::map<Ptr,Ptr> goOfRenderer;std::map<Ptr,std::vector<Ptr>> goChildren;Ptr lastWeights=0;std::map<Ptr,std::string> strings;std::string lightProperty;bool failMaterials=false,failFind=false,failPosition=false;
+ std::map<Ptr,Ptr> extraTypes,filterByGo,rendererByGo;std::vector<Ptr> rigidFilters,rigidTransforms;
  unsigned expectedVertices=3;std::map<Ptr,unsigned> textureBytes;
  std::map<Ptr,Ptr> diffuse;std::map<Ptr,std::map<int32_t,Ptr>> named;std::map<Ptr,float> glow; // material properties copied by Instantiate, including copies made by the game
  std::map<Ptr,unsigned> nameReads,boneReads; // actual engine getter counts, used to check binding hot-path work
@@ -59,6 +60,8 @@ struct Fake {
  ~Fake(){for(void* p:allocated)std::free(p);munmap(reinterpret_cast<void*>(base),0x16000000);}
 }*f=nullptr;
 // The engine reads the renderer through its own native pointer: anything else at that address crashes (0.7.83 tombstone).
+Ptr filterMesh(Ptr p,Ptr){assert(f->obj.at(p).kind=="filter");return f->obj.at(p).mesh;}
+void filterSet(Ptr p,Ptr m,Ptr){assert(f->obj.at(p).kind=="filter");f->obj.at(p).mesh=m;}
 Ptr getMesh(Ptr p,Ptr){assert(load<Ptr>(p)==f->kindClass("renderer")&&"get_sharedMesh on something that is not a renderer");return f->obj.at(p).mesh;}Ptr getMaterials(Ptr p,Ptr){return f->obj.at(p).materials;}Ptr getBones(Ptr p,Ptr){f->boneReads[p]++;return f->obj.at(p).bones;}
 Ptr getName(Ptr p,Ptr){f->nameReads[p]++;auto n=f->obj.at(p).name;Ptr s=f->alloc(0x14+2*n.size());store<uint32_t>(s+0x10,n.size());for(size_t i=0;i<n.size();i++)store<uint16_t>(s+0x14+i*2,n[i]);return s;}
 Ptr clone(Ptr p,Ptr){f->clones++;auto original=f->obj.at(p);if(original.kind!="mesh"){Ptr out=f->object(original.kind,original.name);if(original.kind=="material"){f->diffuse[out]=f->diffuse[p];f->named[out]=f->named[p];f->glow[out]=f->glow[p];}return out;}f->meshClones++;Ptr out=f->mesh(original.name,load<uint32_t>(original.shared+0x74));auto& o=f->obj[out];o.arrays=original.arrays;store<uint64_t>(o.shared+0xe0,load<uint64_t>(original.shared+0xe0));store<uint64_t>(o.native+0x90,load<uint64_t>(original.native+0x90));return out;}
@@ -66,7 +69,7 @@ void destroy(Ptr p,Ptr){store<Ptr>(p+0x10,0);}
 // Object.hideFlags: kept per object (HideFlags.DontUnloadUnusedAsset = 32 on a texture-only mod's textures).
 std::map<Ptr,int> hideFlags;void setHide(Ptr p,int v,Ptr){assert(load<Ptr>(p+0x10));hideFlags[p]=v;}int getHide(Ptr p,Ptr){auto it=hideFlags.find(p);return it==hideFlags.end()?0:it->second;}Ptr parent(Ptr p,Ptr){return f->obj.at(p).parent;}
 uint32_t pin(Ptr p,int,Ptr){auto h=f->nextHandle++;f->handles[h]=p;return h;}void unpin(uint32_t h){assert(f->handles.erase(h)==1);}
-unsigned gameWrites=0;void setMesh(Ptr p,Ptr m,Ptr){gameWrites++;f->obj.at(p).mesh=m;}void setMaterials(Ptr p,Ptr m,Ptr){gameWrites++;if(f->failMaterials){f->failMaterials=false;throw std::runtime_error("fake-material-failure");}f->obj.at(p).materials=m;}
+unsigned gameWrites=0;void setMesh(Ptr p,Ptr m,Ptr){assert(f->obj.at(p).kind=="renderer");gameWrites++;f->obj.at(p).mesh=m;}void setMaterials(Ptr p,Ptr m,Ptr){gameWrites++;if(f->failMaterials){f->failMaterials=false;throw std::runtime_error("fake-material-failure");}f->obj.at(p).materials=m;}
 Ptr newArray(Ptr cls,uint64_t count){return f->array(load<uint16_t>(cls+f->elemAt),count);}void op(Ptr,int,Ptr){}void action(Ptr,Ptr){}
 void submeshCount(Ptr m,int n,Ptr){assert(n>=1);store<uint32_t>(f->obj.at(m).shared+0xc0,n);}
 void sub(Ptr m,Ptr a,int i,Ptr){assert(i>=0&&unsigned(i)<load<uint32_t>(f->obj.at(m).shared+0xc0));unsigned n=unsigned(load<uint64_t>(a+0x18));f->triangles.push_back({m,n});
@@ -88,14 +91,15 @@ unsigned channelSets=0;std::vector<Bytes> channelData;void setChannel(Ptr,Ptr a,
  unsigned stride=load<uint16_t>(load<Ptr>(a)+f->elemAt);channelData.emplace_back(reinterpret_cast<const uint8_t*>(a+0x20),reinterpret_cast<const uint8_t*>(a+0x20)+size_t(f->expectedVertices)*stride);}void setPos(Ptr p,Ptr a,Ptr){if(f->failPosition){f->failPosition=false;throw std::runtime_error("fake-animation-channel-error");}store<uint32_t>(f->obj.at(p).shared+0x74,load<uint64_t>(a+0x18));}void setAny(Ptr,Ptr,Ptr){}
 Ptr classFromType(Ptr t,int init){assert(init==1&&load<uint8_t>(t+0xa)!=0);f->typeLookups++;for(auto& kv:f->kinds)if(t==kv.second+0x98)return kv.second;return f->alloc(0x10);}
 Ptr typeObject(Ptr t){if(t==f->kindClass("mesh")+0x98){if(!f->meshTypeObj){f->meshTypeObj=f->alloc(0x20);store<Ptr>(f->meshTypeObj+0x10,t);}return f->meshTypeObj;}
- assert(t==f->klass+0x98);if(!f->typeObj){f->typeObj=f->alloc(0x20);store<Ptr>(f->typeObj+0x10,t);}return f->typeObj;}
-Ptr goOf(Ptr r,Ptr){assert(f->obj.at(r).kind=="renderer"||f->obj.at(r).kind=="transform");auto it=f->goOfRenderer.find(r);if(it!=f->goOfRenderer.end())return it->second;Ptr g=f->object("gameobject","GO");f->goOfRenderer[r]=g;return g;}
-Ptr children(Ptr go,Ptr type,uint32_t inactive,Ptr){assert(f->obj.at(go).kind=="gameobject"&&type&&type==f->typeObj&&inactive==1);f->childCalls++;auto& v=f->goChildren[go];return f->array(8,v.size(),v.data());}
+ if(t!=f->klass+0x98){for(const auto& k:f->kinds)if(t==k.second+0x98){auto& type=f->extraTypes[t];if(!type){type=f->alloc(0x20);store<Ptr>(type+0x10,t);}return type;}assert(false);}
+ if(!f->typeObj){f->typeObj=f->alloc(0x20);store<Ptr>(f->typeObj+0x10,t);}return f->typeObj;}
+Ptr goOf(Ptr r,Ptr){assert(f->obj.at(r).kind=="renderer"||f->obj.at(r).kind=="transform"||f->obj.at(r).kind=="filter"||f->obj.at(r).kind=="rigidrenderer");auto it=f->goOfRenderer.find(r);if(it!=f->goOfRenderer.end())return it->second;Ptr g=f->object("gameobject","GO");f->goOfRenderer[r]=g;return g;}
+Ptr children(Ptr go,Ptr type,uint32_t inactive,Ptr){assert(f->obj.at(go).kind=="gameobject"&&type&&inactive==1);if(type!=f->typeObj){assert(type==f->extraTypes.at(f->kindClass("transform")+0x98));return f->array(8,f->rigidTransforms.size(),f->rigidTransforms.data());}f->childCalls++;auto& v=f->goChildren[go];return f->array(8,v.size(),v.data());}
 // Scripting::ScriptingWrapperFor: the managed object of a native one.
 Ptr wrapperFor(Ptr native){for(auto& kv:f->obj)if(kv.second.native==native)return kv.first;return 0;}
 Ptr findNative(Ptr type,int mode){if(type&&type==f->meshTypeObj){assert(mode==2);f->meshFinds++;std::vector<Ptr> all;for(auto& kv:f->obj)if(kv.second.kind=="mesh"&&load<Ptr>(kv.first+0x10))all.push_back(kv.first);return f->array(8,all.size(),all.data());}
  assert(type&&type==f->typeObj&&mode==2);f->findAllCalls++;if(f->failFind)throw std::runtime_error("fake-find-failure");std::vector<Ptr> all=f->scene;all.insert(all.end(),f->assets.begin(),f->assets.end());return f->array(8,all.size(),all.data());}
-Ptr findObjects(Ptr type,Ptr){assert(type&&type==f->typeObj);f->findCalls++;if(f->failFind)throw std::runtime_error("fake-find-failure");return f->array(8,f->scene.size(),f->scene.data());}
+Ptr findObjects(Ptr type,Ptr){if(type!=f->typeObj){assert(type&&type==f->extraTypes.at(f->kindClass("filter")+0x98));return f->array(8,f->rigidFilters.size(),f->rigidFilters.data());}assert(type);f->findCalls++;if(f->failFind)throw std::runtime_error("fake-find-failure");return f->array(8,f->scene.size(),f->scene.data());}
 // Material read-back: _MainTex (#5) is the main texture, other names above 100; Time.frameCount counts up per call.
 int32_t engineFrame(){static int32_t n=100;return ++n;}
 Ptr matShader(Ptr,Ptr){static Ptr s=f->object("shader","miHoYo/Character/Body");return s;}
@@ -114,7 +118,7 @@ int32_t texSide(Ptr t,Ptr){assert(t&&load<Ptr>(t+0x10));return 4;}int32_t texFor
 // The game's LOD loaders (MiHoYoLodLoader): found by GameObject.GetComponent("MiHoYoLodLoader"); level byte 0xff while
 // the loader switches by itself, else the level it is held at (IsLodLoaderSelfPaused: != 0xff).
 std::map<Ptr,Ptr> lodOnGo;std::map<Ptr,unsigned> lodHeld,lodNow;unsigned lodLookups=0;
-Ptr byName(Ptr go,Ptr name,Ptr){assert(f->obj.at(go).kind=="gameobject"&&f->strings.at(name)=="MiHoYoLodLoader");lodLookups++;auto it=lodOnGo.find(go);return it==lodOnGo.end()?0:it->second;}
+Ptr byName(Ptr go,Ptr name,Ptr){assert(f->obj.at(go).kind=="gameobject");auto label=f->strings.at(name);if(label=="MeshFilter")return f->filterByGo[go];if(label=="MeshRenderer")return f->rendererByGo[go];assert(label=="MiHoYoLodLoader");lodLookups++;auto it=lodOnGo.find(go);return it==lodOnGo.end()?0:it->second;}
 uint32_t lodSelf(Ptr l,Ptr){assert(f->obj.at(l).kind=="lodloader");return lodHeld[l]!=0xff;}
 void lodPauseAt(Ptr l,int32_t level,Ptr){assert(f->obj.at(l).kind=="lodloader"&&level>=0&&level<=7);lodHeld[l]=unsigned(level);lodNow[l]=unsigned(level);}
 void lodResumeFn(Ptr l,Ptr){assert(f->obj.at(l).kind=="lodloader");lodHeld[l]=0xff;}
@@ -123,7 +127,7 @@ Ptr resolve(abi::Offset o){switch(o){
  case abi::componentByName:return reinterpret_cast<Ptr>(&byName);case abi::lodSelfPaused:return reinterpret_cast<Ptr>(&lodSelf);case abi::lodPause:return reinterpret_cast<Ptr>(&lodPauseAt);
  case abi::lodResume:return reinterpret_cast<Ptr>(&lodResumeFn);case abi::lodCurrent:return reinterpret_cast<Ptr>(&lodLevelNow);
 #define FN(x,y) case abi::x:return reinterpret_cast<Ptr>(&y)
- FN(getMesh,getMesh);FN(getMaterials,getMaterials);FN(getBones,getBones);FN(getName,getName);FN(getParent,parent);FN(clone,clone);FN(destroy,destroy);FN(pin,pin);FN(unpin,unpin);FN(setMesh,setMesh);FN(setMaterials,setMaterials);FN(arrayNew,newArray);FN(getBindposes,getBinds);FN(getPositions,getPos);FN(getUV,getUV);FN(getTriangles,getIdx);FN(getColors,getColors);FN(getTangents,getTangents);FN(setColors,setChannel);FN(setTangents,setChannel);FN(setUV2,setChannel);FN(setPositions,setPos);FN(setNormals,setAny);FN(setUV,setAny);FN(setTriangles,setAny);FN(setReadable,op);FN(setIndexFormat,op);FN(setSubmeshCount,submeshCount);FN(meshUpload,op);FN(meshFinish,action);FN(meshDynamic,action);FN(setSubmeshTriangles,sub);FN(textureType,texType);FN(objectNew,objectNew);FN(textureInit,texInit);FN(texturePixels,texPixels);FN(textureApply,action);FN(setHideFlags,setHide);FN(getHideFlags,getHide);FN(mainTexture,setMainTexture);FN(newString,newString);FN(nativeAlloc,nativeAlloc);FN(hasProperty,hasProp);FN(setTexture,setTex);FN(classFromType,classFromType);FN(typeObject,typeObject);FN(findObjectsOfType,findObjects);FN(findObjectsNative,findNative);FN(componentsInChildren,children);FN(gameObject,goOf);FN(wrapperFor,wrapperFor);
+ FN(filterMesh,filterMesh);FN(filterSetMesh,filterSet);FN(getMesh,getMesh);FN(getMaterials,getMaterials);FN(getBones,getBones);FN(getName,getName);FN(getParent,parent);FN(clone,clone);FN(destroy,destroy);FN(pin,pin);FN(unpin,unpin);FN(setMesh,setMesh);FN(setMaterials,setMaterials);FN(arrayNew,newArray);FN(getBindposes,getBinds);FN(getPositions,getPos);FN(getUV,getUV);FN(getTriangles,getIdx);FN(getColors,getColors);FN(getTangents,getTangents);FN(setColors,setChannel);FN(setTangents,setChannel);FN(setUV2,setChannel);FN(setPositions,setPos);FN(setNormals,setAny);FN(setUV,setAny);FN(setTriangles,setAny);FN(setReadable,op);FN(setIndexFormat,op);FN(setSubmeshCount,submeshCount);FN(meshUpload,op);FN(meshFinish,action);FN(meshDynamic,action);FN(setSubmeshTriangles,sub);FN(textureType,texType);FN(objectNew,objectNew);FN(textureInit,texInit);FN(texturePixels,texPixels);FN(textureApply,action);FN(setHideFlags,setHide);FN(getHideFlags,getHide);FN(mainTexture,setMainTexture);FN(newString,newString);FN(nativeAlloc,nativeAlloc);FN(hasProperty,hasProp);FN(setTexture,setTex);FN(classFromType,classFromType);FN(typeObject,typeObject);FN(findObjectsOfType,findObjects);FN(findObjectsNative,findNative);FN(componentsInChildren,children);FN(gameObject,goOf);FN(wrapperFor,wrapperFor);
  FN(meshSubmeshes,meshSubs);FN(meshVertices,meshVerts);FN(meshReadable,meshReadable);FN(meshIndexStart,meshStart);FN(meshIndexCount,meshCount);
  FN(textureWidth,texSide);FN(textureHeight,texSide);FN(textureFormat,texFormat);FN(textureMips,texMips);
  FN(frameCount,engineFrame);FN(getShader,matShader);FN(getTexture,matTexture);FN(getTextureIds,matTextureIds);FN(propertyToId,propertyToId);
@@ -221,7 +225,7 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
  // 9. Disable restores every renderer and releases every handle.
  control(false,2,1,{"V"});runtime.tick(16000);assert(state()=="disabled"&&meshOf(world2)==original&&meshOf(other)==otherMesh&&f->handles.empty());
  // 10. Load failure latches per generation; a control change retries.
- write(models+"/A/model.bin","bad");control(true,2,1,{"A"});runtime.tick(16100);assert(state()=="error"&&meshOf(world2)==original&&f->handles.empty());
+ write(models+"/A/model.bin","bad");control(true,2,1,{"A"});runtime.tick(16100);assert(state()=="error"&&meshOf(world2)==original);
  unsigned built=f->meshClones;runtime.tick(16700);assert(f->meshClones==built);
  writeModel(models+"/A",Spec().gen("5"));control(true,3,1,{"A"});runtime.tick(16800);assert(state()=="active");
  // 11. Attaching fails after the mesh was set: the renderer gets its original mesh back and the error is reported.
@@ -988,6 +992,26 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
    assert(meshOf(n1)==original&&meshOf(monster)==original&&meshOf(weapon)==original);
    rt.shutdown();assert(f->handles.empty());}
   f->world(0);f->scene={};}
+
+ // Static weapons use MeshFilter exclusively: no bone getter, skin allocation or skinned renderer setter.
+ {std::string mediaR=root+"/mediaRigid",sp=mediaR+"/"+pkg+"/GIBox";
+  auto target=fixture::target("Equip_Sword_Test");fixture::replaceIn(target,"\"bones\":1","\"bones\":0");
+  Spec spec;spec.id=1;spec.withTarget(target);spec.edit=[target](std::string& json){fixture::replaceIn(json,"\"id\":1,\"names\":[]","\"id\":1,\"names\":[],\"targets\":[{\"target\":"+target+",\"owners\":[\"@renderer:Equip_Sword_Test\"]}]");};
+  writeModel(sp+"/models/Sword",spec);Ptr player=f->renderer(f->mesh());f->world(player);f->scene={player};
+  Ptr original=f->mesh("Equip_Sword_Test");store<uint64_t>(f->obj[original].shared+0xe0,0);store<uint32_t>(f->obj[original].shared+0xf8,0);f->obj[original].arrays[abi::getBindposes]=f->array(64,0);
+  auto weapon=[&](const char* name){Ptr filter=f->object("filter",name),renderer=f->object("rigidrenderer",name),go=f->object("gameobject",name),t=f->object("transform",name);
+   f->obj[filter].mesh=original;f->obj[renderer].materials=f->obj[player].materials;f->goOfRenderer[filter]=go;f->goOfRenderer[renderer]=go;f->goOfRenderer[t]=go;f->filterByGo[go]=filter;f->rendererByGo[go]=renderer;f->rigidFilters.push_back(filter);f->rigidTransforms.push_back(t);return std::make_pair(filter,renderer);};
+  auto sword=weapon("Equip_Sword_Test"),other=weapon("WrongSword");unsigned allocs=f->weightAllocs;
+  write(sp+"/control.json",R"J({"enabled":true,"selected":["Sword"]})J");
+  {Runtime rt(e,pkg,root+"/privateRigid",mediaR,false);uint64_t t=8900000;auto run=[&](uint64_t ms){for(uint64_t end=t+ms;t<end;t+=100)rt.tick(t);};run(5000);
+   assert(f->obj[sword.first].mesh!=original&&f->obj[other.first].mesh==original&&f->weightAllocs==allocs&&f->boneReads[sword.second]==0);
+   Ptr ours=f->obj[sword.first].mesh;assert(load<uint64_t>(f->obj[ours].shared+0xe0)==0);
+   f->obj[sword.first].mesh=original;run(100);assert(f->obj[sword.first].mesh==ours);
+   auto copied=weapon("Equip_Sword_Test");f->obj[copied.first].mesh=ours;f->obj[copied.second].materials=f->obj[sword.second].materials;run(2500);
+   assert(f->obj[copied.first].mesh==ours);
+   write(sp+"/control.json",R"J({"enabled":true,"selected":[]})J");run(1000);assert(f->obj[sword.first].mesh==original&&f->obj[copied.first].mesh==original);
+   rt.shutdown();assert(f->handles.empty());}
+  f->rigidFilters.clear();f->rigidTransforms.clear();f->world(0);f->scene={};}
  // 50. Merged draws: neighbours with the same material row share a submesh, their index ranges joined in draw order.
  //     A draw hidden by the variant between two of them is not drawn, ranges that continue each other become one, a
  //     neighbour with another material keeps its own submesh and slot, and switching back reads the model's indices
@@ -1561,6 +1585,25 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
   write(sp+"/control.json",R"J({"enabled":true,"selected":["Tint"],"npcModels":false,"textureMods":{"strategy":"direct"}})J");
   for(uint64_t end=t+1500;t<end;t+=100){rt.tick(t);}assert(f->diffuse[mat]==tex);
   rt.shutdown();assert(f->handles.size()==handles);store<uint32_t>(entity+kConfig,10000107);f->world(0);f->scene={};}
+
+ // tombstone_27: a cached renderer wrapper recycled as another managed type must never reach get_bones.
+ {std::string mediaC=root+"/mediaCachedNpc",sp=mediaC+"/"+pkg+"/GIBox";std::filesystem::create_directories(sp);
+  std::filesystem::copy(root+"/mediaNpcTex/"+pkg+"/GIBox/models",sp+"/models",std::filesystem::copy_options::recursive);
+  std::filesystem::remove(sp+"/models/Tint/texture-mapping.json");
+  write(sp+"/control.json",R"J({"enabled":true,"selected":["Tint"],"npcModels":true,"textureMods":{"strategy":"direct"}})J");
+  write(sp+"/skeleton-policy.json",R"J({"models":{"citlali":10000107},"outfits":{},"builtin":[],"npcs":{}})J");
+  Ptr player=f->renderer(f->mesh("OtherBody",4),"BoneA","Body",f->kavehRoot),ghost=f->renderer(f->mesh("Unmatched",7));f->world(player);f->scene={player,ghost};
+  size_t handles=f->handles.size();
+  {Runtime rt(e,pkg,root+"/privateCachedNpc",mediaC,false);uint64_t t=9400000;for(;t<9401100;t+=100)rt.tick(t);
+   Ptr klass=load<Ptr>(ghost),native=load<Ptr>(ghost+0x10);unsigned reads=f->boneReads[ghost];f->scene={player};
+   store<Ptr>(ghost,f->kindClass("bone"));store<Ptr>(ghost+0x10,0x41);
+   for(;t<9402200;t+=100)rt.tick(t);
+   assert(f->boneReads[ghost]==reads);
+   store<Ptr>(ghost,klass);store<Ptr>(ghost+0x10,native);
+   // Repeated scans replace their array roots rather than retaining one handle for every scan.
+   size_t bounded=f->handles.size();for(;t<9422200;t+=100)rt.tick(t);assert(f->handles.size()<=bounded+2);
+   rt.shutdown();assert(f->handles.size()==handles);}
+  f->world(0);f->scene={};}
  // 43. The first match at the game's hand-off: no earlier confirmation, the model not yet in the world; the textures were
  //     prepared once the mod was on, so the hand-off only checks and binds. The mapping is saved and, after a restart,
  //     used for this build and these rules only; a lower LOD without migration waits and says why; a material the game
