@@ -29,8 +29,11 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.PrimaryScrollableTabRow
+import androidx.compose.material3.Tab
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -66,7 +69,7 @@ fun HomeScreen(state: AppState, pickZip: () -> Unit) {
         else {
             val q = query.trim()
             val found = if (q.isEmpty()) emptyList() else state.groups().filter { it.title.contains(q, ignoreCase = true) || it.id.toString().contains(q) }
-            SearchPage(query, { query = it }, "搜索角色名或 ID", onClose = { searching = false; query = "" }, field = field, entered = entered) {
+            SearchPage(query, { query = it }, "搜索分类、角色名或 ID", onClose = { searching = false; query = "" }, field = field, entered = entered) {
                 if (q.isNotEmpty() && found.isEmpty()) item { EmptyNote("没有找到“$q”") }
                 itemsIndexed(found, key = { _, g -> g.id }) { index, g ->
                     SegmentedListItem(
@@ -187,19 +190,27 @@ private fun ManageCard(state: AppState, pickZip: () -> Unit) {
  * 角色 MOD: one row per character with its number of mods; the mods themselves are on the character's page. The search
  * button opens the search page (characters by name or ID).
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ModsCard(state: AppState, searchField: Modifier, onSearch: () -> Unit) {
-    val groups = state.groups()
+    var category by rememberSaveable { mutableStateOf(0) }
+    val groups = state.groups().filter { if (Characters.isLoading(it.id)) category == 2 else if (Characters.isScene(it.id)) category == 1 else category == 0 }
     HomeCard {
         Column(Modifier.padding(vertical = 8.dp)) {
             Row(Modifier.padding(start = 24.dp, end = 12.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("角色 MOD", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
-                Text("${groups.size} 个角色", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                IconButton(onClick = onSearch, modifier = searchField) { Icon(Icons.Filled.Search, contentDescription = "搜索角色") }
+                PrimaryScrollableTabRow(selectedTabIndex = category, edgePadding = 0.dp, modifier = Modifier.weight(1f), containerColor = MaterialTheme.colorScheme.surfaceContainerLowest, divider = {}) {
+                    Tab(selected = category == 0, onClick = { category = 0 }, text = { Text("角色 MOD", maxLines = 1, softWrap = false) })
+                    Tab(selected = category == 1, onClick = { category = 1 }, text = { Text("场景 MOD", maxLines = 1, softWrap = false) })
+                    Tab(selected = category == 2, onClick = { category = 2 }, text = { Text("加载图片", maxLines = 1, softWrap = false) })
+                }
+                IconButton(onClick = onSearch, modifier = searchField) { Icon(Icons.Filled.Search, contentDescription = "搜索 MOD") }
             }
             HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh)
-            if (groups.isEmpty()) EmptyNote("还没有 MOD。点「导入 MOD」，在系统文件管理器里选 MOD 的 .zip 压缩包。")
-            groups.forEach { g ->
+            if (groups.isEmpty()) EmptyNote(if (category == 2) "还没有加载图片。导入加载背景 MOD 时，选择「加载图片」。" else if (category == 1) "还没有场景 MOD。导入 NPC、怪物、武器或风之翼 MOD 时，选择「场景 MOD」。" else "还没有角色 MOD。点「导入 MOD」，选择 MOD 的 .zip 压缩包。")
+            if (category != 0) {
+                val mods = groups.flatMap { it.mods }
+                mods.forEachIndexed { index, mod -> ModRow(state, mod, index, mods.size) }
+            } else groups.forEach { g ->
                 Row(
                     Modifier.fillMaxWidth().clickable { state.open(Screen.Character(g.id)) }.padding(start = 24.dp, end = 16.dp, top = 16.dp, bottom = 16.dp),
                     verticalAlignment = Alignment.CenterVertically,

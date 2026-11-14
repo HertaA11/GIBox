@@ -31,7 +31,9 @@ final class TextureMod {
         check(Characters.isScene(id) || (id >= 10000000 && id <= 10001999), "纯贴图 MOD 需要选择角色，或选择“NPC / 怪物”");
         log.append("纯贴图 MOD：").append(ini.file.getName()).append("（只换游戏模型上的贴图，不需要网格和骨骼）\n");
         Map<String, Object> doc = TextureDiag.analyze(src, ini.file, id, dest.getName(), log);
-        File base = ini.file.getAbsoluteFile().getParentFile();
+        return installDocument(ini.file.getAbsoluteFile().getParentFile(),id,dest,o,decoder,log,doc);
+    }
+    static File installDocument(File base,int id,File dest,ModelConverter.Options o,ModelConverter.TextureDecoder decoder,StringBuilder log,Map<String,Object> doc)throws Exception {
         dest = dest.getCanonicalFile(); File parent = dest.getParentFile(); check(parent.isDirectory() || parent.mkdirs(), "无法创建输出根目录");
         check(o.replace || !dest.exists(), "输出目录已存在：" + dest);
         File tmp = Files.createTempDirectory(parent.toPath(), ".model-convert-").toFile();

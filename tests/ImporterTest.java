@@ -22,14 +22,14 @@ public class ImporterTest {
   // 2. Search by ID, Chinese name, English or internal name.
   ok(ids(Characters.search("10000107")).equals(Collections.singletonList(10000107))&&ids(Characters.search("茜特")).equals(Collections.singletonList(10000107)),"search id/name");
   ok(ids(Characters.search("旅行者")).equals(Arrays.asList(10000005,10000007))&&ids(Characters.search("Raiden")).equals(Collections.singletonList(10000052))&&ids(Characters.search("shougun")).equals(Collections.singletonList(10000052)),"search aliases");
-  ok(Characters.search("1000010").size()==10&&Characters.search(" ").size()==131&&Characters.search("没有这个人").isEmpty(),"search edge cases");
+  ok(Characters.search("1000010").size()==10&&Characters.search(" ").size()==132&&Characters.search("没有这个人").isEmpty(),"search edge cases");
   ok(Characters.words("TextureOverrideHuTaoBody2").equals(Arrays.asList("texture","override","hu","tao","body","2")),"words: "+Characters.words("TextureOverrideHuTaoBody2"));
   // 3. The recommended character: from the import name, folder, INI sections and resource names.
   character(bones,"10000107",10000107,"Avatar_Girl_Catalyst_Citlali");character(bones,"10000150",10000150,"Avatar_Girl_Sword_Odette(Clone)");character(bones,"10000107-123",10000107,"Old_Export");
   ok(ModLibrary.library(bones).size()==2&&ModLibrary.recorded(bones,10000107).bones.getName().equals("10000107"),"library prefers the per-character folder");
   File citlali=GimiPatternsTest.mod(download,"Citlali Summer",GimiPatternsTest.ini("global $creditinfo = 0\n","","",""));
   Characters.Guess g=Characters.guess(citlali,"Citlali Summer",ModLibrary.library(bones));
-  ok(ids(g.recommended).equals(Collections.singletonList(10000107))&&Characters.ordered(g,"").get(0).id==10000107&&Characters.ordered(g,"").size()==131,"citlali recommended first: "+g.evidence);
+  ok(ids(g.recommended).equals(Collections.singletonList(10000107))&&Characters.ordered(g,"").get(0).id==10000107&&Characters.ordered(g,"").size()==132,"citlali recommended first: "+g.evidence);
   ok(Characters.ordered(g,"琴").get(0).id==10000003,"a search keeps only matches");
   File raiden=renamed(download,"RaidenShogun Kimono","RaidenShogun"),hutao=renamed(download,"hu tao","HuTao"),odette=renamed(download,"odette_v2","Odette"),hero=renamed(download,"Mystery","Hero");
   ok(ids(Characters.guess(raiden,"RaidenShogun Kimono",null).recommended).equals(Collections.singletonList(10000052)),"raiden");
@@ -37,9 +37,9 @@ public class ImporterTest {
   ok(ids(Characters.guess(odette,"odette_v2",ModLibrary.library(bones)).recommended).equals(Collections.singletonList(10000150)),"a character known only to the bone library");
   ok(Characters.guess(hero,"Mystery",ModLibrary.library(bones)).recommended.isEmpty()&&Characters.ordered(new Characters.Guess(),"").get(0).id==10000002,"no guess: plain list");
   // NPC / monster (1.0.3): last in the plain list, found by its words, never a character's alias or recommendation.
-  {List<Characters.Avatar> plain=Characters.ordered(new Characters.Guess(),"");ok(plain.get(plain.size()-1)==Characters.SCENE_AVATAR&&Characters.byId(Characters.SCENE)==Characters.SCENE_AVATAR
+  {List<Characters.Avatar> plain=Characters.ordered(new Characters.Guess(),"");ok(plain.contains(Characters.SCENE_AVATAR)&&plain.get(plain.size()-1)==Characters.LOADING_AVATAR&&Characters.byId(Characters.SCENE)==Characters.SCENE_AVATAR
     &&ids(Characters.search("怪物")).equals(Collections.singletonList(Characters.SCENE))&&ids(Characters.search("npc")).equals(Collections.singletonList(Characters.SCENE))
-    &&!Characters.all().contains(Characters.SCENE_AVATAR)&&"NPC / 怪物 / 风之翼".equals(Characters.nameOf(Characters.SCENE))&&ids(Characters.search("风之翼")).equals(Collections.singletonList(Characters.SCENE)),"NPC / monster choice");}
+    &&!Characters.all().contains(Characters.SCENE_AVATAR)&&"场景 MOD".equals(Characters.nameOf(Characters.SCENE))&&ids(Characters.search("风之翼")).equals(Collections.singletonList(Characters.SCENE)),"NPC / monster choice");}
   File lumine=renamed(download,"Traveler","TravelerGirl"),both=renamed(download,"traveler x","Traveler");
   ok(ids(Characters.guess(lumine,"Traveler",null).recommended).equals(Collections.singletonList(10000007))&&ids(Characters.guess(both,"traveler x",null).recommended).equals(Arrays.asList(10000005,10000007)),"traveler: girl wins, plain is a tie");
   // 4. Staging: a folder is copied (one extra level is fine), a zip unpacked; unsafe archives leave nothing behind.
@@ -136,6 +136,43 @@ public class ImporterTest {
   File onone=new File(base,"GIBox-outfit-pc-only");onone.mkdirs();Files.copy(new File("app/src/main/assets/pc-hashes.json").toPath(),new File(onone,"pc-hashes.json").toPath(),StandardCopyOption.REPLACE_EXISTING);
   Files.write(new File(onone,"device-hashes.json").toPath(),"{\"format\":\"gibox-hash-map\",\"version\":1,\"meshes\":[\n]}\n".getBytes(java.nio.charset.StandardCharsets.UTF_8));
   ok(table.guess(10000025,Collections.singleton("76df4025"),onone).outfit==null,"guess: a hash two outfits share in the PC data decides nothing");
+  // The skeleton table made from the game's files (1.0.4): a character's prefab by its internal name, an outfit's by its
+  // prefab (any case), written as a bone library the converter reads like the game's own; the device library is the
+  // fallback for a prefab the table lacks.
+  {File sh=new File(base,"GIBox-offline");sh.mkdirs();
+   String body="{\"mesh_id\":\"cab-1:2\",\"name\":\"Body\",\"mesh\":\"Body\",\"vertices\":3,\"submeshes\":1,\"kinds\":[\"character\"],\"owner_count\":1,\"bones\":[\"Bip001\",\"Bip001 Head\"],\"parents\":[-1,0],\"bindposes\":[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,1.74979198e-06,1.0939558e-06,-1,0,-1,4.37132996e-08,-1.74979209e-06,0,4.37114025e-08,1,1.09395592e-06,0,1.32685375,-0.0112854121,2.38770826e-06,1]}";
+   String offTable="{\"format\":\"gibox-offline-skeletons\",\"version\":1,\"build\":\"b\",\"meshes\":[\n"+body+"\n],\"prefabs\":[\n{\"owner\":\"Avatar_Girl_Catalyst_Citlali\",\"kind\":\"character\",\"renderers\":[[\"Body\",0]]},\n{\"owner\":\"Avatar_Girl_Catalyst_CitlaliCostumeXia\",\"kind\":\"character\",\"renderers\":[[\"Body\",0]]}\n]}\n";
+   offTable=offTable.replace("\n]}\n", ",\n{\"owner\":\"NPC_Avatar_Girl_Catalyst_Citlali\",\"kind\":\"npc\",\"renderers\":[[\"Body\",0]]}\n]}\n");
+   Files.write(new File(sh,OfflineSkeletons.FILE).toPath(),offTable.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+   OfflineSkeletons os=OfflineSkeletons.load(sh);
+   ok(os!=null&&"Avatar_Girl_Catalyst_Citlali".equals(os.prefabFor(10000107,null))&&"Avatar_Girl_Catalyst_CitlaliCostumeXia".equals(os.prefabFor(10000107,"avatar_girl_catalyst_citlalicostumexia"))
+     &&os.prefabFor(10000107,"avatar_girl_catalyst_citlalicostumeother")==null&&os.prefabFor(10000002,null)==null&&os.characters().contains(10000107),"offline table: prefabs by name and by outfit");
+   Files.write(new File(sh,"device-hashes.json").toPath(),Json.write(Json.of("meshes",Arrays.asList(Json.of("ib","aaaabbbb","renderer","Body","mesh","Body","vertices",3,"submeshes",Arrays.asList(Arrays.asList(0,3)))))).getBytes(StandardCharsets.UTF_8));
+   SceneModels.Selection scene=SceneModels.select(sh,Collections.singletonList("aaaabbbb"));
+   ok(scene.renderers.size()==1&&"Scene0".equals(scene.hashes.get("aaaabbbb"))&&Json.arr(Json.obj(scene.targets.get(0),"target").get("owners"),"owners",1,20).equals(Collections.singletonList("npc_avatar_girl_catalyst_citlali")),"scene import selects exact hash and prefab, no avatar wildcard");
+   Files.write(new File(sh,"hash-map.json").toPath(),Json.write(Json.of("meshes",Arrays.asList(Json.of("ib","abcd1234","renderer","Equip_Sword_Test","mesh","Equip_Sword_Test","vertices",3,"submeshes",Arrays.asList(Arrays.asList(0,3)))))).getBytes(StandardCharsets.UTF_8));
+   SceneModels.Selection rigid=SceneModels.select(sh,Collections.singletonList("abcd1234"));
+   ok(rigid.hashes.containsKey("abcd1234")&&((Number)Json.obj(Json.obj(rigid.targets.get(0),"target").get("target"),"fingerprint").get("bones")).intValue()==0,"weapon without a skin record uses an explicit zero-bone static target");
+   try{SceneModels.select(sh,Collections.singletonList("unknown"));ok(false,"unknown scene hash accepted");}catch(IllegalArgumentException expected){ok(expected.getMessage().contains("hash"),"unknown scene hash diagnostic");}
+   ModLibrary.Character lib=os.library("Avatar_Girl_Catalyst_Citlali",10000107,new File(sh,"skeletons-offline"));
+   List<ModelConverter.Bones> bs=ModelConverter.bones(lib.bones,10000107);ByteBuffer bb=ByteBuffer.wrap(bs.get(0).binds).order(ByteOrder.LITTLE_ENDIAN);
+   ok(bs.size()==1&&bs.get(0).names.equals(Arrays.asList("Bip001","Bip001 Head"))&&bs.get(0).parents.equals(Arrays.asList(-1,0))&&bb.getFloat(64)==1.74979198e-06f&&bb.getFloat(64+48)==1.32685375f
+     &&bs.get(0).target!=null&&((Number)bs.get(0).target.get("submeshes")).intValue()==1&&Outfits.chainAvatar(lib.root).equals("avatar_girl_catalyst_citlali"),"offline table: a bone library the converter reads, bind poses exact: "+lib.root);
+   Map<String,Object> policy=Json.obj(Json.parse(new String(OfflineSkeletons.capturePolicy(sh),StandardCharsets.UTF_8)),"policy");
+   ok(((Number)Json.obj(policy.get("models"),"models").get("vodyanitsa")).intValue()==10000140&&((List<?>)policy.get("builtin")).contains("avatar_girl_catalyst_citlali"),"capture policy: missing characters remain identifiable");
+   ok("avatar_girl_catalyst_citlali".equals(Json.obj(policy.get("npcs"),"npcs").get("npc_avatar_girl_catalyst_citlali")),"NPC identity comes from the prefab catalog");
+   File exported=SkeletonExport.write(sh,10000107);
+   File round=new File(base,"GIBox-export-roundtrip");round.mkdirs();Files.copy(exported.toPath(),new File(round,OfflineSkeletons.FILE).toPath());
+   OfflineSkeletons exportedTable=OfflineSkeletons.load(round);ok(exportedTable!=null&&exportedTable.prefabFor(10000107,null)!=null,"export uses bundled line layout");
+   List<ModelConverter.Bones> back=ModelConverter.bones(exportedTable.library(exportedTable.prefabFor(10000107,null),10000107,new File(round,"skeletons-offline")).bones,10000107);
+   ok(Arrays.equals(back.get(0).binds,bs.get(0).binds)&&back.get(0).names.equals(bs.get(0).names),"export preserves float32 matrices and bone order");
+   // A new live capture takes precedence when contributing, even though normal conversions prefer the built-in table.
+   File live=new File(sh,"skeletons/10000107");live.mkdirs();Files.copy(new File(lib.bones,"skeleton.json").toPath(),new File(live,"skeleton.json").toPath());
+   Map<String,Object> liveDoc=Json.obj(Json.read(new File(live,"skeleton.json"),4L<<20),"live");liveDoc.put("build","b");
+   Files.write(new File(live,"skeleton.json").toPath(),Json.write(liveDoc).getBytes(StandardCharsets.UTF_8));
+   Map<String,Object> contribution=Json.obj(Json.read(SkeletonExport.write(sh,10000107),4L<<20),"export");
+   ok(((List<?>)contribution.get("prefabs")).size()==1&&"b".equals(contribution.get("build")),"exports captured prefab and version");}
+
   // The glider's mesh (Flycloak_Normal_Model, 1.0.3): no character owns it; its hash recommends NPC / monster / glider.
   {Map<Integer,List<String>> sc=DeviceHashes.load(oshared).characters(Arrays.asList("f195ef18"));Characters.Guess sg=new Characters.Guess();Characters.hashEvidence(sg,sc);
    ok(sc.keySet().equals(Collections.singleton(Characters.SCENE))&&sg.recommended.contains(Characters.SCENE_AVATAR)&&Characters.ordered(sg,"").get(0)==Characters.SCENE_AVATAR,"a glider hash recommends NPC / monster / glider: "+sc);}
@@ -171,6 +208,17 @@ public class ImporterTest {
   ok(new File(modelsB,"Clash (2)/model.json").isFile()&&!new File(modelsB,"Clash").exists(),"the renamed mod's model follows it");
   File[] lib=shared.listFiles(f->!f.getName().startsWith("."));ok(lib!=null&&lib.length==4,"four shared entries: "+Arrays.toString(lib));
   Importer.deleteModel("Clash (2)",modelsB);ok(!new File(modelsB,"Clash (2)").exists(),"another game's model deleted");
+  {File source=new File(base,"loading-source");source.mkdirs();
+   GimiPatternsTest.put(source,"LSMod.ini","[Constants]\nglobal $skip_ui = 1\n[ResourceLS.0]\nfilename = bg.dds\n[ResourceLS.1]\nfilename = bg2.dds\n");
+   GimiPatternsTest.put(source,"DarkModeFix.ini","[ShaderRegexLoadingScreenDarkMode]\nshader_model = ps_5_0\n");GimiPatternsTest.put(source,"bg.dds",new byte[128]);GimiPatternsTest.put(source,"bg2.dds",new byte[128]);
+   File stagedLoading=Importer.stage(source,new File(base,"loading-mods"),"Screens",new StringBuilder());
+   ok(Importer.guess(stagedLoading,"Screens",bones).recommended.get(0).id==Characters.LOADING&&Importer.schemes(stagedLoading).size()==1&&Characters.search("加载").get(0).id==Characters.LOADING,"loading category and recommendation");
+   Importer.setScheme(stagedLoading,Importer.scheme(stagedLoading));
+   ModelConverter.TextureDecoder loadingDecoder=dds->{ByteBuffer b=ByteBuffer.allocate(24).order(ByteOrder.LITTLE_ENDIAN);b.putInt(2).putInt(2);for(int k=0;k<16;k++)b.put((byte)k);return b.array();};
+   Importer.Result result=Importer.convert(stagedLoading,Characters.LOADING,new File(base,"loading-models"),bones,loadingDecoder,new StringBuilder());
+   ModelManifest m=ModelManifest.read(result.model);ok(m.id==Characters.LOADING&&m.defaults.get("$skip_ui")==1&&Variants.read(result.model).values.get("$skip_ui").equals(Arrays.asList(0,1)),"loading model and hide UI switch");
+   byte[] rgba=Files.readAllBytes(new File(result.model,"images/0.rgba").toPath());ok(rgba[0]==8&&rgba[8]==0&&!new File(result.model,"model.json").exists(),"loading images flip once for UI and need no mesh");
+   List<Importer.Mod> entries=Importer.list(new File(base,"loading-mods"),new File(base,"loading-models"));ok(entries.size()==1&&entries.get(0).id==Characters.LOADING&&entries.get(0).converted&&!entries.get(0).outdated,"loading category survives refresh");}
   System.out.println("Importer: PASS (shared Mods merge: duplicates once, clashes renamed with their model; outfit table, outfit by INI hash, library per outfit, a skin mod refused as the original and converted for its skin, lower-LOD library records and models, mod names, unreadable models listed, 7.1 character table, search by ID/name, recommended character first, folder/zip staging, picker prepare/commit/discard, zip-slip guard, bone-library and ID conversion, character change, Mods list, delete, XXMI log line and levels)");
  }
 }

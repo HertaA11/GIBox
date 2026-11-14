@@ -42,6 +42,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -65,8 +66,10 @@ fun schemeLabel(rel: String, all: List<String>): String {
  */
 @Composable
 fun PickScreen(state: AppState, pick: Screen.Pick) {
-    val guess = remember(pick) { state.guess(pick) }
-    val recorded = remember(pick) { state.recorded() }
+    // Off the main thread: the guess reads the hash tables (~10 MB) and the INI (1.0.4: on the main thread they stalled the page).
+    val guess by produceState(initialValue = Characters.Guess(), pick) { value = withContext(Dispatchers.IO) { state.guess(pick) } }
+    // Off the main thread: the first call reads the skeleton table made from the game's files (17 MB).
+    val recorded by produceState(initialValue = emptySet<Int>(), pick) { value = withContext(Dispatchers.IO) { state.recorded() } }
     var query by remember(pick) { mutableStateOf("") }
     var chosen by remember(pick) { mutableIntStateOf(0) }
     val list = remember(guess, query) { Characters.ordered(guess, query) }
@@ -86,11 +89,15 @@ fun PickScreen(state: AppState, pick: Screen.Pick) {
         outfitHint = withContext(Dispatchers.IO) { state.outfitGuessText(pick, chosen) }
     }
     val chosenOutfit = outfits.firstOrNull { it.prefab == outfit }
+    val boneHint by produceState(initialValue = "", chosen, outfit, state.game) {
+        value = withContext(Dispatchers.IO) { state.boneImportHint(chosen, outfit) }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
                 colors = pageBarColors(),
-                title = { Text("选择角色") },
+                title = { Text("选择分类或角色") },
                 subtitle = { Text(pick.modName) },
                 navigationIcon = { BackButton { state.back() } },
             )
@@ -104,7 +111,7 @@ fun PickScreen(state: AppState, pick: Screen.Pick) {
                     Column(Modifier.weight(1f)) {
                         Text(if (selected == null) "还没有选择" else "已选：${selected.name}" + (chosenOutfit?.let { " · ${it.name}" } ?: ""), style = MaterialTheme.typography.titleMedium)
                         Text(
-                            if (needScheme) "先在上面选一套 INI 方案" else if (selected == null) "点一个角色，再点确定" else "${selected.id}" + if (recorded.contains(selected.id)) " · 已记录骨骼" else "",
+                            if (needScheme) "先在上面选一套 INI 方案" else if (selected == null) "点一个角色，再点确定" else "${selected.id} · $boneHint",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -174,7 +181,8 @@ fun PickScreen(state: AppState, pick: Screen.Pick) {
                         leadingContent = { RadioButton(selected = a.id == chosen, onClick = null) },
                         supportingContent = {
                             Text(
-                                if (Characters.isScene(a.id)) "只支持纯贴图 MOD：按 hash 找 NPC、怪物和风之翼的网格" + (if (a.id == pick.current) " · 当前" else "")
+                                if (Characters.isLoading(a.id)) "加载背景图片，无需骨骼"
+                                else if (Characters.isScene(a.id)) "NPC、怪物、武器、风之翼" + (if (a.id == pick.current) " · 当前" else "")
                                 else "${a.id}" + (if (recorded.contains(a.id)) " · 已记录骨骼" else "") + (if (a.id == pick.current) " · 当前" else ""),
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -182,11 +190,7 @@ fun PickScreen(state: AppState, pick: Screen.Pick) {
                         trailingContent = if (recommended) { { Icon(Icons.Filled.Star, contentDescription = "推荐", tint = MaterialTheme.colorScheme.primary) } } else null,
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(a.name, fontWeight = if (recommended) FontWeight.Bold else null)
-                            if (recommended) {
-                                Spacer(Modifier.width(4.dp))
-                                Text("（推荐）", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                            }
+                            Text(a.name, modifier = Modifier.weight(1f), fontWeight = if (recommended) FontWeight.Bold else null)
                         }
                     }
                     // The outfits of the chosen character: the mod is converted for one of them (its bones are that outfit's).

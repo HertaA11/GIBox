@@ -91,13 +91,10 @@ public final class Outfits {
      */
     public Guess guess(int character, Collection<String> hashes, File sharedDir) {
         Guess g = new Guess(); if (of(character).isEmpty() || hashes.isEmpty()) return g;
+        // The hash tables as DeviceHashes holds them (read once per file change; this device's own map wins there too).
+        DeviceHashes tables = DeviceHashes.load(sharedDir);
         Map<String, String> device = new HashMap<>();
-        for (String f : new String[]{"device-hashes.json", "hash-map.json"}) {   // this device's own map wins
-            try { Map<String, Object> j = Json.obj(Json.read(new File(sharedDir, f), 64L << 20), f);
-                for (Object m : Json.arr(j.get("meshes"), "meshes", 0, 65536)) { Map<String, Object> e = Json.obj(m, "mesh");
-                    if (e.get("ib") instanceof String && e.get("avatar") instanceof String && !((String) e.get("avatar")).isEmpty()) device.put(((String) e.get("ib")).toLowerCase(Locale.ROOT), (String) e.get("avatar")); } }
-            catch (Exception ignored) {}
-        }
+        for (String h : hashes) { DeviceHashes.Mesh m = tables.mesh(h); if (m != null) device.put(h, m.avatar); }
         Map<String, Set<String>> pc = new HashMap<>();
         try { Map<String, Object> j = Json.obj(Json.read(new File(sharedDir, "pc-hashes.json"), 64L << 20), "pc-hashes.json");
             for (Object c : Json.arr(j.get("characters"), "characters", 0, 1024)) { Map<String, Object> ch = Json.obj(c, "character");

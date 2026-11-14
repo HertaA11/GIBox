@@ -56,6 +56,14 @@ void onTextSet(uintptr_t text,uintptr_t value,uintptr_t method){
 void onPopulate(uintptr_t text,uintptr_t helper,uintptr_t method){
  if(text&&helper&&ms::uid::on.load(std::memory_order_relaxed)&&ms::uid::managedUid(*reinterpret_cast<const uintptr_t*>(text+ms::abi::uiTextString))){vertexClear(helper,0);uidHidden.fetch_add(1,std::memory_order_relaxed);return;}
  populateOriginal(text,helper,method);}
+using UiLifeFn=void(*)(uintptr_t,uintptr_t);
+using LoadingFrameFn=void(*)(uintptr_t);LoadingFrameFn loadingRenderOriginal=nullptr;
+void onLoadingRender(uintptr_t method){loadingRenderOriginal(method);if(auto* p=published.load(std::memory_order_acquire))p->loadingFrame();}
+UiLifeFn loadingStartOriginal=nullptr,loadingDestroyOriginal=nullptr,imageEnableOriginal=nullptr,imageDisableOriginal=nullptr;
+void onLoadingStart(uintptr_t self,uintptr_t method){loadingStartOriginal(self,method);if(auto* p=published.load(std::memory_order_acquire))if(self)p->loadingCanvas(self,ms::load<uintptr_t>(self+0x28));}
+void onLoadingDestroy(uintptr_t self,uintptr_t method){if(auto* p=published.load(std::memory_order_acquire))p->loadingDestroyed(self);loadingDestroyOriginal(self,method);}
+void onImageEnable(uintptr_t self,uintptr_t method){imageEnableOriginal(self,method);if(auto* p=published.load(std::memory_order_acquire))p->loadingImage(self,true);}
+void onImageDisable(uintptr_t self,uintptr_t method){imageDisableOriginal(self,method);if(auto* p=published.load(std::memory_order_acquire))p->loadingImage(self,false);}
 // The recorded entry bytes (7.1) against this build's: equal, except the immediates that move with the code's address
 // (ADRP / ADR pages, B / BL / conditional branch offsets, literal loads, and the low 12 bits of a load / store / add
 // off a register other than SP: an ADRP's page offset). 7.2's get_gameObject and resource receiver differ only there.
@@ -114,6 +122,15 @@ extern "C" JNIEXPORT void JNICALL Java_com_gibox_tool_NativeBridge_start(JNIEnv*
  runtime=std::move(rt);published.store(runtime.get(),std::memory_order_release);
  int result=DobbyInstrument(reinterpret_cast<void*>(image.base+ms::abi::at(ms::abi::tick)),onTick);
  if(result!=0){published.store(nullptr,std::memory_order_release);runtime.reset();throw std::runtime_error("DobbyInstrument 失败："+std::to_string(result));}bootStatus(pkg,"ready","模型运行时已就绪");
+ // Loading backgrounds: only this build's verified entries; the tiny get_bgImg getter is not patched.
+ if(ms::abi::at(ms::abi::loadingStart)<ms::abi::notFound){
+  struct UiHook{ms::abi::Offset offset;UiLifeFn replacement;UiLifeFn* original;};
+  bool installed=true;size_t hookIndex=0;for(const auto& h:{UiHook{ms::abi::loadingStart,onLoadingStart,&loadingStartOriginal},UiHook{ms::abi::loadingDestroy,onLoadingDestroy,&loadingDestroyOriginal},UiHook{ms::abi::imageEnable,onImageEnable,&imageEnableOriginal},UiHook{ms::abi::imageDisable,onImageDisable,&imageDisableOriginal}}){
+   if(!codeMatches(image.base,ms::abi::loadingChecks[hookIndex++])){installed=false;bootLog(pkg,"loading-image-hook-error","加载界面入口代码不符");continue;}
+   auto address=image.base+ms::abi::at(h.offset);if(DobbyHook(reinterpret_cast<void*>(address),reinterpret_cast<dobby_dummy_func_t>(h.replacement),reinterpret_cast<dobby_dummy_func_t*>(h.original))!=0||!*h.original){installed=false;bootLog(pkg,"loading-image-hook-error","加载图片界面事件挂钩失败");}
+  }
+  if(!codeMatches(image.base,ms::abi::loadingChecks[4])||DobbyHook(reinterpret_cast<void*>(image.base+ms::abi::at(ms::abi::loadingRender)),reinterpret_cast<dobby_dummy_func_t>(onLoadingRender),reinterpret_cast<dobby_dummy_func_t*>(&loadingRenderOriginal))!=0||!loadingRenderOriginal){installed=false;bootLog(pkg,"loading-image-hook-error","加载界面渲染事件挂钩失败");}
+  if(installed)bootLog(pkg,"loading-image-hook","国服加载界面事件已安装");}
  // Replacement at the hand-off; without it the scan still replaces, just not before activation.
  {std::string bad;for(auto& c:ms::abi::handoffChecks)if(!codeMatches(image.base,c)){char b[24];std::snprintf(b,sizeof(b),"0x%llx ",static_cast<unsigned long long>(ms::abi::at(c.rva)));bad+=b;}
   if(!bad.empty())bootLog(pkg,"spawn-hook-disabled","代码不符："+bad);

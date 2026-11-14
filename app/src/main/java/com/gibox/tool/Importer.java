@@ -106,6 +106,8 @@ public final class Importer {
 
     /** The character the mod most likely belongs to, from the name it was imported under and its INI. */
     public static Characters.Guess guess(File mod, String importedAs, File boneRoot) {
+        if(GliderMod.ini(mod)!=null){Characters.Guess g=new Characters.Guess();g.recommended.add(Characters.SCENE_AVATAR);g.evidence="按角色切换的风之翼贴图";return g;}
+        if(LoadingImages.ini(mod)!=null){Characters.Guess g=new Characters.Guess();g.recommended.add(Characters.LOADING_AVATAR);g.evidence="加载图片列表";return g;}
         try { File ini = ModLibrary.schemes(mod).size() > 1 && !ModLibrary.overrides(mod).containsKey("ini") ? ModConfig.geometryInis(mod).get(0) : ModLibrary.mainIni(mod);
             Characters.Guess g = Characters.guess(ini.getParentFile(), ini, importedAs, ModLibrary.library(boneRoot));
             // The INI's hashes, where this device's hash map or the PC database names their character, weigh more than names.
@@ -121,13 +123,15 @@ public final class Importer {
      * the choice in the mod's modelswap.txt, so a re-import or re-conversion keeps it.
      */
     /** The model INIs to choose from (relative paths); fewer than two: nothing to choose. */
-    public static List<String> schemes(File mod) { try { return ModLibrary.schemes(mod); } catch (Exception e) { return new ArrayList<>(); } }
+    public static List<String> schemes(File mod) { try { File glider=GliderMod.ini(mod);if(glider!=null)return Collections.singletonList(ModConfig.relative(mod,glider));File loading=LoadingImages.ini(mod);if(loading!=null)return Collections.singletonList(ModConfig.relative(mod,loading));return ModLibrary.schemes(mod); } catch (Exception e) { return new ArrayList<>(); } }
     /** The chosen scheme, or "" when the package has only one. */
     /** The scheme in effect: the one chosen, else the only model INI XXMI would load (the switched-off ones offered
      *  beside it are a choice, not a question); "" when there is no single one. */
-    public static String scheme(File mod) { String s = ModLibrary.overrides(mod).get("ini"); if (s != null) return s;
+    public static String scheme(File mod) { File glider=GliderMod.ini(mod);if(glider!=null)return ModConfig.relative(mod,glider);File loading=LoadingImages.ini(mod);if(loading!=null)return ModConfig.relative(mod,loading);String s = ModLibrary.overrides(mod).get("ini"); if (s != null) return s;
         try { List<File> on = ModConfig.geometryInis(mod); return on.size() == 1 ? ModConfig.relative(mod, on.get(0)) : ""; } catch (Exception e) { return ""; } }
     public static void setScheme(File mod, String rel) throws Exception {
+        File glider=GliderMod.ini(mod);if(glider!=null&&ModConfig.relative(mod,glider).equals(rel)){ModLibrary.setOverride(mod,"ini",rel);return;}
+        File loading=LoadingImages.ini(mod);if(loading!=null&&ModConfig.relative(mod,loading).equals(rel)){ModLibrary.setOverride(mod,"ini",rel);return;}
         if (ModConfig.scheme(mod, rel) == null) throw new IllegalArgumentException("不是此 MOD 中的模型 INI：" + rel);
         ModLibrary.setOverride(mod, "ini", rel);
     }
@@ -142,9 +146,12 @@ public final class Importer {
     public static boolean animationBoneFallback(File mod) { return "retain-valid".equals(ModLibrary.overrides(mod).get("animationbones")); }
     public static void setAnimationBoneFallback(File mod, boolean enabled) throws Exception { ModLibrary.setOverride(mod, "animationbones", enabled ? "retain-valid" : null); }
     public static Result convert(File mod, int id, File modelsRoot, File boneRoot, ModelConverter.TextureDecoder decoder, StringBuilder log) throws Exception {
+        if(Characters.isLoading(id)){Map<String,String> o=ModLibrary.overrides(mod);String name=ModLibrary.modelName(o.containsKey("name")?o.get("name"):mod.getName());ModLibrary.setOverride(mod,"id",Integer.toString(id));return LoadingImages.install(mod,new File(modelsRoot,name),decoder,log);}
         if (!Characters.isScene(id) && (id < 10000000 || id > 10001999)) throw new IllegalArgumentException("角色 ID 无效：" + id);
+        if(GliderMod.ini(mod)!=null){Json.check(Characters.isScene(id),"此风之翼包请导入到场景 MOD");Map<String,String> o=ModLibrary.overrides(mod);String name=ModLibrary.modelName(o.getOrDefault("name",mod.getName()));ModLibrary.setOverride(mod,"id",Integer.toString(id));return GliderMod.install(mod,new File(modelsRoot,name),decoder,log);}
         File ini = ModLibrary.mainIni(mod), src = ModConfig.switchedOn(mod, ini); ModLibrary.setOverride(mod, "id", Integer.toString(id));
         Map<String, String> o = ModLibrary.overrides(mod); String name = ModLibrary.modelName(o.containsKey("name") ? o.get("name") : mod.getName());
+        if (Characters.isScene(id)) return SceneModels.convert(mod, src, ini, new File(modelsRoot,name), boneRoot.getAbsoluteFile().getParentFile(), decoder, log);
         // The outfit (Outfits, 0.7.94): the one chosen with the character (modelswap.txt "outfit"), else the one the INI's
         // hashes name, else the original. A mod made for another outfit than the one chosen is refused: its bone indices
         // follow that outfit's bone list, and on another outfit the model is torn apart (Shenhe's Frostflower Dew mod on
@@ -159,7 +166,15 @@ public final class Importer {
             outfitNote = "外观：" + outfit.name + "（" + outfit.prefab + "）" + (g.outfit != null ? "；依据 INI 哈希识别：" + g.how
                 : g.conflict.isEmpty() ? "；未能依据 INI 哈希识别外观，按所选外观转换" : "；INI 哈希指向多套外观（" + String.join("、", g.conflict) + "），按所选外观转换");
         }
-        ModLibrary.Character recorded = outfit != null ? ModLibrary.recorded(boneRoot, id, outfit.prefab) : ModLibrary.recorded(boneRoot, id); Characters.Avatar avatar = Characters.byId(id);
+        // The skeleton: the table made from the game's files first (1.0.4: equal, bit for bit, to what the game records),
+        // then the library the game recorded on this device.
+        File sharedDir = boneRoot.getAbsoluteFile().getParentFile(); ModLibrary.Character recorded = null; String boneSource = "";
+        OfflineSkeletons offline = OfflineSkeletons.load(sharedDir);
+        String offlinePrefab = offline == null ? null : offline.prefabFor(id, outfit != null ? outfit.prefab : null);
+        if (offlinePrefab != null) try { recorded = offline.library(offlinePrefab, id, new File(sharedDir, "skeletons-offline")); boneSource = "离线骨骼表（" + offlinePrefab + "）"; }
+            catch (Exception e) { log.append("离线骨骼表不可用：").append(e.getMessage()).append("，改用本机记录的骨骼库\n"); }
+        if (recorded == null) { recorded = outfit != null ? ModLibrary.recorded(boneRoot, id, outfit.prefab) : ModLibrary.recorded(boneRoot, id); if (recorded != null) boneSource = "本机记录的骨骼库"; }
+        Characters.Avatar avatar = Characters.byId(id);
         // A record of a lower level of detail (made right after loading, before 0.6.5) has a shorter bone list than the
         // full model the mod is made for: it is not used. The game records the full model the next time the character appears.
         String lodLibrary = recorded != null ? recorded.lodMesh : ""; if (!lodLibrary.isEmpty()) recorded = null;
@@ -173,6 +188,7 @@ public final class Importer {
         opt.source(mod.getAbsolutePath(), ModLibrary.signature(mod));
         if (outfit != null) { opt.outfit(outfit.prefab); log.append(outfitNote).append('\n'); }
         Result r = new Result(); r.id = id; r.library = recorded != null;
+        if (!boneSource.isEmpty()) log.append("骨骼来源：").append(boneSource).append('\n');
         log.append("角色：").append(Characters.nameOf(id)).append("（").append(id).append("）").append(r.library ? "，使用骨骼库：" + recorded.bones : lodLibrary.isEmpty() ? (outfit != null ? "，骨骼库中尚无此外观" : "，骨骼库中尚无此角色") + "：按游戏原骨骼顺序转换" : "，骨骼库中此角色的记录为低精度模型 " + lodLibrary + "，不使用：按游戏原骨骼顺序转换").append('\n');
         if (!r.library && avatar != null && !avatar.model.isEmpty()) opt.names(avatar.model);
         r.model = ModelConverter.convert(src, r.library ? recorded.bones : null, new File(modelsRoot, name), id, opt, decoder, log);
@@ -182,6 +198,7 @@ public final class Importer {
         r.summary = who + "（" + id + "）" + (r.library ? "：骨骼库已有" + (outfit != null ? "此外观" : "该角色") + "，进入游戏即可替换" : opt.reusedSkeleton ? "：复用本 MOD 已有骨骼记录，目标网格信息已保留"
             : outfit != null && !outfit.original() ? "：骨骼库中尚无此外观，在大世界穿上该外观或在衣装页预览后识别部件"
             : "：骨骼库中尚无该角色，" + (opt.names.isEmpty() ? "需要该角色在大世界出场一次后生效" : "在大世界、队伍界面或角色详情页出现时识别部件"));
+        if (offlinePrefab == null) r.summary += "\n内置表暂无此角色/外观骨骼：打开游戏图鉴中的该角色并停留，或在大世界切换到该角色，软件会自动采集。采集后可在角色页导出骨骼，供补充内置表。";
         for (String l : log.toString().split("\n")) if (l.startsWith("款式变量") || l.startsWith("模型动画：") || l.startsWith("动画骨骼兼容：") || l.contains("个顶点没有权重")) r.summary += "\n" + l;
         return r;
     }

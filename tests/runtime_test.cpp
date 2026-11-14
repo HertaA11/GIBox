@@ -20,6 +20,7 @@ struct Fake {
  Ptr stringBase=0x7020000000ull,base=0,manager=0,owner=0,klass=0,typeObj=0,meshTypeObj=0;unsigned meshFinds=0;std::map<Ptr,Obj> obj;std::vector<void*> allocated;std::map<unsigned,Ptr> handles;unsigned nextHandle=1,nextId=1;
  // Each built part now clones one restoration snapshot and one mod mesh; count both engine allocations.
  unsigned clones=0,meshClones=0,textures=0,weightAllocs=0,typeLookups=0,findCalls=0,findAllCalls=0,childCalls=0,bindposeReads=0;std::map<Ptr,Ptr> goOfRenderer;std::map<Ptr,std::vector<Ptr>> goChildren;Ptr lastWeights=0;std::map<Ptr,std::string> strings;std::string lightProperty;bool failMaterials=false,failFind=false,failPosition=false;
+ std::set<Ptr> inactiveGos;std::map<Ptr,Ptr> extraTypes,filterByGo,rendererByGo,transformByGo;std::vector<Ptr> rigidFilters,rigidTransforms;
  unsigned expectedVertices=3;std::map<Ptr,unsigned> textureBytes;
  std::map<Ptr,Ptr> diffuse;std::map<Ptr,std::map<int32_t,Ptr>> named;std::map<Ptr,float> glow; // material properties copied by Instantiate, including copies made by the game
  std::map<Ptr,unsigned> nameReads,boneReads; // actual engine getter counts, used to check binding hot-path work
@@ -59,6 +60,8 @@ struct Fake {
  ~Fake(){for(void* p:allocated)std::free(p);munmap(reinterpret_cast<void*>(base),0x16000000);}
 }*f=nullptr;
 // The engine reads the renderer through its own native pointer: anything else at that address crashes (0.7.83 tombstone).
+Ptr filterMesh(Ptr p,Ptr){assert(f->obj.at(p).kind=="filter");return f->obj.at(p).mesh;}
+void filterSet(Ptr p,Ptr m,Ptr){assert(f->obj.at(p).kind=="filter");f->obj.at(p).mesh=m;}
 Ptr getMesh(Ptr p,Ptr){assert(load<Ptr>(p)==f->kindClass("renderer")&&"get_sharedMesh on something that is not a renderer");return f->obj.at(p).mesh;}Ptr getMaterials(Ptr p,Ptr){return f->obj.at(p).materials;}Ptr getBones(Ptr p,Ptr){f->boneReads[p]++;return f->obj.at(p).bones;}
 Ptr getName(Ptr p,Ptr){f->nameReads[p]++;auto n=f->obj.at(p).name;Ptr s=f->alloc(0x14+2*n.size());store<uint32_t>(s+0x10,n.size());for(size_t i=0;i<n.size();i++)store<uint16_t>(s+0x14+i*2,n[i]);return s;}
 Ptr clone(Ptr p,Ptr){f->clones++;auto original=f->obj.at(p);if(original.kind!="mesh"){Ptr out=f->object(original.kind,original.name);if(original.kind=="material"){f->diffuse[out]=f->diffuse[p];f->named[out]=f->named[p];f->glow[out]=f->glow[p];}return out;}f->meshClones++;Ptr out=f->mesh(original.name,load<uint32_t>(original.shared+0x74));auto& o=f->obj[out];o.arrays=original.arrays;store<uint64_t>(o.shared+0xe0,load<uint64_t>(original.shared+0xe0));store<uint64_t>(o.native+0x90,load<uint64_t>(original.native+0x90));return out;}
@@ -66,7 +69,7 @@ void destroy(Ptr p,Ptr){store<Ptr>(p+0x10,0);}
 // Object.hideFlags: kept per object (HideFlags.DontUnloadUnusedAsset = 32 on a texture-only mod's textures).
 std::map<Ptr,int> hideFlags;void setHide(Ptr p,int v,Ptr){assert(load<Ptr>(p+0x10));hideFlags[p]=v;}int getHide(Ptr p,Ptr){auto it=hideFlags.find(p);return it==hideFlags.end()?0:it->second;}Ptr parent(Ptr p,Ptr){return f->obj.at(p).parent;}
 uint32_t pin(Ptr p,int,Ptr){auto h=f->nextHandle++;f->handles[h]=p;return h;}void unpin(uint32_t h){assert(f->handles.erase(h)==1);}
-unsigned gameWrites=0;void setMesh(Ptr p,Ptr m,Ptr){gameWrites++;f->obj.at(p).mesh=m;}void setMaterials(Ptr p,Ptr m,Ptr){gameWrites++;if(f->failMaterials){f->failMaterials=false;throw std::runtime_error("fake-material-failure");}f->obj.at(p).materials=m;}
+unsigned gameWrites=0;void setMesh(Ptr p,Ptr m,Ptr){assert(f->obj.at(p).kind=="renderer");gameWrites++;f->obj.at(p).mesh=m;}void setMaterials(Ptr p,Ptr m,Ptr){gameWrites++;if(f->failMaterials){f->failMaterials=false;throw std::runtime_error("fake-material-failure");}f->obj.at(p).materials=m;}
 Ptr newArray(Ptr cls,uint64_t count){return f->array(load<uint16_t>(cls+f->elemAt),count);}void op(Ptr,int,Ptr){}void action(Ptr,Ptr){}
 void submeshCount(Ptr m,int n,Ptr){assert(n>=1);store<uint32_t>(f->obj.at(m).shared+0xc0,n);}
 void sub(Ptr m,Ptr a,int i,Ptr){assert(i>=0&&unsigned(i)<load<uint32_t>(f->obj.at(m).shared+0xc0));unsigned n=unsigned(load<uint64_t>(a+0x18));f->triangles.push_back({m,n});
@@ -88,14 +91,15 @@ unsigned channelSets=0;std::vector<Bytes> channelData;void setChannel(Ptr,Ptr a,
  unsigned stride=load<uint16_t>(load<Ptr>(a)+f->elemAt);channelData.emplace_back(reinterpret_cast<const uint8_t*>(a+0x20),reinterpret_cast<const uint8_t*>(a+0x20)+size_t(f->expectedVertices)*stride);}void setPos(Ptr p,Ptr a,Ptr){if(f->failPosition){f->failPosition=false;throw std::runtime_error("fake-animation-channel-error");}store<uint32_t>(f->obj.at(p).shared+0x74,load<uint64_t>(a+0x18));}void setAny(Ptr,Ptr,Ptr){}
 Ptr classFromType(Ptr t,int init){assert(init==1&&load<uint8_t>(t+0xa)!=0);f->typeLookups++;for(auto& kv:f->kinds)if(t==kv.second+0x98)return kv.second;return f->alloc(0x10);}
 Ptr typeObject(Ptr t){if(t==f->kindClass("mesh")+0x98){if(!f->meshTypeObj){f->meshTypeObj=f->alloc(0x20);store<Ptr>(f->meshTypeObj+0x10,t);}return f->meshTypeObj;}
- assert(t==f->klass+0x98);if(!f->typeObj){f->typeObj=f->alloc(0x20);store<Ptr>(f->typeObj+0x10,t);}return f->typeObj;}
-Ptr goOf(Ptr r,Ptr){assert(f->obj.at(r).kind=="renderer"||f->obj.at(r).kind=="transform");auto it=f->goOfRenderer.find(r);if(it!=f->goOfRenderer.end())return it->second;Ptr g=f->object("gameobject","GO");f->goOfRenderer[r]=g;return g;}
-Ptr children(Ptr go,Ptr type,uint32_t inactive,Ptr){assert(f->obj.at(go).kind=="gameobject"&&type&&type==f->typeObj&&inactive==1);f->childCalls++;auto& v=f->goChildren[go];return f->array(8,v.size(),v.data());}
+ if(t!=f->klass+0x98){for(const auto& k:f->kinds)if(t==k.second+0x98){auto& type=f->extraTypes[t];if(!type){type=f->alloc(0x20);store<Ptr>(type+0x10,t);}return type;}assert(false);}
+ if(!f->typeObj){f->typeObj=f->alloc(0x20);store<Ptr>(f->typeObj+0x10,t);}return f->typeObj;}
+Ptr goOf(Ptr r,Ptr){assert(f->obj.at(r).kind=="renderer"||f->obj.at(r).kind=="transform"||f->obj.at(r).kind=="filter"||f->obj.at(r).kind=="rigidrenderer");auto it=f->goOfRenderer.find(r);if(it!=f->goOfRenderer.end())return it->second;Ptr g=f->object("gameobject","GO");f->goOfRenderer[r]=g;return g;}
+Ptr children(Ptr go,Ptr type,uint32_t inactive,Ptr){assert(f->obj.at(go).kind=="gameobject"&&type&&inactive==1);if(type!=f->typeObj){assert(type==f->extraTypes.at(f->kindClass("transform")+0x98));return f->array(8,f->rigidTransforms.size(),f->rigidTransforms.data());}f->childCalls++;auto& v=f->goChildren[go];return f->array(8,v.size(),v.data());}
 // Scripting::ScriptingWrapperFor: the managed object of a native one.
 Ptr wrapperFor(Ptr native){for(auto& kv:f->obj)if(kv.second.native==native)return kv.first;return 0;}
 Ptr findNative(Ptr type,int mode){if(type&&type==f->meshTypeObj){assert(mode==2);f->meshFinds++;std::vector<Ptr> all;for(auto& kv:f->obj)if(kv.second.kind=="mesh"&&load<Ptr>(kv.first+0x10))all.push_back(kv.first);return f->array(8,all.size(),all.data());}
  assert(type&&type==f->typeObj&&mode==2);f->findAllCalls++;if(f->failFind)throw std::runtime_error("fake-find-failure");std::vector<Ptr> all=f->scene;all.insert(all.end(),f->assets.begin(),f->assets.end());return f->array(8,all.size(),all.data());}
-Ptr findObjects(Ptr type,Ptr){assert(type&&type==f->typeObj);f->findCalls++;if(f->failFind)throw std::runtime_error("fake-find-failure");return f->array(8,f->scene.size(),f->scene.data());}
+Ptr findObjects(Ptr type,Ptr){if(type!=f->typeObj){assert(type&&type==f->extraTypes.at(f->kindClass("filter")+0x98));return f->array(8,f->rigidFilters.size(),f->rigidFilters.data());}assert(type);f->findCalls++;if(f->failFind)throw std::runtime_error("fake-find-failure");return f->array(8,f->scene.size(),f->scene.data());}
 // Material read-back: _MainTex (#5) is the main texture, other names above 100; Time.frameCount counts up per call.
 int32_t engineFrame(){static int32_t n=100;return ++n;}
 Ptr matShader(Ptr,Ptr){static Ptr s=f->object("shader","miHoYo/Character/Body");return s;}
@@ -114,7 +118,8 @@ int32_t texSide(Ptr t,Ptr){assert(t&&load<Ptr>(t+0x10));return 4;}int32_t texFor
 // The game's LOD loaders (MiHoYoLodLoader): found by GameObject.GetComponent("MiHoYoLodLoader"); level byte 0xff while
 // the loader switches by itself, else the level it is held at (IsLodLoaderSelfPaused: != 0xff).
 std::map<Ptr,Ptr> lodOnGo;std::map<Ptr,unsigned> lodHeld,lodNow;unsigned lodLookups=0;
-Ptr byName(Ptr go,Ptr name,Ptr){assert(f->obj.at(go).kind=="gameobject"&&f->strings.at(name)=="MiHoYoLodLoader");lodLookups++;auto it=lodOnGo.find(go);return it==lodOnGo.end()?0:it->second;}
+Ptr byName(Ptr go,Ptr name,Ptr){assert(f->obj.at(go).kind=="gameobject");auto label=f->strings.at(name);if(label=="Transform")return f->transformByGo[go];if(label=="MeshFilter")return f->filterByGo[go];if(label=="MeshRenderer")return f->rendererByGo[go];assert(label=="MiHoYoLodLoader");lodLookups++;auto it=lodOnGo.find(go);return it==lodOnGo.end()?0:it->second;}
+uint32_t gameObjectActive(Ptr go,Ptr){assert(f->obj.at(go).kind=="gameobject");return f->inactiveGos.count(go)?0:1;}
 uint32_t lodSelf(Ptr l,Ptr){assert(f->obj.at(l).kind=="lodloader");return lodHeld[l]!=0xff;}
 void lodPauseAt(Ptr l,int32_t level,Ptr){assert(f->obj.at(l).kind=="lodloader"&&level>=0&&level<=7);lodHeld[l]=unsigned(level);lodNow[l]=unsigned(level);}
 void lodResumeFn(Ptr l,Ptr){assert(f->obj.at(l).kind=="lodloader");lodHeld[l]=0xff;}
@@ -123,7 +128,7 @@ Ptr resolve(abi::Offset o){switch(o){
  case abi::componentByName:return reinterpret_cast<Ptr>(&byName);case abi::lodSelfPaused:return reinterpret_cast<Ptr>(&lodSelf);case abi::lodPause:return reinterpret_cast<Ptr>(&lodPauseAt);
  case abi::lodResume:return reinterpret_cast<Ptr>(&lodResumeFn);case abi::lodCurrent:return reinterpret_cast<Ptr>(&lodLevelNow);
 #define FN(x,y) case abi::x:return reinterpret_cast<Ptr>(&y)
- FN(getMesh,getMesh);FN(getMaterials,getMaterials);FN(getBones,getBones);FN(getName,getName);FN(getParent,parent);FN(clone,clone);FN(destroy,destroy);FN(pin,pin);FN(unpin,unpin);FN(setMesh,setMesh);FN(setMaterials,setMaterials);FN(arrayNew,newArray);FN(getBindposes,getBinds);FN(getPositions,getPos);FN(getUV,getUV);FN(getTriangles,getIdx);FN(getColors,getColors);FN(getTangents,getTangents);FN(setColors,setChannel);FN(setTangents,setChannel);FN(setUV2,setChannel);FN(setPositions,setPos);FN(setNormals,setAny);FN(setUV,setAny);FN(setTriangles,setAny);FN(setReadable,op);FN(setIndexFormat,op);FN(setSubmeshCount,submeshCount);FN(meshUpload,op);FN(meshFinish,action);FN(meshDynamic,action);FN(setSubmeshTriangles,sub);FN(textureType,texType);FN(objectNew,objectNew);FN(textureInit,texInit);FN(texturePixels,texPixels);FN(textureApply,action);FN(setHideFlags,setHide);FN(getHideFlags,getHide);FN(mainTexture,setMainTexture);FN(newString,newString);FN(nativeAlloc,nativeAlloc);FN(hasProperty,hasProp);FN(setTexture,setTex);FN(classFromType,classFromType);FN(typeObject,typeObject);FN(findObjectsOfType,findObjects);FN(findObjectsNative,findNative);FN(componentsInChildren,children);FN(gameObject,goOf);FN(wrapperFor,wrapperFor);
+ FN(goActive,gameObjectActive);FN(filterMesh,filterMesh);FN(filterSetMesh,filterSet);FN(getMesh,getMesh);FN(getMaterials,getMaterials);FN(getBones,getBones);FN(getName,getName);FN(getParent,parent);FN(clone,clone);FN(destroy,destroy);FN(pin,pin);FN(unpin,unpin);FN(setMesh,setMesh);FN(setMaterials,setMaterials);FN(arrayNew,newArray);FN(getBindposes,getBinds);FN(getPositions,getPos);FN(getUV,getUV);FN(getTriangles,getIdx);FN(getColors,getColors);FN(getTangents,getTangents);FN(setColors,setChannel);FN(setTangents,setChannel);FN(setUV2,setChannel);FN(setPositions,setPos);FN(setNormals,setAny);FN(setUV,setAny);FN(setTriangles,setAny);FN(setReadable,op);FN(setIndexFormat,op);FN(setSubmeshCount,submeshCount);FN(meshUpload,op);FN(meshFinish,action);FN(meshDynamic,action);FN(setSubmeshTriangles,sub);FN(textureType,texType);FN(objectNew,objectNew);FN(textureInit,texInit);FN(texturePixels,texPixels);FN(textureApply,action);FN(setHideFlags,setHide);FN(getHideFlags,getHide);FN(mainTexture,setMainTexture);FN(newString,newString);FN(nativeAlloc,nativeAlloc);FN(hasProperty,hasProp);FN(setTexture,setTex);FN(classFromType,classFromType);FN(typeObject,typeObject);FN(findObjectsOfType,findObjects);FN(findObjectsNative,findNative);FN(componentsInChildren,children);FN(gameObject,goOf);FN(wrapperFor,wrapperFor);
  FN(meshSubmeshes,meshSubs);FN(meshVertices,meshVerts);FN(meshReadable,meshReadable);FN(meshIndexStart,meshStart);FN(meshIndexCount,meshCount);
  FN(textureWidth,texSide);FN(textureHeight,texSide);FN(textureFormat,texFormat);FN(textureMips,texMips);
  FN(frameCount,engineFrame);FN(getShader,matShader);FN(getTexture,matTexture);FN(getTextureIds,matTextureIds);FN(propertyToId,propertyToId);
@@ -132,7 +137,7 @@ Ptr resolve(abi::Offset o){switch(o){
 bool alive(Ptr p){return p&&load<Ptr>(p+0x10);}
 }
 int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // the engine allocation path (the default); the logic-key block below runs the reuse path
- char temp[]="/tmp/model-runtime-XXXXXX";assert(mkdtemp(temp));std::string root=temp,pkg="com.miHoYo.Yuanshen",media=root+"/media",shared=media+"/"+pkg+"/GIBox",models=shared+"/models",boneRoot=shared+"/skeletons";
+ std::string temp=std::string(std::getenv("TMPDIR")?std::getenv("TMPDIR"):"/tmp")+"/model-runtime-XXXXXX";assert(mkdtemp(&temp[0]));std::string root=temp,pkg="com.miHoYo.Yuanshen",media=root+"/media",shared=media+"/"+pkg+"/GIBox",models=shared+"/models",boneRoot=shared+"/skeletons";
  writeModel(models+"/A");writeModel(models+"/B");
  // Model B carries a real 1x1 diffuse and a LightMap, so its material builds two textures.
  {Spec b;b.textures=true;b.channels=true;writeModel(models+"/B",b);}
@@ -221,7 +226,7 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
  // 9. Disable restores every renderer and releases every handle.
  control(false,2,1,{"V"});runtime.tick(16000);assert(state()=="disabled"&&meshOf(world2)==original&&meshOf(other)==otherMesh&&f->handles.empty());
  // 10. Load failure latches per generation; a control change retries.
- write(models+"/A/model.bin","bad");control(true,2,1,{"A"});runtime.tick(16100);assert(state()=="error"&&meshOf(world2)==original&&f->handles.empty());
+ write(models+"/A/model.bin","bad");control(true,2,1,{"A"});runtime.tick(16100);assert(state()=="error"&&meshOf(world2)==original);
  unsigned built=f->meshClones;runtime.tick(16700);assert(f->meshClones==built);
  writeModel(models+"/A",Spec().gen("5"));control(true,3,1,{"A"});runtime.tick(16800);assert(state()=="active");
  // 11. Attaching fails after the mesh was set: the renderer gets its original mesh back and the error is reported.
@@ -910,6 +915,104 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
    assert(meshOf(w)==baseMesh&&has("外观不符：当前角色的外观为 avatar_girl_catalyst_citlali，此 MOD 适用于 avatar_girl_catalyst_citlalicostumexia"));
    f->world(ws);f->scene={ws};for(int i=4;i<10;i++)gate.tick(t+600*i);assert(meshOf(ws)!=skinMesh&&meshOf(w)==baseMesh);
    gate.shutdown();assert(meshOf(ws)==skinMesh&&f->handles.empty());}}
+ // A different character in the archive: collect under its own ID, even with replacement off; built-ins stay untouched.
+ {std::string mediaP=root+"/mediaPolicy",sp=mediaP+"/"+pkg+"/GIBox";
+  std::filesystem::create_directories(sp);
+  write(sp+"/skeleton-policy.json",R"J({"models":{"citlali":10000107,"vodyanitsa":10000140},"outfits":{},"builtin":["avatar_girl_catalyst_citlali"]})J");
+  write(sp+"/control.json",R"J({"enabled":false,"selected":[]})J");
+  Ptr vr=f->object("transform","Avatar_Girl_Catalyst_Vodyanitsa_Manekin"),v=f->renderer(f->mesh(),"BoneA","Body",vr);
+  Ptr w=f->renderer(f->mesh());f->world(w);f->scene={w,v};
+  {Runtime rt(e,pkg,root+"/privatePolicy",mediaP,false);for(uint64_t t=8500000;t<8510000;t+=500)rt.tick(t);
+   auto path=sp+"/skeletons/10000140/skeleton.json";assert(exists(path)&&text(path).find("Vodyanitsa")!=std::string::npos);
+   assert(!exists(sp+"/skeletons/10000107/skeleton.json"));
+   auto before=text(path);write(sp+"/control.json",R"J({"enabled":false,"selected":[],"refreshBones":1,"refreshBonesCharacter":10000140})J");
+   for(uint64_t t=8510000;t<8520000;t+=500)rt.tick(t);
+   assert(exists(sp+"/bone-refresh-result.json")&&text(sp+"/bone-refresh-result.json").find("10000140")!=std::string::npos&&text(path)==before);
+   rt.shutdown();assert(f->handles.empty());}
+  std::filesystem::remove(sp+"/skeletons/10000140/skeleton.json");
+  write(sp+"/skeleton-policy.json",R"J({"models":{"citlali":10000107,"vodyanitsa":10000140},"outfits":{},"builtin":["avatar_girl_catalyst_citlali","avatar_girl_catalyst_vodyanitsa"]})J");
+  write(sp+"/control.json",R"J({"enabled":false,"selected":[]})J");
+  {Runtime rt(e,pkg,root+"/privatePolicy2",mediaP,false);for(uint64_t t=8520000;t<8530000;t+=500)rt.tick(t);
+   assert(!exists(sp+"/skeletons/10000140/skeleton.json"));
+   write(sp+"/control.json",R"J({"enabled":false,"selected":[],"refreshBones":2,"refreshBonesCharacter":10000140})J");
+   for(uint64_t t=8530000;t<8540000;t+=500)rt.tick(t);
+   assert(exists(sp+"/skeletons/10000140/skeleton.json")&&text(sp+"/bone-refresh-result.json").find("\"request\":2")!=std::string::npos);
+   rt.shutdown();assert(f->handles.empty());}
+  f->world(0);f->scene={};}
+ {std::string mediaN=root+"/mediaNpc",sharedN=mediaN+"/"+pkg+"/GIBox";
+  std::filesystem::create_directories(sharedN);
+  write(sharedN+"/skeleton-policy.json",R"J({"models":{"citlali":10000107},"outfits":{},"builtin":["avatar_girl_catalyst_citlali"],"npcs":{"npc_avatar_girl_catalyst_citlali":"avatar_girl_catalyst_citlali"}})J");
+  Spec spec;spec.withTarget(fixture::target("Body"));writeModel(sharedN+"/models/Sync",spec);
+  Ptr entity=load<Ptr>(load<Ptr>(load<Ptr>(f->manager+kList)+0x10)+0x20);store<uint32_t>(entity+kConfig,10000107);
+  Ptr original=f->mesh(),w=f->renderer(original);f->world(w);
+  Ptr npcRoot=f->object("transform","NPC_Avatar_Girl_Catalyst_Citlali(Clone)");
+  Ptr n1=f->renderer(original,"BoneA","Body",npcRoot),n2=f->renderer(original,"BoneA","Body",npcRoot);
+  Ptr otherRoot=f->object("transform","NPC_Avatar_Girl_Catalyst_Other(Clone)"),other=f->renderer(original,"BoneA","Body",otherRoot);
+  Ptr badMesh=f->mesh(),bad=f->renderer(badMesh,"BoneA","Body",npcRoot);store<float>(f->obj[badMesh].arrays[abi::getBindposes]+0x20+48,2.f);
+  Ptr reorderedMesh=f->mesh(),reordered=f->renderer(reorderedMesh,"BoneA","Body",npcRoot),bone=load<Ptr>(f->obj[reordered].bones+0x20),extra=f->object("bone","Extra");f->obj[extra].parent=npcRoot;
+  Ptr bones2[2]={extra,bone};f->obj[reordered].bones=f->array(8,2,bones2);
+  Bytes matrix(128);for(int j=0;j<2;j++)for(int k=0;k<4;k++)store<float>(reinterpret_cast<Ptr>(matrix.data())+64*j+20*k,1.f);
+  f->obj[reorderedMesh].arrays[abi::getBindposes]=f->array(64,2,matrix.data());store<uint64_t>(f->obj[reorderedMesh].shared+0xe0,2);
+  f->scene={w,n1,n2,other,bad,reordered};
+  auto controlNpc=[&](bool on,bool mod=true){write(sharedN+"/control.json",std::string("{\"enabled\":true,\"selected\":")+(mod?"[\"Sync\"]":"[]")+",\"npcModels\":"+(on?"true":"false")+"}");};
+  controlNpc(false);uint64_t t=8600000;
+  {Runtime rt(e,pkg,root+"/privateNpc",mediaN,false);auto run=[&](uint64_t ms){for(uint64_t end=t+ms;t<end;t+=100)rt.tick(t);};run(3000);
+   assert(meshOf(w)!=original&&meshOf(n1)==original&&meshOf(n2)==original&&meshOf(reordered)==reorderedMesh);
+   controlNpc(true);run(4000);
+   assert(meshOf(n1)!=original&&meshOf(n2)!=original&&meshOf(other)==original&&meshOf(bad)==badMesh);
+   assert(meshOf(reordered)!=reorderedMesh);
+   Ptr data=load<Ptr>(load<Ptr>(meshOf(reordered)+0x10)+0x48),weights=load<Ptr>(data+0xf0);assert(load<uint32_t>(weights+16)==1);
+   controlNpc(false);run(1000);assert(meshOf(w)!=original&&meshOf(n1)==original&&meshOf(n2)==original&&meshOf(reordered)==reorderedMesh);
+   controlNpc(true);run(1000);assert(meshOf(n1)!=original);
+   controlNpc(true,false);run(1000);assert(meshOf(w)==original&&meshOf(n1)==original&&meshOf(n2)==original&&meshOf(reordered)==reorderedMesh);
+   rt.shutdown();assert(f->handles.empty());}
+  // Only an NPC present: the embedded source palette allows building without controlling that character first.
+  Ptr otherPlayer=f->renderer(f->mesh("OtherBody",4),"BoneA","Body",f->kavehRoot);f->world(otherPlayer);f->scene={otherPlayer,n1};store<uint32_t>(entity+kConfig,10000200);controlNpc(true);t+=100000;
+  {Runtime rt(e,pkg,root+"/privateNpcOnly",mediaN,false);for(uint64_t end=t+4000;t<end;t+=100)rt.tick(t);
+   assert(meshOf(n1)!=original);rt.shutdown();assert(meshOf(n1)==original&&f->handles.empty());}
+  store<uint32_t>(entity+kConfig,10000107);f->world(0);f->scene={};}
+
+ // Independent NPC/monster and skinned weapon imports never inherit the controlled avatar's identity.
+ {std::string mediaI=root+"/mediaIndependent",sp=mediaI+"/"+pkg+"/GIBox";
+  auto sceneSpec=[&](const std::string& owner){Spec spec;spec.id=1;spec.withTarget(fixture::target("Body"));
+   spec.edit=[owner](std::string& json){fixture::replaceIn(json,"\"id\":1,\"names\":[]","\"id\":1,\"names\":[],\"targets\":[{\"target\":"+fixture::target("Body")+",\"owners\":["+quote(owner)+"]}]");};return spec;};
+  writeModel(sp+"/models/SceneNpc",sceneSpec("npc_katheryne"));
+  Ptr original=f->mesh(),npcRoot=f->object("transform","NPC_Katheryne(Clone)"),monsterRoot=f->object("transform","Monster_Test(Clone)"),wrongRoot=f->object("transform","NPC_Other(Clone)");
+  Ptr n1=f->renderer(original,"BoneA","Body",npcRoot),n2=f->renderer(original,"BoneA","Body",npcRoot),wrong=f->renderer(original,"BoneA","Body",wrongRoot);
+  Ptr monster=f->renderer(original,"BoneA","Body",monsterRoot),weapon=f->renderer(original,"BoneA","Equip_Bow_Test",f->skeletonRoot),wrongWeapon=f->renderer(original,"BoneA","Equip_Bow_Other",f->skeletonRoot);
+  Ptr badMesh=f->mesh(),bad=f->renderer(badMesh,"BoneA","Body",npcRoot);store<float>(f->obj[badMesh].arrays[abi::getBindposes]+0x20+48,2.f);
+  Ptr player=f->renderer(original);f->world(player);f->scene={player,n1,n2,wrong,monster,weapon,wrongWeapon,bad};
+  writeModel(sp+"/models/SceneMonster",sceneSpec("monster_test"));writeModel(sp+"/models/SceneWeapon",sceneSpec("@renderer:Equip_Bow_Test"));
+  write(sp+"/control.json",R"J({"enabled":true,"npcModels":false,"selected":["SceneNpc","SceneMonster","SceneWeapon"]})J");
+  {Runtime rt(e,pkg,root+"/privateIndependent",mediaI,false);uint64_t t=8800000;auto run=[&](uint64_t ms){for(uint64_t end=t+ms;t<end;t+=100)rt.tick(t);};run(5000);
+   assert(meshOf(n1)!=original&&meshOf(n2)!=original&&meshOf(monster)!=original&&meshOf(weapon)!=original);
+   assert(meshOf(player)==original&&meshOf(wrong)==original&&meshOf(wrongWeapon)==original&&meshOf(bad)==badMesh);
+   // A pooled NPC can change its owner while retaining our mesh: restore before it represents another target.
+   Ptr bone=load<Ptr>(f->obj[n2].bones+0x20);f->obj[bone].parent=wrongRoot;run(1000);assert(meshOf(n2)==original);
+   write(sp+"/control.json",R"J({"enabled":true,"selected":[]})J");run(1000);
+   assert(meshOf(n1)==original&&meshOf(monster)==original&&meshOf(weapon)==original);
+   rt.shutdown();assert(f->handles.empty());}
+  f->world(0);f->scene={};}
+
+ // Static weapons use MeshFilter exclusively: no bone getter, skin allocation or skinned renderer setter.
+ {std::string mediaR=root+"/mediaRigid",sp=mediaR+"/"+pkg+"/GIBox";
+  auto target=fixture::target("Equip_Sword_Test");fixture::replaceIn(target,"\"bones\":1","\"bones\":0");
+  Spec spec;spec.id=1;spec.withTarget(target);spec.edit=[target](std::string& json){fixture::replaceIn(json,"\"id\":1,\"names\":[]","\"id\":1,\"names\":[],\"targets\":[{\"target\":"+target+",\"owners\":[\"@renderer:equip_sword_test\"]}]");};
+  writeModel(sp+"/models/Sword",spec);Ptr player=f->renderer(f->mesh());f->world(player);f->scene={player};
+  Ptr original=f->mesh("Equip_Sword_Test");store<uint64_t>(f->obj[original].shared+0xe0,0);store<uint32_t>(f->obj[original].shared+0xf8,0);f->obj[original].arrays[abi::getBindposes]=f->array(64,0);
+  auto weapon=[&](const char* name){Ptr filter=f->object("filter",name),renderer=f->object("rigidrenderer",name),go=f->object("gameobject",name),t=f->object("transform",name);
+   f->obj[filter].mesh=original;f->obj[renderer].materials=f->obj[player].materials;f->goOfRenderer[filter]=go;f->goOfRenderer[renderer]=go;f->goOfRenderer[t]=go;f->filterByGo[go]=filter;f->rendererByGo[go]=renderer;f->rigidFilters.push_back(filter);f->rigidTransforms.push_back(t);return std::make_pair(filter,renderer);};
+  auto sword=weapon("Equip_Sword_Test"),other=weapon("WrongSword");unsigned allocs=f->weightAllocs;
+  write(sp+"/control.json",R"J({"enabled":true,"selected":["Sword"]})J");
+  {Runtime rt(e,pkg,root+"/privateRigid",mediaR,false);uint64_t t=8900000;auto run=[&](uint64_t ms){for(uint64_t end=t+ms;t<end;t+=100)rt.tick(t);};run(5000);
+   assert(f->obj[sword.first].mesh!=original&&f->obj[other.first].mesh==original&&f->weightAllocs==allocs&&f->boneReads[sword.second]==0);
+   Ptr ours=f->obj[sword.first].mesh;assert(load<uint64_t>(f->obj[ours].shared+0xe0)==0);
+   f->obj[sword.first].mesh=original;run(100);assert(f->obj[sword.first].mesh==ours);
+   auto copied=weapon("Equip_Sword_Test");f->obj[copied.first].mesh=ours;f->obj[copied.second].materials=f->obj[sword.second].materials;run(2500);
+   assert(f->obj[copied.first].mesh==ours);
+   write(sp+"/control.json",R"J({"enabled":true,"selected":[]})J");run(1000);assert(f->obj[sword.first].mesh==original&&f->obj[copied.first].mesh==original);
+   rt.shutdown();assert(f->handles.empty());}
+  f->rigidFilters.clear();f->rigidTransforms.clear();f->world(0);f->scene={};}
  // 50. Merged draws: neighbours with the same material row share a submesh, their index ranges joined in draw order.
  //     A draw hidden by the variant between two of them is not drawn, ranges that continue each other become one, a
  //     neighbour with another material keeps its own submesh and slot, and switching back reads the model's indices
@@ -1410,6 +1513,47 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
   destroy(handed,0);f->scene={body,twin};run(2000);
   assert(f->diffuse[mat]==ours&&count("TexMod：Body#")>=1&&text(logC).find("不再是替换目标")==std::string::npos);
   c.shutdown();assert(f->diffuse[mat]==gameTex&&f->diffuse[tmat]==gameTex&&f->handles.size()==handles0);}   // earlier blocks leave their own handles
+ // Gliders choose the renderer's actual owner, including a reused renderer, never the controlled avatar.
+ {size_t handles0=f->handles.size();std::string media=root+"/glider-media",shared=media+"/"+pkg+"/GIBox",mod=shared+"/models/Gliders";
+  std::filesystem::create_directories(mod+"/textures");Bytes px(16,17);write(mod+"/textures/0.rgba",px.data(),px.size());px.assign(16,34);write(mod+"/textures/1.rgba",px.data(),px.size());
+  write(shared+"/skeleton-policy.json",R"J({"models":{"citlali":10000107,"kaveh":10000081},"outfits":{},"builtin":[],"npcs":{}})J");
+  write(shared+"/control.json",R"J({"enabled":true,"selected":["Gliders"],"textureMods":{"strategy":"direct"}})J");
+  write(mod+"/texture.json",R"J({"format":"gibox-texture-mod","version":1,"name":"Gliders","generation":"g1","character":{"id":1},"variants":{"vars":[],"default":{}},"textures":[{"resource":"a","file":"textures/0.rgba","width":2,"height":2},{"resource":"b","file":"textures/1.rgba","width":2,"height":2},{"resource":"unseen","file":"textures/2.rgba","width":2,"height":2}],"diag":{"format":"gibox-texture-diag","version":1,"name":"Gliders","character":1,"rules":[{"section":"CitlaliWing","kind":"glider-owner","ownerId":10000107,"textures":[{"resource":"a","role":"diffuse","slot":"ps-t0"}]},{"section":"KavehWing","kind":"glider-owner","ownerId":10000081,"textures":[{"resource":"b","role":"diffuse","slot":"ps-t0"}]},{"section":"UnseenWing","kind":"glider-owner","ownerId":10000099,"textures":[{"resource":"unseen","role":"diffuse","slot":"ps-t0"}]}],"resources":[]}})J");
+  std::string manifest=text(mod+"/texture.json"),moreTextures,moreRules,policy="{\"models\":{\"citlali\":10000107,\"kaveh\":10000081},\"outfits\":{";
+  for(int i=0;i<11;i++){auto n=std::to_string(i);write(mod+"/textures/"+std::to_string(10+i)+".rgba",px.data(),px.size());
+   moreTextures+=",{\"resource\":\"c"+n+"\",\"file\":\"textures/"+std::to_string(10+i)+".rgba\",\"width\":2,\"height\":2}";
+   moreRules+=",{\"section\":\"Cache"+n+"\",\"kind\":\"glider-owner\",\"ownerId\":"+std::to_string(10000100+i)+",\"ownerAvatar\":\"avatar_test_"+n+"\",\"textures\":[{\"resource\":\"c"+n+"\",\"role\":\"diffuse\",\"slot\":\"ps-t0\"}]}";
+   policy+=(i?",":"")+std::string("\"avatar_test_")+n+"\":"+std::to_string(10000100+i);}
+  fixture::replaceIn(manifest,"],\"diag\":",moreTextures+"],\"diag\":");fixture::replaceIn(manifest,"],\"resources\":[]",moreRules+"],\"resources\":[]");write(mod+"/texture.json",manifest);write(shared+"/skeleton-policy.json",policy+"},\"builtin\":[],\"npcs\":{}}");
+  Ptr cr=f->object("transform","Avatar_Girl_Catalyst_Citlali"),kr=f->object("transform","Avatar_Boy_Sword_Kaveh"),unknown=f->object("transform","Scene");
+  Ptr body=f->renderer(f->mesh("Body"),"Bip001","Body",cr);f->world(body);Ptr mat=load<Ptr>(f->obj[body].materials+0x20),gameTex=f->object("texture","GameDiffuse");f->diffuse[mat]=gameTex;
+  auto wing=[&](Ptr root0){Ptr r=f->renderer(f->mesh("Flycloak_Normal_Model"),"Wing","Flycloak_Normal_Model",unknown);f->obj[r].materials=f->obj[body].materials;Ptr go=f->object("gameobject","WingGO"),t=f->object("transform","Flycloak");f->goOfRenderer[r]=go;f->transformByGo[go]=t;f->obj[t].parent=root0;return std::make_pair(r,t);};
+  auto a=wing(cr),b=wing(kr),orphan=wing(unknown);f->scene={body,a.first,b.first,orphan.first};unsigned made=f->textures;
+  Ptr staticMesh=f->mesh("Flycloak_Normal_Model"),filter=f->object("filter","Flycloak_Normal_Model"),staticWing=f->object("rigidrenderer","Flycloak_Normal_Model"),staticGo=f->object("gameobject","StaticWing"),staticTransform=f->object("transform","Flycloak");
+  store<uint64_t>(f->obj[staticMesh].shared+0xe0,0);f->obj[filter].mesh=staticMesh;f->obj[staticWing].materials=f->obj[body].materials;f->obj[staticTransform].parent=cr;
+  for(Ptr component:{filter,staticWing,staticTransform}){f->goOfRenderer[component]=staticGo;}f->filterByGo[staticGo]=filter;f->rendererByGo[staticGo]=staticWing;f->transformByGo[staticGo]=staticTransform;f->rigidFilters={filter};f->rigidTransforms={staticTransform};
+
+  f->scene={body};f->rigidTransforms.clear();
+  Runtime c(e,pkg,root+"/glider-private",media,false);uint64_t clock=7870000;auto run=[&](unsigned ms){for(uint64_t end=clock+ms;clock<end;clock+=100){c.tick(clock);}};
+  run(500);assert(f->textures==made+1); // Only the controlled owner's picture is prepared before a wing appears.
+  f->scene={body,a.first,b.first,orphan.first};f->rigidTransforms={staticTransform};run(3500);
+  auto material=[&](Ptr r){return load<Ptr>(f->obj[r].materials+0x20);};
+  if(std::getenv("GLIDER_PRINT")){std::cerr<<text(shared+"/GIBox Log.txt");}
+  assert(material(a.first)!=mat&&material(b.first)!=mat&&material(a.first)!=material(b.first));assert(f->diffuse[material(a.first)]!=f->diffuse[material(b.first)]&&f->diffuse[mat]==gameTex&&material(orphan.first)==mat&&f->textures==made+2);
+  assert(material(staticWing)!=mat&&f->diffuse[material(staticWing)]==f->diffuse[material(a.first)]&&f->boneReads[staticWing]==0);
+  // A live wing can fall out of the global scene snapshot; full matching must keep the quick pass's slot.
+  Ptr stable=material(a.first);f->scene={body,b.first,orphan.first};run(3000);assert(material(a.first)==stable);
+  // Hidden pooled wings restore, and a newly created child is discovered without a 2 s global scan.
+  f->inactiveGos.insert(f->goOfRenderer[a.first]);run(600);assert(material(a.first)==mat);
+  auto child=wing(cr);f->goChildren[goOf(cr,0)]={child.first};run(200);assert(material(child.first)!=mat);
+  f->inactiveGos.erase(f->goOfRenderer[a.first]);f->goChildren[goOf(cr,0)].push_back(a.first);run(200);assert(material(a.first)!=mat);
+  Ptr kavehTex=f->diffuse[material(b.first)];f->obj[a.second].parent=kr;run(1500);assert(f->diffuse[material(a.first)]==kavehTex&&f->diffuse[mat]==gameTex);
+  f->obj[a.second].parent=unknown;run(1500);assert(material(a.first)==mat&&material(b.first)!=mat);
+  std::vector<Ptr> cached;f->obj[a.second].parent=cr;
+  for(int i=0;i<11;i++){f->obj[cr].name="Avatar_Test_"+std::to_string(i);run(1500);assert(material(a.first)!=mat);cached.push_back(f->diffuse[material(a.first)]);}
+  unsigned aliveCached=0;for(Ptr t:cached){aliveCached+=load<Ptr>(t+0x10)!=0;}assert(aliveCached<=8&&load<Ptr>(cached.front()+0x10)==0);
+  c.shutdown();assert(material(b.first)==mat&&material(staticWing)==mat&&material(child.first)==mat&&f->diffuse[mat]==gameTex&&f->handles.size()==handles0);f->rigidFilters.clear();f->rigidTransforms.clear();
+ }
  // 42c. NPC / monster texture mods (1.0.3): "character" 1, no AvatarId. A rule's index-buffer hash names a mesh in this
  //      device's hash table; every active renderer of the scene showing it has the submesh at match_first_index written,
  //      whoever is controlled; a renderer that goes is put back. With the hashes read ("match"), an upload of a hash not
@@ -1469,6 +1613,39 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
    auto map=text(sharedS+"/hash-map.json");assert(map.find(std::string("\"ib\":\"")+hn+"\"")!=std::string::npos&&map.find("\"owner\":\"NPC_Katheryne\"")!=std::string::npos);
    assert(text(sharedS+"/hash-report.txt").find("NPC / 怪物 / 其他：NPC_Katheryne")!=std::string::npos);}
   T.allForms=true;store<uint32_t>(entity+kConfig,10000107);f->world(0);f->scene={};assert(f->handles.size()==handles0);}
+ {std::string mediaT=root+"/mediaNpcTex",sp=mediaT+"/"+pkg+"/GIBox",mod=sp+"/models/Tint";std::filesystem::create_directories(mod+"/textures");
+  Ptr entity=load<Ptr>(load<Ptr>(load<Ptr>(f->manager+kList)+0x10)+0x20);store<uint32_t>(entity+kConfig,10000200);
+  Ptr player=f->renderer(f->mesh("OtherBody",4),"BoneA","Body",f->kavehRoot);f->world(player);
+  Ptr rootNpc=f->object("transform","NPC_Avatar_Girl_Catalyst_Citlali(Clone)"),n=f->renderer(f->mesh(),"BoneA","Body",rootNpc);
+  Ptr mat=load<Ptr>(f->obj[n].materials+0x20),tex=f->object("texture","NpcDiffuse");f->diffuse[mat]=tex;store<uint32_t>(load<Ptr>(mat+0x10)+8,uint32_t(-31));f->scene={player,n};
+  write(sp+"/skeleton-policy.json",R"J({"models":{"citlali":10000107},"outfits":{},"builtin":[],"npcs":{"npc_avatar_girl_catalyst_citlali":"avatar_girl_catalyst_citlali"}})J");
+  Bytes pixels(16,0x7f);write(mod+"/textures/0.rgba",pixels.data(),pixels.size());
+  write(mod+"/texture.json",R"J({"format":"gibox-texture-mod","version":1,"name":"Tint","generation":"1","character":{"id":10000107},"variants":{"vars":[],"default":{}},"textures":[{"resource":"t","file":"textures/0.rgba","width":2,"height":2}],"diag":{"format":"gibox-texture-diag","version":1,"name":"Tint","character":10000107,"rules":[{"section":"TextureOverrideBodyA","part":"BodyA","hint":"body","hash":"d5ae71a3","first":0,"kind":"segment","textures":[{"slot":"ps-t0","resource":"t","role":"diffuse","condition":"","via":""}]}],"resources":[]}})J");
+  write(sp+"/control.json",R"J({"enabled":true,"selected":["Tint"],"npcModels":true,"textureMods":{"strategy":"direct"}})J");
+  size_t handles=f->handles.size();Runtime rt(e,pkg,root+"/privateNpcTex",mediaT,false);uint64_t t=9000000;
+  for(uint64_t end=t+4000;t<end;t+=100){rt.tick(t);}assert(f->diffuse[mat]!=tex);
+  write(sp+"/control.json",R"J({"enabled":true,"selected":["Tint"],"npcModels":false,"textureMods":{"strategy":"direct"}})J");
+  for(uint64_t end=t+1500;t<end;t+=100){rt.tick(t);}assert(f->diffuse[mat]==tex);
+  rt.shutdown();assert(f->handles.size()==handles);store<uint32_t>(entity+kConfig,10000107);f->world(0);f->scene={};}
+
+ // tombstone_27: a cached renderer wrapper recycled as another managed type must never reach get_bones.
+ {std::string mediaC=root+"/mediaCachedNpc",sp=mediaC+"/"+pkg+"/GIBox";std::filesystem::create_directories(sp);
+  std::filesystem::copy(root+"/mediaNpcTex/"+pkg+"/GIBox/models",sp+"/models",std::filesystem::copy_options::recursive);
+  std::filesystem::remove(sp+"/models/Tint/texture-mapping.json");
+  write(sp+"/control.json",R"J({"enabled":true,"selected":["Tint"],"npcModels":true,"textureMods":{"strategy":"direct"}})J");
+  write(sp+"/skeleton-policy.json",R"J({"models":{"citlali":10000107},"outfits":{},"builtin":[],"npcs":{}})J");
+  Ptr player=f->renderer(f->mesh("OtherBody",4),"BoneA","Body",f->kavehRoot),ghost=f->renderer(f->mesh("Unmatched",7));f->world(player);f->scene={player,ghost};
+  size_t handles=f->handles.size();
+  {Runtime rt(e,pkg,root+"/privateCachedNpc",mediaC,false);uint64_t t=9400000;for(;t<9401100;t+=100)rt.tick(t);
+   Ptr klass=load<Ptr>(ghost),native=load<Ptr>(ghost+0x10);unsigned reads=f->boneReads[ghost];f->scene={player};
+   store<Ptr>(ghost,f->kindClass("bone"));store<Ptr>(ghost+0x10,0x41);
+   for(;t<9402200;t+=100)rt.tick(t);
+   assert(f->boneReads[ghost]==reads);
+   store<Ptr>(ghost,klass);store<Ptr>(ghost+0x10,native);
+   // Repeated scans replace their array roots rather than retaining one handle for every scan.
+   size_t bounded=f->handles.size();for(;t<9422200;t+=100)rt.tick(t);assert(f->handles.size()<=bounded+2);
+   rt.shutdown();assert(f->handles.size()==handles);}
+  f->world(0);f->scene={};}
  // 43. The first match at the game's hand-off: no earlier confirmation, the model not yet in the world; the textures were
  //     prepared once the mod was on, so the hand-off only checks and binds. The mapping is saved and, after a restart,
  //     used for this build and these rules only; a lower LOD without migration waits and says why; a material the game

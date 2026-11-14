@@ -190,7 +190,42 @@ public final class CompatibilityTest {
         Map<String,Object> sj=Json.obj(Json.read(new File(sceneOut,"texture.json"),4L<<20),"texture.json");ModelManifest sm=ModelManifest.read(sceneOut);
         ok(sm.textureMod&&sm.id==Characters.SCENE&&String.valueOf(((Map<?,?>)sj.get("character")).get("id")).matches("1(\\.0)?")&&String.valueOf(((Map<?,?>)sj.get("diag")).get("character")).matches("1(\\.0)?"),"an NPC / monster texture mod: "+sj.get("character")+" "+((Map<?,?>)sj.get("diag")).get("character"));
         String sceneMesh="";try{ModelConverter.convert(src,null,new File(base,"scene-mesh-out"),Characters.SCENE,new ModelConverter.Options().textureMods(true),DECODE,new StringBuilder());}catch(IllegalArgumentException e){sceneMesh=e.getMessage();}
-        ok(sceneMesh.contains("NPC / 怪物 / 风之翼只支持纯贴图 MOD")&&!new File(base,"scene-mesh-out").exists(),"a mesh mod for NPC / monster refused: "+sceneMesh);
+        ok(sceneMesh.contains("场景网格 MOD 需要先按 hash 匹配目标和内置骨骼")&&!new File(base,"scene-mesh-out").exists(),"a mesh mod for NPC / monster refused: "+sceneMesh);
+        File sceneBones=new File(base,"scene-bones");Map<String,Object> sceneTarget=Fixtures.target("NpcBody",6,2,2);
+        Fixtures.skeleton(sceneBones,Characters.SCENE,"NPC_Test",new String[]{"Scene0"},new String[]{"Root","Spine"},Collections.singletonMap("Scene0",sceneTarget));
+        ModelConverter.Options sceneOpt=new ModelConverter.Options().textureMods(true).deviceRenderers(Collections.singletonMap("44444444","Scene0"));
+        sceneOpt.sceneTargets=Arrays.asList(Json.of("target",sceneTarget,"owners",Arrays.asList("npc_test")));
+        File meshOut=new File(base,"scene-mesh-valid");
+        ModelConverter.convert(src,sceneBones,meshOut,Characters.SCENE,sceneOpt,DECODE,new StringBuilder());
+        ok(ModelManifest.read(meshOut).id==Characters.SCENE&&Fixtures.part(meshOut,0).get("skeleton")!=null,"scene mesh keeps explicit target and embedded skeleton");
+        if(nativeChecker!=null){Process check=new ProcessBuilder(nativeChecker,meshOut.getAbsolutePath()).inheritIO().start();ok(check.waitFor()==0,"native loader accepts scene mesh metadata");}
+        File rigidSrc=GimiPatternsTest.mod(base,"rigid-weapon",text.replace("vb1 = ResourceCitlaliBlend\n", "").replace("draw = 6,0\n", ""));
+        Map<String,Object> rigidTarget=Fixtures.target("Equip_Sword_Test",6,2,0);File rigidBones=new File(base,"rigid-bones");
+        Fixtures.skeleton(rigidBones,Characters.SCENE,"Static",new String[]{"Scene0"},new String[]{"__rigid__"},Collections.singletonMap("Scene0",rigidTarget));
+        ModelConverter.Options rigidOpt=new ModelConverter.Options().variants(true).deviceRenderers(Collections.singletonMap("44444444","Scene0"));
+        rigidOpt.sceneTargets=Arrays.asList(Json.of("target",rigidTarget,"owners",Arrays.asList("@renderer:Equip_Sword_Test")));
+        File rigidOut=new File(base,"rigid-out");ModelConverter.convert(rigidSrc,rigidBones,rigidOut,Characters.SCENE,rigidOpt,DECODE,new StringBuilder());
+        ok(((Number)Json.obj(Fixtures.part(rigidOut,0).get("target"),"target").get("bones")).intValue()==0,"static weapon converts without a Blend binding");
+        if(nativeChecker!=null){Process check=new ProcessBuilder(nativeChecker,rigidOut.getAbsolutePath()).inheritIO().start();ok(check.waitFor()==0,"native loader reads rigid weapon");}
+        String packedIni="[TextureOverrideWeapon]\nhash = 11111111\nvb0 = ResourceWeapon\n[TextureOverrideWeaponIB]\nhash = 44444444\nhandling = skip\ndrawindexed = auto\n[TextureOverrideWeaponHead]\nhash = 44444444\nmatch_first_index = 0\nib = ResourceWeaponIB\n[ResourceWeapon]\ntype = Buffer\nstride = 28\nfilename = Weapon.buf\n[ResourceWeaponIB]\ntype = Buffer\nformat = DXGI_FORMAT_R16_UINT\nfilename = Weapon.ib\n";
+        File packedSrc=GimiPatternsTest.mod(base,"packed-weapon",packedIni),packedOut=new File(base,"packed-out");
+        ByteBuffer packed=ByteBuffer.allocate(84).order(ByteOrder.LITTLE_ENDIAN);
+        for(int i=0;i<3;i++){packed.putShort((short)0x3c00).putShort((short)0).putShort((short)0).putShort((short)0x3c00);packed.put(new byte[]{0,127,0,0,(byte)255,(byte)128,0,(byte)255});packed.putShort((short)0x3800).putShort((short)0x3400).putShort((short)0).putShort((short)0x3c00);packed.put(new byte[]{127,0,0,127});}
+        GimiPatternsTest.put(packedSrc,"Weapon.buf",packed.array());GimiPatternsTest.put(packedSrc,"Weapon.ib",ByteBuffer.allocate(6).order(ByteOrder.LITTLE_ENDIAN).putShort((short)0).putShort((short)1).putShort((short)2).array());
+        ModelConverter.convert(packedSrc,rigidBones,packedOut,Characters.SCENE,rigidOpt,DECODE,new StringBuilder());
+        Map<String,Object> packedPart=Fixtures.part(packedOut,0);
+        ok(Fixtures.view(packedOut,Json.obj(packedPart.get("data"),"data").get("positions")).getFloat(0)==1f,"packed half position");
+        Map<String,Object> packedData=Json.obj(packedPart.get("data"),"data");
+        ok(Fixtures.view(packedOut,packedData.get("normals")).getFloat(4)==1f,"packed SNORM normal");
+        ok(Fixtures.view(packedOut,packedData.get("uv")).getFloat(4)==.75f,"packed UV flipped once");
+        ok(Fixtures.view(packedOut,packedData.get("colors")).get(0)==(byte)255,"packed color preserved");
+        ok(Fixtures.view(packedOut,packedData.get("tangents")).getFloat(12)==1f,"packed tangent sign preserved");
+        if(nativeChecker!=null){Process check=new ProcessBuilder(nativeChecker,packedOut.getAbsolutePath()).inheritIO().start();ok(check.waitFor()==0,"native loader reads packed static weapon");}
+        packed.array()[6]=0;packed.array()[7]=0;GimiPatternsTest.put(packedSrc,"Weapon.buf",packed.array());
+        try{ModelConverter.convert(packedSrc,rigidBones,new File(base,"bad-packed"),Characters.SCENE,rigidOpt,DECODE,new StringBuilder());ok(false,"unknown packed layout accepted");}catch(IllegalArgumentException expected){ok(expected.getMessage().contains("Packed28"),"invalid packed layout rejected: "+expected);}
+        sceneOpt.deviceRenderers(Collections.singletonMap("11111111","Scene0"));
+        try{ModelConverter.convert(src,sceneBones,new File(base,"scene-mesh-wrong-hash"),Characters.SCENE,sceneOpt,DECODE,new StringBuilder());ok(false,"scene draw borrowed another hash's skeleton");}
+        catch(IllegalArgumentException expected){ok(expected.getMessage().contains("没有可用的内置骨骼"),"unmapped scene draw explains missing skeleton: "+expected);}
         String noUse="";try{ModelConverter.convert(GimiPatternsTest.mod(base,"texture-ramp","[TextureOverrideX]\nhash = 1\nps-t3 = ResourceRamp\n[ResourceRamp]\nfilename = Ramp.dds\n"),null,new File(base,"texture-ramp-out"),10000107,new ModelConverter.Options().textureMods(true),DECODE,new StringBuilder());}catch(IllegalArgumentException e){noUse=e.getMessage();}
         ok(noUse.contains("没有能写入的贴图")&&!new File(base,"texture-ramp-out").exists(),"nothing writable: refused, no folder: "+noUse);
         StringBuilder failed=new StringBuilder();ModelConverter.convert(src,null,new File(base,"backend-failed"),10000107,new ModelConverter.Options().core(r->"{\"ok\":false,\"reason\":\"no core\"}"),DECODE,failed);

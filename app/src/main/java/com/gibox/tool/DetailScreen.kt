@@ -170,13 +170,13 @@ fun DetailScreen(state: AppState, name: String) {
                         val current = variants.current(state.game, mod.name, v)
                         SegmentedListItem(shapes = ListItemDefaults.segmentedShapes(index, rows)) {
                             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text(v.removePrefix("$"), style = MaterialTheme.typography.titleSmall)
+                                Text(if (Characters.isLoading(mod.id) && v == "\$skip_ui") "隐藏加载提示" else v.removePrefix("$"), style = MaterialTheme.typography.titleSmall)
                                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     for (value in variants.values[v].orEmpty()) {
                                         FilterChip(
                                             selected = value == current,
                                             onClick = { state.setVariable(mod, v, value) },
-                                            label = { Text(value.toString()) },
+                                            label = { Text(if (Characters.isLoading(mod.id) && v == "\$skip_ui") if (value == 1) "开" else "关" else value.toString()) },
                                         )
                                     }
                                 }
