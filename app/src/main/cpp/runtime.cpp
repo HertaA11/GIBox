@@ -1586,7 +1586,10 @@ struct Runtime::Impl {
  size_t rank(const std::string& path){for(size_t i=0;i<wantedNow.size();i++)if(wantedNow[i]->path==path)return i;return wantedNow.size();}
  bool claims(const Set& s,Ptr original,Ptr renderer=0){if(!alive(original))return false;auto fp=fingerprint(original);bool npc=renderer&&!npcSource(renderer).empty();
   if(npc&&!modelFits(s.id,s.outfit,renderer))return false;
-  for(auto& p:s.parts)if(matches(p.target,fp)||(npc&&npcGeometry(p.target,fp))){if(npc){bool ordered=false;if(!npcPalette(renderer,original,p,ordered))continue;}return true;}return false;}
+  for(auto& p:s.parts){
+   if(matches(p.target,fp)||(npc&&npcGeometry(p.target,fp))){if(npc){bool ordered=false;if(!npcPalette(renderer,original,p,ordered))continue;}return true;}
+  }
+  return false;}
  // Every part of the model is also replaced by a model switched on earlier: building it would show nothing, so it waits
  // (and is built when that one is switched off). Unknown targets count as not covered.
  bool shadowed(const ModelInfo& m,const std::vector<const ModelInfo*>& wanted){std::vector<Fingerprint> mine;if(!targetsFor(m,mine))return false;
@@ -1729,7 +1732,8 @@ struct Runtime::Impl {
   auto it=bonePolicy->npcs.find(owner);return it==bonePolicy->npcs.end()?"?":it->second;}
  bool outfitFits(const std::string& want,Ptr r,std::string* have=nullptr){auto npc=npcSource(r);
   if(!npc.empty()){if(have)*have=npc;return ctl.npcModels&&npc!="?"&&!want.empty()&&npc==want;}
-  if(want.empty())return true;auto a=avatarOf(r);if(have)*have=a;return a.empty()||a==want;}
+  if(want.empty()){return true;}
+  auto a=avatarOf(r);if(have)*have=a;return a.empty()||a==want;}
  bool modelFits(unsigned id,const std::string& want,Ptr r){auto npc=npcSource(r);if(npc.empty())return outfitFits(want,r);
   return ctl.npcModels&&npc!="?"&&id&&previewId(npc)==id&&(want.empty()||want==npc);}
 
@@ -1786,7 +1790,8 @@ struct Runtime::Impl {
  bool npcTemplate(const ModelInfo& m,size_t index,const Seen& sn){if(npcSource(sn.renderer).empty())return true;
   std::shared_ptr<ModelFile> data;{std::lock_guard<std::mutex> lock(sm);auto it=loaded.find(m.path);if(it!=loaded.end()&&it->second.generation==m.generation)data=it->second.data;}
   if(!data){auto* set=findSet(m.path,m.generation);if(set)data=set->data;}
-  if(!data||index>=data->parts.size())return false;const auto& part=data->parts[index];
+  if(!data||index>=data->parts.size()){return false;}
+  const auto& part=data->parts[index];
   if(part.sourceBones.empty()||!sameBones(sn.renderer,part.sourceBones))return false;
   Owned tmp;bool same=false;try{Ptr binds=e.get(abi::getBindposes,sn.mesh);if(binds){pin(tmp,binds);auto bytes=arrayBytes(binds,64,512);same=bytes==part.sourceBinds;}
    if(same&&!part.sourceParents.empty()){Ptr array=e.get(abi::getBones,sn.renderer);pin(tmp,array);auto bones=pointers(array,512);same=part.sourceParents.size()==bones.size();
