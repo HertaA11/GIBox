@@ -29,13 +29,17 @@ class LoadingScreens {
  std::shared_ptr<LoadingPrepared> prepared;
  static bool alive(Ptr p){return p&&load<Ptr>(p+0x10)!=0;}
  void pin(std::vector<uint32_t>& roots,Ptr p){if(p){auto h=e.call<uint32_t>(abi::pin,p,2,Ptr(0));require(h!=0,"加载界面 GC 引用失败");roots.push_back(h);}}
- void release(std::vector<uint32_t>& roots){for(auto h:roots)e.call<void>(abi::unpin,h);roots.clear();}
+ void release(std::vector<uint32_t>& roots){for(auto h:roots){e.call<void>(abi::unpin,h);}
+  roots.clear();}
  bool live()const{return alive(owner)&&load<Ptr>(owner+0x10)==ownerNative&&alive(image)&&load<Ptr>(image+0x10)==imageNative;}
- void cleanAssets(){for(auto it=assets.rbegin();it!=assets.rend();++it)if(alive(*it))e.action(abi::destroy,*it);assets.clear();release(assetRefs);sprite=0;}
+ void cleanAssets(){for(auto it=assets.rbegin();it!=assets.rend();++it){if(alive(*it)){e.action(abi::destroy,*it);}}
+  assets.clear();release(assetRefs);sprite=0;}
  void restore(){if(applied&&live()){if(e.get(abi::imageSprite,image)==sprite)e.set(abi::imageSetSprite,image,original);e.op(abi::imageSetType,image,originalType);e.op(abi::imageSetAspect,image,originalAspect?1:0);e.call<void>(abi::graphicSetColor,image,originalColor,Ptr(0));}
-  for(const auto& h:hidden)if(alive(h.go)&&load<Ptr>(h.go+0x10)==h.native)e.op(abi::goSetActive,h.go,h.active?1:0);hidden.clear();release(hiddenRefs);applied=false;appliedKey.clear();cleanAssets();}
+  for(const auto& h:hidden){if(alive(h.go)&&load<Ptr>(h.go+0x10)==h.native){e.op(abi::goSetActive,h.go,h.active?1:0);}}
+  hidden.clear();release(hiddenRefs);applied=false;appliedKey.clear();cleanAssets();}
  void hideUi(){Ptr root=e.get(abi::gameObject,owner);for(unsigned offset:{0x18u,0x20u,0x38u,0x40u}){Ptr component=load<Ptr>(owner+offset);if(!alive(component))continue;Ptr go=e.get(abi::gameObject,component);if(!alive(go)||go==root)continue;
-   bool duplicate=false;for(const auto& h:hidden)duplicate=duplicate||h.go==go;if(duplicate)continue;pin(hiddenRefs,go);bool active=(e.call<uint32_t>(abi::goActiveSelf,go,Ptr(0))&1)!=0;hidden.push_back({go,load<Ptr>(go+0x10),active});if(active)e.op(abi::goSetActive,go,0);}}
+   bool duplicate=false;for(const auto& h:hidden){duplicate=duplicate||h.go==go;}
+   if(duplicate){continue;}pin(hiddenRefs,go);bool active=(e.call<uint32_t>(abi::goActiveSelf,go,Ptr(0))&1)!=0;hidden.push_back({go,load<Ptr>(go+0x10),active});if(active)e.op(abi::goSetActive,go,0);}}
  void capture(){original=e.get(abi::imageSprite,image);release(originalRefs);pin(originalRefs,original);originalType=e.call<int>(abi::imageType,image,Ptr(0));originalAspect=(e.call<uint32_t>(abi::imageAspect,image,Ptr(0))&1)!=0;originalColor=e.call<Color>(abi::graphicColor,image,Ptr(0));}
  void apply(){if(!live()||!prepared||prepared->name.empty()||!prepared->error.empty()||prepared->cycle!=cycle.load())return;if(appliedKey==prepared->key)return;restore();capture();
   const auto& t=prepared->image;Ptr descriptor=e.call<Ptr>(abi::textureType);require(descriptor!=0,"缺少加载图片纹理类型");Ptr texture=e.call<Ptr>(abi::objectNew,load<Ptr>(descriptor));require(texture!=0,"加载图片分配失败");assets.push_back(texture);pin(assetRefs,texture);
@@ -53,7 +57,7 @@ class LoadingScreens {
   shutdown();owner=canvas;ownerNative=load<Ptr>(canvas+0x10);image=background;imageNative=load<Ptr>(background+0x10);pin(refs,owner);pin(refs,image);
   capture();}
  void event(Ptr background,bool shown){if(busy||!matches(background))return;if(!shown&&visible){busy=true;restore();visible=false;cycle.fetch_add(1);busy=false;}else if(shown)visible=true;}
- void tick(bool enabled,const std::vector<std::string>& selected){if(busy)return;busy=true;try{bool selectedNow=false;if(prepared)for(const auto& n:selected)selectedNow=selectedNow||n==prepared->name;
+ void tick(bool enabled,const std::vector<std::string>& selected){if(busy)return;busy=true;try{bool selectedNow=false;if(prepared){for(const auto& n:selected){selectedNow=selectedNow||n==prepared->name;}}
    if(!live()){restore();busy=false;return;}bool shown=(e.call<uint32_t>(abi::imageActive,image,Ptr(0))&1)!=0;
    if(!shown&&visible){restore();visible=false;cycle.fetch_add(1);}else if(shown){visible=true;if(enabled&&selectedNow)apply();else restore();}
   }catch(...){try{restore();}catch(...){}busy=false;throw;}busy=false;}
