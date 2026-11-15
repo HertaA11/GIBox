@@ -1497,14 +1497,18 @@ struct Runtime::Impl {
   return !hit.empty();}
  Ptr arrayOf(Owned& o,Ptr cls,const void* data,size_t n,unsigned stride){require(elementSize(cls,stride),"托管数组元素大小不符");Ptr p=e.call<Ptr>(abi::arrayNew,cls,uint64_t(n));require(p!=0,"托管数组分配失败");pin(o,p);if(n)std::memcpy(reinterpret_cast<void*>(p+0x20),data,n*stride);return p;}
  Ptr array(Owned& o,Ptr templ,const void* data,size_t n,unsigned stride){require(templ!=0,"缺少托管数组模板");return arrayOf(o,load<Ptr>(templ),data,n,stride);}
- // Managed array classes for the mesh setters (Vector3[], Vector2[], int[], Color32[], Vector4[]), taken once from the
- // first template mesh and kept (il2cpp classes live as long as the process): later builds no longer make the engine copy
- // an original mesh's whole vertex and index data only to obtain an array of the right type.
+ // Managed array classes for the mesh setters (Vector3[], Vector2[], int[], Color32[], Vector4[]), taken once from
+ // a readable template (or a new empty mesh when the source is GPU-only). Classes live for the process;
+ // no geometry getter is called on an unreadable source merely to discover an array type.
  struct ArrayClasses {Ptr v3=0,v2=0,i32=0,c32=0,v4=0;bool ready()const{return v3&&v2&&i32&&c32&&v4;}} arrayClasses;
+ Ptr emptyMesh(Owned& roots,Ptr templateMesh){require(abi::at(abi::meshInit)<abi::notFound,"当前客户端缺少已核实的空 Mesh 构造接口；不读取不可读的原网格");
+  Ptr mesh=e.call<Ptr>(abi::objectNew,load<Ptr>(templateMesh));require(mesh!=0,"空 Mesh 分配失败");roots.objects.push_back(mesh);pin(roots,mesh);e.action(abi::meshInit,mesh);require(alive(mesh),"空 Mesh 初始化失败");
+  require((e.call<uint32_t>(abi::meshReadable,mesh,Ptr(0))&1)!=0,"新建 Mesh 不可读，停止构建");keep(mesh);return mesh;}
  void learnArrayClasses(Ptr mesh){if(arrayClasses.ready())return;Owned tmp;ArrayClasses c;
-  try{auto cls=[&](abi::Offset getter,unsigned stride){Ptr a=e.get(getter,mesh);require(a!=0,"缺少托管数组模板");pin(tmp,a);Ptr k=load<Ptr>(a);require(elementSize(k,stride),"托管数组元素大小不符");return k;};
+  try{if(!(e.call<uint32_t>(abi::meshReadable,mesh,Ptr(0))&1)){mesh=emptyMesh(tmp,mesh);}
+   auto cls=[&](abi::Offset getter,unsigned stride){Ptr a=e.get(getter,mesh);require(a!=0,"缺少托管数组模板");pin(tmp,a);Ptr k=load<Ptr>(a);require(elementSize(k,stride),"托管数组元素大小不符");return k;};
    c.v3=cls(abi::getPositions,12);c.v2=cls(abi::getUV,8);c.i32=cls(abi::getTriangles,4);c.c32=cls(abi::getColors,4);c.v4=cls(abi::getTangents,16);}
-  catch(...){freeOwned(tmp);throw;}freeOwned(tmp);arrayClasses=c;log("array-classes","取自 "+name(mesh));}
+  catch(...){freeOwned(tmp);throw;}arrayClasses=c;log("array-classes","取自可读网格 "+name(mesh));freeOwned(tmp);}
  void freeOwned(Owned& o){for(auto i=o.objects.rbegin();i!=o.objects.rend();++i)if(alive(*i))e.action(abi::destroy,*i);for(auto h:o.handles)e.call<void>(abi::unpin,h);o.objects.clear();o.handles.clear();}
  // keep: HideFlags.DontUnloadUnusedAsset, so the game's unused-asset unload (a scene change: entering co-op, a domain)
  // does not destroy a texture made ahead of use that no material holds yet; it is still destroyed by freeOwned. The
@@ -1949,7 +1953,7 @@ struct Runtime::Impl {
  // The most common vertex colour of the game's mesh (per channel); the mobile default seen on readable meshes when the
  // game's mesh cannot be read.
  std::array<uint8_t,4> usualColor(Ptr mesh,const std::string& model){std::array<uint8_t,4> out{255,128,128,51};Owned tmp;
-  try{Ptr arr=e.get(abi::getColors,mesh);size_t n=arr?length(arr,1u<<24):0;
+  try{if(!(e.call<uint32_t>(abi::meshReadable,mesh,Ptr(0))&1)){log("experiment-mesh",model+"：游戏网格不可读，顶点色使用 (255,128,128,51)");return out;}Ptr arr=e.get(abi::getColors,mesh);size_t n=arr?length(arr,1u<<24):0;
    if(n){pin(tmp,arr);std::array<std::array<unsigned,256>,4> hist{};const uint8_t* p=reinterpret_cast<const uint8_t*>(arr+0x20);for(size_t v=0;v<n;v++)for(int c=0;c<4;c++)hist[c][p[4*v+c]]++;
     for(int c=0;c<4;c++)out[c]=uint8_t(std::max_element(hist[c].begin(),hist[c].end())-hist[c].begin());}
    else log("experiment-mesh",model+"：无法读取游戏的顶点色，改用 (255,128,128,51)");}
@@ -1986,12 +1990,13 @@ struct Runtime::Impl {
    if(!animationFrame){auto backup=std::make_unique<RestoreBackup>();try{backup->mesh=clone(*backup,ownerMesh);}catch(...){freeOwned(*backup);throw;}
    bp.backup=backup.get();restoreBackups.push_back(std::move(backup));
    s.bytes+=uint64_t(fingerprint(ownerMesh).vertices)*(12+12+8+32+32);}
-   const auto& geo=pf.geo;bp.mesh=clone(s,ownerMesh);
-   Ptr native=load<Ptr>(bp.mesh+0x10),data=load<Ptr>(native+0x48);require(data!=0&&load<uint64_t>(data+0xe0)==bones.size()&&(rigid||load<uint32_t>(data+0xf8)==15),"原生 Mesh 结构不符");
-   learnArrayClasses(ownerMesh);const auto& k=arrayClasses;
+   const auto& geo=pf.geo;bp.mesh=rigid?emptyMesh(s,ownerMesh):clone(s,ownerMesh);
+   if(rigid){log("static-mesh-new",s.name+"/"+pf.spec.name+"：新建可读 Mesh，几何数据全部取自 MOD，不读取原网格顶点流");}
+   Ptr native=load<Ptr>(bp.mesh+0x10),data=load<Ptr>(native+0x48);require(rigid||(data&&load<uint64_t>(data+0xe0)==bones.size()&&load<uint32_t>(data+0xf8)==15),"原生 Mesh 结构不符");
+   learnArrayClasses(rigid?bp.mesh:ownerMesh);const auto& k=arrayClasses;
    e.op(abi::setReadable,bp.mesh,1);e.op(abi::setIndexFormat,bp.mesh,geo.n>65535?1:0);e.set(abi::setTriangles,bp.mesh,arrayOf(tmp,k.i32,nullptr,0,4));
    e.set(abi::setPositions,bp.mesh,arrayOf(tmp,k.v3,geo.pos(),geo.n,12));e.set(abi::setNormals,bp.mesh,arrayOf(tmp,k.v3,geo.norm(),geo.n,12));e.set(abi::setUV,bp.mesh,arrayOf(tmp,k.v2,geo.uv(),geo.n,8));
-   std::array<uint8_t,4> neutral{255,128,128,51};if(ctl.exp.neutralColors)neutral=usualColor(ownerMesh,s.name);
+   std::array<uint8_t,4> neutral{255,128,128,51};if(ctl.exp.neutralColors&&!rigid)neutral=usualColor(ownerMesh,s.name);
    bool colorsSet=false,uv2Set=false;
    for(auto& c:pf.channels){abi::Offset setter;Ptr cls;unsigned stride;const uint8_t* src=c.second.data();Bytes replaced;
     if(c.first==".uv2"){setter=abi::setUV2;cls=k.v2;stride=8;uv2Set=true;if(ctl.exp.noUv2){replaced.assign(size_t(geo.n)*8,0);src=replaced.data();}}

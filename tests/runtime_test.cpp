@@ -23,6 +23,7 @@ struct Fake {
  std::set<Ptr> inactiveGos;std::map<Ptr,Ptr> extraTypes,filterByGo,rendererByGo,transformByGo;std::vector<Ptr> rigidFilters,rigidTransforms;
  unsigned expectedVertices=3;std::map<Ptr,unsigned> textureBytes;
  std::map<Ptr,Ptr> diffuse;std::map<Ptr,std::map<int32_t,Ptr>> named;std::map<Ptr,float> glow; // material properties copied by Instantiate, including copies made by the game
+ std::set<Ptr> unreadableMeshes,readableMeshes;std::map<Ptr,unsigned> meshDataReads;unsigned meshConstructs=0;bool failMeshInit=false;
  std::map<Ptr,unsigned> nameReads,boneReads; // actual engine getter counts, used to check binding hot-path work
  std::vector<Ptr> scene,assets;/* assets: only in the everything-loaded search (prefabs, inactive pooled instances) */std::vector<std::pair<Ptr,unsigned>> triangles;std::map<std::pair<Ptr,int>,std::vector<uint32_t>> submeshIndices;Ptr skeletonRoot=0,kavehRoot=0;std::map<std::string,Ptr> kinds;
  // Il2CppClass per object kind, laid out unlike stock il2cpp: byval_arg at +0x98 with a type enum that is not the stock
@@ -64,7 +65,7 @@ Ptr filterMesh(Ptr p,Ptr){assert(f->obj.at(p).kind=="filter");return f->obj.at(p
 void filterSet(Ptr p,Ptr m,Ptr){assert(f->obj.at(p).kind=="filter");f->obj.at(p).mesh=m;}
 Ptr getMesh(Ptr p,Ptr){assert(load<Ptr>(p)==f->kindClass("renderer")&&"get_sharedMesh on something that is not a renderer");return f->obj.at(p).mesh;}Ptr getMaterials(Ptr p,Ptr){return f->obj.at(p).materials;}Ptr getBones(Ptr p,Ptr){f->boneReads[p]++;return f->obj.at(p).bones;}
 Ptr getName(Ptr p,Ptr){f->nameReads[p]++;auto n=f->obj.at(p).name;Ptr s=f->alloc(0x14+2*n.size());store<uint32_t>(s+0x10,n.size());for(size_t i=0;i<n.size();i++)store<uint16_t>(s+0x14+i*2,n[i]);return s;}
-Ptr clone(Ptr p,Ptr){f->clones++;auto original=f->obj.at(p);if(original.kind!="mesh"){Ptr out=f->object(original.kind,original.name);if(original.kind=="material"){f->diffuse[out]=f->diffuse[p];f->named[out]=f->named[p];f->glow[out]=f->glow[p];}return out;}f->meshClones++;Ptr out=f->mesh(original.name,load<uint32_t>(original.shared+0x74));auto& o=f->obj[out];o.arrays=original.arrays;store<uint64_t>(o.shared+0xe0,load<uint64_t>(original.shared+0xe0));store<uint64_t>(o.native+0x90,load<uint64_t>(original.native+0x90));return out;}
+Ptr clone(Ptr p,Ptr){f->clones++;auto original=f->obj.at(p);if(original.kind!="mesh"){Ptr out=f->object(original.kind,original.name);if(original.kind=="material"){f->diffuse[out]=f->diffuse[p];f->named[out]=f->named[p];f->glow[out]=f->glow[p];}return out;}f->meshClones++;Ptr out=f->mesh(original.name,load<uint32_t>(original.shared+0x74));auto& o=f->obj[out];if(f->readableMeshes.count(p))f->readableMeshes.insert(out);if(f->unreadableMeshes.count(p))f->unreadableMeshes.insert(out);o.arrays=original.arrays;store<uint64_t>(o.shared+0xe0,load<uint64_t>(original.shared+0xe0));store<uint64_t>(o.native+0x90,load<uint64_t>(original.native+0x90));return out;}
 void destroy(Ptr p,Ptr){store<Ptr>(p+0x10,0);}
 // Object.hideFlags: kept per object (HideFlags.DontUnloadUnusedAsset = 32 on a texture-only mod's textures).
 std::map<Ptr,int> hideFlags;void setHide(Ptr p,int v,Ptr){assert(load<Ptr>(p+0x10));hideFlags[p]=v;}int getHide(Ptr p,Ptr){auto it=hideFlags.find(p);return it==hideFlags.end()?0:it->second;}Ptr parent(Ptr p,Ptr){return f->obj.at(p).parent;}
@@ -74,9 +75,11 @@ Ptr newArray(Ptr cls,uint64_t count){return f->array(load<uint16_t>(cls+f->elemA
 void submeshCount(Ptr m,int n,Ptr){assert(n>=1);store<uint32_t>(f->obj.at(m).shared+0xc0,n);}
 void sub(Ptr m,Ptr a,int i,Ptr){assert(i>=0&&unsigned(i)<load<uint32_t>(f->obj.at(m).shared+0xc0));unsigned n=unsigned(load<uint64_t>(a+0x18));f->triangles.push_back({m,n});
  auto& v=f->submeshIndices[{m,i}];v.assign(n,0);if(n)std::memcpy(v.data(),reinterpret_cast<const void*>(a+0x20),4ull*n);}
-Ptr getPos(Ptr p,Ptr){return f->obj.at(p).arrays.at(abi::getPositions);}Ptr getUV(Ptr p,Ptr){return f->obj.at(p).arrays.at(abi::getUV);}Ptr getIdx(Ptr p,Ptr){return f->obj.at(p).arrays.at(abi::getTriangles);}Ptr getBinds(Ptr p,Ptr){f->bindposeReads++;return f->obj.at(p).arrays.at(abi::getBindposes);}Ptr getColors(Ptr p,Ptr){return f->obj.at(p).arrays.at(abi::getColors);}Ptr getTangents(Ptr p,Ptr){return f->obj.at(p).arrays.at(abi::getTangents);}
+void checkMeshRead(Ptr p){assert(f->readableMeshes.count(p)&&!f->unreadableMeshes.count(p));f->meshDataReads[p]++;}
+Ptr getPos(Ptr p,Ptr){checkMeshRead(p);return f->obj.at(p).arrays.at(abi::getPositions);}Ptr getUV(Ptr p,Ptr){checkMeshRead(p);return f->obj.at(p).arrays.at(abi::getUV);}Ptr getIdx(Ptr p,Ptr){checkMeshRead(p);return f->obj.at(p).arrays.at(abi::getTriangles);}Ptr getBinds(Ptr p,Ptr){f->bindposeReads++;return f->obj.at(p).arrays.at(abi::getBindposes);}Ptr getColors(Ptr p,Ptr){checkMeshRead(p);return f->obj.at(p).arrays.at(abi::getColors);}Ptr getTangents(Ptr p,Ptr){checkMeshRead(p);return f->obj.at(p).arrays.at(abi::getTangents);}
 // Like il2cpp object_new: the managed shell has no native object until the constructor runs.
-Ptr texType(){static Ptr d=0;if(!d){d=f->alloc(0x20);store<Ptr>(d,f->kindClass("texture"));store<Ptr>(d+0x10,f->alloc(8));}return d;}/* Texture2D.whiteTexture: its class is Texture2D's */Ptr objectNew(Ptr cls){assert(cls);Ptr p=f->alloc(0x20);f->obj[p]=Obj{"texture","",0,0,0,0,0,0,{}};return p;}
+Ptr texType(){static Ptr d=0;if(!d){d=f->alloc(0x20);store<Ptr>(d,f->kindClass("texture"));store<Ptr>(d+0x10,f->alloc(8));}return d;}/* Texture2D.whiteTexture: its class is Texture2D's */Ptr objectNew(Ptr cls){assert(cls);Ptr p=f->alloc(0x20);store<Ptr>(p,cls);f->obj[p]=Obj{cls==f->kindClass("mesh")?"mesh":"texture","",0,0,0,0,0,0,{}};return p;}
+void meshInit(Ptr p,Ptr){assert(f->obj.at(p).kind=="mesh"&&!load<Ptr>(p+0x10));if(f->failMeshInit)throw std::runtime_error("fake-mesh-init-failure");Ptr fresh=f->mesh("GIBoxEmpty",0);f->obj[p]=f->obj.at(fresh);f->obj.erase(fresh);store<Ptr>(p+0x10,f->obj[p].native);store<Ptr>(f->obj[p].native+0x48,0);store<uint64_t>(f->obj[p].shared+0xe0,0);store<uint32_t>(f->obj[p].shared+0xf8,0);f->readableMeshes.insert(p);f->meshConstructs++;}
 void texInit(Ptr o,int w,int h,int fmt,int mip,int linear,Ptr){assert(w>0&&h>0&&fmt==4&&mip==0&&(linear==0||linear==1)&&load<Ptr>(o+0x10)==0);Ptr n=f->alloc(0x80);store<Ptr>(o+0x10,n);f->obj[o].native=n;f->textures++;f->textureBytes[o]=unsigned(w*h*4);}
 void texPixels(Ptr o,Ptr data,int n,Ptr){assert(load<Ptr>(o+0x10)&&data&&n>0&&unsigned(n)==f->textureBytes.at(o));}
 // Managed strings live above 4 GiB in the game; a 32-bit truncation must not survive the round trip.
@@ -88,7 +91,7 @@ int32_t propertyToId(Ptr name,Ptr);
 void setTex(Ptr mat,Ptr name,Ptr tex,Ptr){gameWrites++;assert(mat&&(!tex||load<Ptr>(tex+0x10))&&f->strings.count(name));f->lightProperty=f->strings[name];f->named[mat][propertyToId(name,0)]=tex;}
 void setMainTexture(Ptr mat,Ptr tex,Ptr){gameWrites++;assert(mat);f->diffuse[mat]=tex;}
 unsigned channelSets=0;std::vector<Bytes> channelData;void setChannel(Ptr,Ptr a,Ptr){assert(load<uint64_t>(a+0x18)==f->expectedVertices);channelSets++;
- unsigned stride=load<uint16_t>(load<Ptr>(a)+f->elemAt);channelData.emplace_back(reinterpret_cast<const uint8_t*>(a+0x20),reinterpret_cast<const uint8_t*>(a+0x20)+size_t(f->expectedVertices)*stride);}void setPos(Ptr p,Ptr a,Ptr){if(f->failPosition){f->failPosition=false;throw std::runtime_error("fake-animation-channel-error");}store<uint32_t>(f->obj.at(p).shared+0x74,load<uint64_t>(a+0x18));}void setAny(Ptr,Ptr,Ptr){}
+ unsigned stride=load<uint16_t>(load<Ptr>(a)+f->elemAt);channelData.emplace_back(reinterpret_cast<const uint8_t*>(a+0x20),reinterpret_cast<const uint8_t*>(a+0x20)+size_t(f->expectedVertices)*stride);}void setPos(Ptr p,Ptr a,Ptr){if(f->failPosition){f->failPosition=false;throw std::runtime_error("fake-animation-channel-error");}store<Ptr>(f->obj.at(p).native+0x48,f->obj.at(p).shared);store<uint32_t>(f->obj.at(p).shared+0x74,load<uint64_t>(a+0x18));}void setAny(Ptr,Ptr,Ptr){}
 Ptr classFromType(Ptr t,int init){assert(init==1&&load<uint8_t>(t+0xa)!=0);f->typeLookups++;for(auto& kv:f->kinds)if(t==kv.second+0x98)return kv.second;return f->alloc(0x10);}
 Ptr typeObject(Ptr t){if(t==f->kindClass("mesh")+0x98){if(!f->meshTypeObj){f->meshTypeObj=f->alloc(0x20);store<Ptr>(f->meshTypeObj+0x10,t);}return f->meshTypeObj;}
  if(t!=f->klass+0x98){for(const auto& k:f->kinds)if(t==k.second+0x98){auto& type=f->extraTypes[t];if(!type){type=f->alloc(0x20);store<Ptr>(type+0x10,t);}return type;}assert(false);}
@@ -111,7 +114,7 @@ int32_t propertyToId(Ptr name,Ptr){auto it=f->strings.find(name);std::string n=i
 // submesh 0..3); every texture 4x4, RGBA32, one mip. Read only: none of them changes anything.
 std::map<Ptr,std::vector<std::pair<uint32_t,uint32_t>>> texRanges;
 int32_t meshSubs(Ptr m,Ptr){auto it=texRanges.find(m);return it!=texRanges.end()?int32_t(it->second.size()):int32_t(load<uint32_t>(f->obj.at(m).shared+0xc0));}
-int32_t meshVerts(Ptr m,Ptr){return int32_t(load<uint32_t>(f->obj.at(m).shared+0x74));}uint32_t meshReadable(Ptr,Ptr){return 0xffffff00u;}
+int32_t meshVerts(Ptr m,Ptr){return int32_t(load<uint32_t>(f->obj.at(m).shared+0x74));}uint32_t meshReadable(Ptr p,Ptr){return f->readableMeshes.count(p)?0xffffff01u:0xffffff00u;}
 uint32_t meshStart(Ptr m,int32_t i,Ptr){assert(i>=0&&i<meshSubs(m,0));auto it=texRanges.find(m);return it!=texRanges.end()?it->second[size_t(i)].first:0;}
 uint32_t meshCount(Ptr m,int32_t i,Ptr){assert(i>=0&&i<meshSubs(m,0));auto it=texRanges.find(m);return it!=texRanges.end()?it->second[size_t(i)].second:3;}
 int32_t texSide(Ptr t,Ptr){assert(t&&load<Ptr>(t+0x10));return 4;}int32_t texFormat(Ptr t,Ptr){assert(load<Ptr>(t)==f->kindClass("texture"));return 4;}int32_t texMips(Ptr t,Ptr){assert(load<Ptr>(t)==f->kindClass("texture"));return 1;}
@@ -128,7 +131,7 @@ Ptr resolve(abi::Offset o){switch(o){
  case abi::componentByName:return reinterpret_cast<Ptr>(&byName);case abi::lodSelfPaused:return reinterpret_cast<Ptr>(&lodSelf);case abi::lodPause:return reinterpret_cast<Ptr>(&lodPauseAt);
  case abi::lodResume:return reinterpret_cast<Ptr>(&lodResumeFn);case abi::lodCurrent:return reinterpret_cast<Ptr>(&lodLevelNow);
 #define FN(x,y) case abi::x:return reinterpret_cast<Ptr>(&y)
- FN(goActive,gameObjectActive);FN(filterMesh,filterMesh);FN(filterSetMesh,filterSet);FN(getMesh,getMesh);FN(getMaterials,getMaterials);FN(getBones,getBones);FN(getName,getName);FN(getParent,parent);FN(clone,clone);FN(destroy,destroy);FN(pin,pin);FN(unpin,unpin);FN(setMesh,setMesh);FN(setMaterials,setMaterials);FN(arrayNew,newArray);FN(getBindposes,getBinds);FN(getPositions,getPos);FN(getUV,getUV);FN(getTriangles,getIdx);FN(getColors,getColors);FN(getTangents,getTangents);FN(setColors,setChannel);FN(setTangents,setChannel);FN(setUV2,setChannel);FN(setPositions,setPos);FN(setNormals,setAny);FN(setUV,setAny);FN(setTriangles,setAny);FN(setReadable,op);FN(setIndexFormat,op);FN(setSubmeshCount,submeshCount);FN(meshUpload,op);FN(meshFinish,action);FN(meshDynamic,action);FN(setSubmeshTriangles,sub);FN(textureType,texType);FN(objectNew,objectNew);FN(textureInit,texInit);FN(texturePixels,texPixels);FN(textureApply,action);FN(setHideFlags,setHide);FN(getHideFlags,getHide);FN(mainTexture,setMainTexture);FN(newString,newString);FN(nativeAlloc,nativeAlloc);FN(hasProperty,hasProp);FN(setTexture,setTex);FN(classFromType,classFromType);FN(typeObject,typeObject);FN(findObjectsOfType,findObjects);FN(findObjectsNative,findNative);FN(componentsInChildren,children);FN(gameObject,goOf);FN(wrapperFor,wrapperFor);
+ FN(meshInit,meshInit);FN(goActive,gameObjectActive);FN(filterMesh,filterMesh);FN(filterSetMesh,filterSet);FN(getMesh,getMesh);FN(getMaterials,getMaterials);FN(getBones,getBones);FN(getName,getName);FN(getParent,parent);FN(clone,clone);FN(destroy,destroy);FN(pin,pin);FN(unpin,unpin);FN(setMesh,setMesh);FN(setMaterials,setMaterials);FN(arrayNew,newArray);FN(getBindposes,getBinds);FN(getPositions,getPos);FN(getUV,getUV);FN(getTriangles,getIdx);FN(getColors,getColors);FN(getTangents,getTangents);FN(setColors,setChannel);FN(setTangents,setChannel);FN(setUV2,setChannel);FN(setPositions,setPos);FN(setNormals,setAny);FN(setUV,setAny);FN(setTriangles,setAny);FN(setReadable,op);FN(setIndexFormat,op);FN(setSubmeshCount,submeshCount);FN(meshUpload,op);FN(meshFinish,action);FN(meshDynamic,action);FN(setSubmeshTriangles,sub);FN(textureType,texType);FN(objectNew,objectNew);FN(textureInit,texInit);FN(texturePixels,texPixels);FN(textureApply,action);FN(setHideFlags,setHide);FN(getHideFlags,getHide);FN(mainTexture,setMainTexture);FN(newString,newString);FN(nativeAlloc,nativeAlloc);FN(hasProperty,hasProp);FN(setTexture,setTex);FN(classFromType,classFromType);FN(typeObject,typeObject);FN(findObjectsOfType,findObjects);FN(findObjectsNative,findNative);FN(componentsInChildren,children);FN(gameObject,goOf);FN(wrapperFor,wrapperFor);
  FN(meshSubmeshes,meshSubs);FN(meshVertices,meshVerts);FN(meshReadable,meshReadable);FN(meshIndexStart,meshStart);FN(meshIndexCount,meshCount);
  FN(textureWidth,texSide);FN(textureHeight,texSide);FN(textureFormat,texFormat);FN(textureMips,texMips);
  FN(frameCount,engineFrame);FN(getShader,matShader);FN(getTexture,matTexture);FN(getTextureIds,matTextureIds);FN(propertyToId,propertyToId);
@@ -849,7 +852,7 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
  // 45. Experiments (control.json "experiments", debug only): an earlier first material re-copy, vertex colours set to the
  //     game mesh's usual value and UV2 zeroed (models rebuilt when switched). gameMaterials (0.7.93) is no longer read.
  {std::string mediaExp=root+"/mediaExp",sharedExp=mediaExp+"/"+pkg+"/GIBox";Spec s;s.textures=true;s.channels=true;s.withTarget(fixture::target("Body"));writeModel(sharedExp+"/models/Exp",s);
-  Ptr original=f->mesh(),w=f->renderer(original),gameMat=load<Ptr>(f->obj[w].materials+0x20);f->world(w);f->scene={w};
+  Ptr original=f->mesh(),w=f->renderer(original),gameMat=load<Ptr>(f->obj[w].materials+0x20);f->readableMeshes.insert(original);f->world(w);f->scene={w};
   auto control=[&](std::string x){write(sharedExp+"/control.json","{\"enabled\":true,\"logLevel\":\"debug\",\"selected\":[\"Exp\"],\"experiments\":{"+x+"}}");};
   control("\"gameMaterials\":true,\"glowTrace\":true,\"firstRefreshMs\":300");channelData.clear();
   Runtime exp(e,pkg,root+"/privateExp",mediaExp,false);exp.tick(3500000);exp.tick(3500600);
@@ -859,7 +862,11 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
   control("\"neutralColors\":true,\"noUv2\":true");channelData.clear();exp.tick(3501800);exp.tick(3502400);exp.tick(3503000);
   log=text(sharedExp+"/GIBox Log.txt");assert(log.find("experiment-rebuild Exp")!=std::string::npos&&log.find("experiment-mesh Exp/Part0：顶点色 (0,0,0,0)，UV2 置零")!=std::string::npos&&meshOf(w)!=original);
   bool zero=false;for(auto& d:channelData)zero|=d==Bytes(12,0);assert(zero);
-  exp.shutdown();assert(meshOf(w)==original&&f->handles.empty());}
+  unsigned reads=f->meshDataReads[original];f->readableMeshes.erase(original);f->unreadableMeshes.insert(original);
+  control("\"neutralColors\":true,\"noUv2\":false");channelData.clear();exp.tick(3503600);exp.tick(3504200);exp.tick(3504800);
+  Bytes fallback;for(int i=0;i<3;i++){for(uint8_t value:{255,128,128,51}){fallback.push_back(value);}}bool neutral=false;for(const auto& d:channelData){neutral=neutral||d==fallback;}
+  assert(neutral&&f->meshDataReads[original]==reads&&text(sharedExp+"/GIBox Log.txt").find("游戏网格不可读")!=std::string::npos);
+  exp.shutdown();assert(meshOf(w)==original&&f->handles.empty());f->unreadableMeshes.erase(original);}
  // The first re-copy follows firstRefreshMs: 300 ms after attaching instead of 1.5 s.
  {std::string mediaRef=root+"/mediaRef",sharedRef=mediaRef+"/"+pkg+"/GIBox";Spec s;s.textures=true;s.withTarget(fixture::target("Body"));writeModel(sharedRef+"/models/Ref",s);
   Ptr original=f->mesh(),w=f->renderer(original);f->world(w);f->scene={w};
@@ -996,23 +1003,26 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
 
  // Static weapons use MeshFilter exclusively: no bone getter, skin allocation or skinned renderer setter.
  {std::string mediaR=root+"/mediaRigid",sp=mediaR+"/"+pkg+"/GIBox";
-  auto target=fixture::target("Equip_Sword_Test");fixture::replaceIn(target,"\"bones\":1","\"bones\":0");
-  Spec spec;spec.id=1;spec.withTarget(target);spec.edit=[target](std::string& json){fixture::replaceIn(json,"\"id\":1,\"names\":[]","\"id\":1,\"names\":[],\"targets\":[{\"target\":"+target+",\"owners\":[\"@renderer:equip_sword_test\"]}]");};
+  auto target=fixture::target("Equip_Sword_Test",2);fixture::replaceIn(target,"\"bones\":1","\"bones\":0");
+  Spec spec;spec.id=1;spec.channels=true;spec.withTarget(target);spec.edit=[target](std::string& json){fixture::replaceIn(json,"\"id\":1,\"names\":[]","\"id\":1,\"names\":[],\"targets\":[{\"target\":"+target+",\"owners\":[\"@renderer:equip_sword_test\"]}]");};
   writeModel(sp+"/models/Sword",spec);Ptr player=f->renderer(f->mesh());f->world(player);f->scene={player};
-  Ptr original=f->mesh("Equip_Sword_Test");store<uint64_t>(f->obj[original].shared+0xe0,0);store<uint32_t>(f->obj[original].shared+0xf8,0);f->obj[original].arrays[abi::getBindposes]=f->array(64,0);
+  Ptr original=f->mesh("Equip_Sword_Test",2);store<uint64_t>(f->obj[original].shared+0xe0,0);store<uint32_t>(f->obj[original].shared+0xf8,0);f->obj[original].arrays[abi::getBindposes]=f->array(64,0);
   auto weapon=[&](const char* name){Ptr filter=f->object("filter",name),renderer=f->object("rigidrenderer",name),go=f->object("gameobject",name),t=f->object("transform",name);
    f->obj[filter].mesh=original;f->obj[renderer].materials=f->obj[player].materials;f->goOfRenderer[filter]=go;f->goOfRenderer[renderer]=go;f->goOfRenderer[t]=go;f->filterByGo[go]=filter;f->rendererByGo[go]=renderer;f->rigidFilters.push_back(filter);f->rigidTransforms.push_back(t);return std::make_pair(filter,renderer);};
-  auto sword=weapon("Equip_Sword_Test"),other=weapon("WrongSword");unsigned allocs=f->weightAllocs;
-  write(sp+"/control.json",R"J({"enabled":true,"selected":["Sword"]})J");
+  f->unreadableMeshes.insert(original);auto sword=weapon("Equip_Sword_Test"),other=weapon("WrongSword");unsigned allocs=f->weightAllocs,constructs=f->meshConstructs;
+  write(sp+"/control.json",R"J({"enabled":true,"selected":["Sword"],"experiments":{"neutralColors":true}})J");
+  f->failMeshInit=true;
+  {Runtime failed(e,pkg,root+"/privateRigidFail",mediaR,false);for(uint64_t t=8890000;t<8892000;t+=100){failed.tick(t);}assert(f->obj[sword.first].mesh==original&&f->meshDataReads[original]==0);failed.shutdown();assert(f->handles.empty());}
+  f->failMeshInit=false;
   {Runtime rt(e,pkg,root+"/privateRigid",mediaR,false);uint64_t t=8900000;auto run=[&](uint64_t ms){for(uint64_t end=t+ms;t<end;t+=100)rt.tick(t);};run(5000);
    assert(f->obj[sword.first].mesh!=original&&f->obj[other.first].mesh==original&&f->weightAllocs==allocs&&f->boneReads[sword.second]==0);
-   Ptr ours=f->obj[sword.first].mesh;assert(load<uint64_t>(f->obj[ours].shared+0xe0)==0);
+   Ptr ours=f->obj[sword.first].mesh;assert(load<uint64_t>(f->obj[ours].shared+0xe0)==0&&f->readableMeshes.count(ours)&&f->meshConstructs>constructs&&f->meshDataReads[original]==0&&load<uint32_t>(f->obj[ours].shared+0x74)==3&&load<uint32_t>(f->obj[original].shared+0x74)==2);
    f->obj[sword.first].mesh=original;run(100);assert(f->obj[sword.first].mesh==ours);
    auto copied=weapon("Equip_Sword_Test");f->obj[copied.first].mesh=ours;f->obj[copied.second].materials=f->obj[sword.second].materials;run(2500);
    assert(f->obj[copied.first].mesh==ours);
    write(sp+"/control.json",R"J({"enabled":true,"selected":[]})J");run(1000);assert(f->obj[sword.first].mesh==original&&f->obj[copied.first].mesh==original);
-   rt.shutdown();assert(f->handles.empty());}
-  f->rigidFilters.clear();f->rigidTransforms.clear();f->world(0);f->scene={};}
+   assert(f->meshDataReads[original]==0);rt.shutdown();assert(f->handles.empty());}
+  f->unreadableMeshes.erase(original);f->rigidFilters.clear();f->rigidTransforms.clear();f->world(0);f->scene={};}
  // 50. Merged draws: neighbours with the same material row share a submesh, their index ranges joined in draw order.
  //     A draw hidden by the variant between two of them is not drawn, ranges that continue each other become one, a
  //     neighbour with another material keeps its own submesh and slot, and switching back reads the model's indices
