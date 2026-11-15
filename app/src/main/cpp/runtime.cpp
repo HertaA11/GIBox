@@ -188,10 +188,15 @@ template<class K,class V> struct Recent {size_t limit;std::map<K,V> now,before;e
 };
 struct Runtime::Impl {
  Engine e;std::string pkg,priv,shared,modelRoot,boneRoot;
- LoadingScreens loading{e};LoadingReader loadingReader;ControlState loadingWorkerControl;std::shared_ptr<LoadingPrepared> loadingPending;uint64_t loadingAt=0,loadingFrameAt=0;std::string loadingError;
- void pollLoading(){std::shared_ptr<LoadingPrepared> ready;bool enabled=ctl.enabled;std::string fit=ctl.loadingFit;std::vector<std::string> selected=ctl.selected;
+ LoadingScreens loading{e};LoadingReader loadingReader;ControlState loadingWorkerControl;std::shared_ptr<LoadingPrepared> loadingPending;uint64_t loadingAt=0,loadingFrameAt=0,loadingDiscoverAt=0,loadingImageProbeAt=0;Ptr loadingClass=0,loadingType=0;uint32_t loadingTypeHandle=0;bool loadingDiscovering=false;std::string loadingError,loadingLogged;
+ void pollLoading(){if(loading.updating()||loadingDiscovering){return;}std::shared_ptr<LoadingPrepared> ready;bool enabled=ctl.enabled;std::string fit=ctl.loadingFit;std::vector<std::string> selected=ctl.selected;
   {std::lock_guard<std::mutex> lock(sm);ready.swap(loadingPending);if(pendingControl){enabled=pendingControl->enabled;selected=pendingControl->selected;fit=pendingControl->loadingFit;}}
-  if(ready){if(!ready->error.empty())log("loading-image-error",ready->name+"："+ready->error);loading.receive(std::move(ready));}loading.tick(enabled,selected,fit);}
+  if(ready){if(!ready->error.empty())log("loading-image-error",ready->name+"："+ready->error);loading.receive(std::move(ready));}
+  bool chosen=enabled&&std::find(selected.begin(),selected.end(),loading.name())!=selected.end();if(chosen&&loading.ready()&&!loading.showing()&&texClock()>=loadingDiscoverAt&&loadingClass&&byvalOffset){
+   loadingDiscoverAt=texClock()+1000;loadingDiscovering=true;try{if(!loadingType){require(e.call<Ptr>(abi::classFromType,loadingClass+byvalOffset,1)==loadingClass,"加载界面 Type 校验失败");Ptr type=e.call<Ptr>(abi::typeObject,loadingClass+byvalOffset);require(alive(type),"加载界面 Type 尚未就绪");auto handle=e.call<uint32_t>(abi::pin,type,2,Ptr(0));require(handle!=0,"加载界面 Type 引用失败");loadingType=type;loadingTypeHandle=handle;}
+    if(loading.discover(loadingType)){log("loading-image-bind","发现后续加载界面，已接管其背景 Image");}}catch(...){loadingDiscovering=false;throw;}loadingDiscovering=false;}
+  loading.tick(enabled,selected,fit);if(loading.active()){auto key=loading.name()+":"+std::to_string(loading.cycle.load())+":"+fit;if(key!=loadingLogged){loadingLogged=key;log("loading-image-apply",loading.name()+"：加载轮次 "+std::to_string(loading.cycle.load())+"，比例 "+fit);}}else{loadingLogged.clear();}}
+
  // ---- shared with the worker (guarded by sm)
  std::mutex sm;std::optional<ControlState> pendingControl;std::string controlError;std::vector<ModelInfo> scanned;bool scannedFresh=false;
  struct LoadResult {std::string generation,error;std::shared_ptr<ModelFile> data;uint64_t bytes=0;};
@@ -3198,11 +3203,11 @@ void Runtime::spawned(Ptr go)noexcept{try{p->spawned(go);}catch(...){}}
 void Runtime::spawnedAfter()noexcept{try{p->spawnedAfter();}catch(...){}}
 Ptr Runtime::bindMesh(Ptr renderer,Ptr mesh)noexcept{try{return p->bindMesh(renderer,mesh);}catch(...){return mesh;}}
 void Runtime::meshBound(Ptr renderer)noexcept{try{p->meshBound(renderer);}catch(...){}}
-void Runtime::shutdown(){try{p->loading.shutdown();}catch(const std::exception&){}try{p->lodUnpinAll("运行时关闭");}catch(const std::exception&){}try{p->texRestoreEverything("运行时关闭");}catch(const std::exception&){}if(p->releaseAll()){p->pruneRestoreBackups(true);p->sceneClear(p->sceneCacheRoots);p->sceneClear(p->sceneListRoots);p->sceneClear(p->gliderRoots);p->gliderChildren.clear();p->sceneCache.clear();p->sceneList.clear();for(auto& r:p->rigidRefs)p->freeOwned(r.second);p->rigidRefs.clear();p->freeOwned(p->rigidTypeRoots);p->rigidFilterType=0;p->rigidTransformType=0;}}
+void Runtime::shutdown(){try{p->loading.shutdown();if(p->loadingTypeHandle){p->e.call<void>(abi::unpin,p->loadingTypeHandle);p->loadingTypeHandle=0;p->loadingType=0;}}catch(const std::exception&){}try{p->lodUnpinAll("运行时关闭");}catch(const std::exception&){}try{p->texRestoreEverything("运行时关闭");}catch(const std::exception&){}if(p->releaseAll()){p->pruneRestoreBackups(true);p->sceneClear(p->sceneCacheRoots);p->sceneClear(p->sceneListRoots);p->sceneClear(p->gliderRoots);p->gliderChildren.clear();p->sceneCache.clear();p->sceneList.clear();for(auto& r:p->rigidRefs)p->freeOwned(r.second);p->rigidRefs.clear();p->freeOwned(p->rigidTypeRoots);p->rigidFilterType=0;p->rigidTransformType=0;}}
 }
 
-void ms::Runtime::loadingCanvas(Ptr canvas,Ptr background)noexcept{try{if(!p->tickTid.load())p->tickTid.store(threadId());if(!p->inTick&&p->onTickThread("loading-canvas")){p->loading.observe(canvas,background);p->pollLoading();}}catch(const std::exception& ex){p->log("loading-image-error",ex.what());}}
-void ms::Runtime::loadingImage(Ptr image,bool shown)noexcept{try{if(p->loading.matches(image)&&!p->inTick&&p->onTickThread("loading-image")){p->loading.event(image,shown);p->pollLoading();}}catch(const std::exception& ex){p->log("loading-image-error",ex.what());}}
+void ms::Runtime::loadingCanvas(Ptr canvas,Ptr background)noexcept{try{if(!p->tickTid.load())p->tickTid.store(threadId());if(!p->inTick&&p->onTickThread("loading-canvas")){if(canvas&&!p->loadingClass){p->loadingClass=load<Ptr>(canvas);}p->loading.observe(canvas,background);p->pollLoading();}}catch(const std::exception& ex){p->log("loading-image-error",ex.what());}}
+void ms::Runtime::loadingImage(Ptr image,bool shown)noexcept{try{if(!p->inTick&&p->onTickThread("loading-image")){if(p->loading.matches(image)){p->loading.event(image,shown);p->pollLoading();}else if(shown&&p->loading.ready()){auto now=p->texClock();if(now>=p->loadingImageProbeAt){p->loadingImageProbeAt=now+50;p->loadingDiscoverAt=0;p->pollLoading();}}}}catch(const std::exception& ex){p->log("loading-image-error",ex.what());}}
 void ms::Runtime::loadingDestroyed(Ptr canvas)noexcept{try{if(!p->inTick&&p->onTickThread("loading-destroy"))p->loading.destroyed(canvas);}catch(const std::exception& ex){p->log("loading-image-error",ex.what());}}
 
-void ms::Runtime::loadingFrame()noexcept{try{if(!p->loading.hasCanvas()||p->inTick||!p->onTickThread("loading-render"))return;auto now=clockMs();if(now<p->loadingFrameAt)return;p->loadingFrameAt=now+50;p->pollLoading();}catch(const std::exception& ex){if(p->loadingError!=ex.what()){p->loadingError=ex.what();p->log("loading-image-error",ex.what());}}}
+void ms::Runtime::loadingFrame()noexcept{try{if(p->inTick||!p->onTickThread("loading-render"))return;auto now=clockMs();if(now<p->loadingFrameAt)return;p->loadingFrameAt=now+50;p->pollLoading();}catch(const std::exception& ex){if(p->loadingError!=ex.what()){p->loadingError=ex.what();p->log("loading-image-error",ex.what());}}}

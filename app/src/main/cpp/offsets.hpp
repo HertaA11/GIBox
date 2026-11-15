@@ -73,6 +73,7 @@ enum Offset:uintptr_t {
  // Loading UI / Image / Sprite: CN dump 7.2, verified class signatures. No global fallback RVAs.
  loadingRender=0x124f5c98,loadingStart=0xd9c7e8c,loadingBackground=0xd9c7ce4,loadingDestroy=0xd9c7f54,
  imageEnable=0x8c625cc,imageDisable=0x8c6266c,imageSprite=0x8c5ec4c,imageSetSprite=0x8c5ec54,
+ imageSetOverride=0x8c5f148, // UI.Image.set_overrideSprite; m_OverrideSprite is +0xe0 (CN 7.2 dump).
  imageType=0x8c5f2cc,imageSetType=0x8c5f2d4,imageAspect=0x8c5f304,imageSetAspect=0x8c5f30c,
  graphicRect=0xcc5e23c,rectBounds=0x8ffed28,textureWrap=0xc809098,textureFilter=0xc809008,
  graphicColor=0xcc5df44,graphicSetColor=0xcc5df50,spriteCreate=0xa7ed504,

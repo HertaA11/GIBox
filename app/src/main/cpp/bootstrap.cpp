@@ -58,7 +58,7 @@ void onPopulate(uintptr_t text,uintptr_t helper,uintptr_t method){
  populateOriginal(text,helper,method);}
 using UiLifeFn=void(*)(uintptr_t,uintptr_t);
 using LoadingFrameFn=void(*)(uintptr_t);LoadingFrameFn loadingRenderOriginal=nullptr;
-void onLoadingRender(uintptr_t method){loadingRenderOriginal(method);if(auto* p=published.load(std::memory_order_acquire))p->loadingFrame();}
+void onLoadingRender(uintptr_t method){if(auto* p=published.load(std::memory_order_acquire))p->loadingFrame();loadingRenderOriginal(method);}
 UiLifeFn loadingStartOriginal=nullptr,loadingDestroyOriginal=nullptr,imageEnableOriginal=nullptr,imageDisableOriginal=nullptr;
 void onLoadingStart(uintptr_t self,uintptr_t method){loadingStartOriginal(self,method);if(auto* p=published.load(std::memory_order_acquire))if(self)p->loadingCanvas(self,ms::load<uintptr_t>(self+0x28));}
 void onLoadingDestroy(uintptr_t self,uintptr_t method){if(auto* p=published.load(std::memory_order_acquire))p->loadingDestroyed(self);loadingDestroyOriginal(self,method);}
