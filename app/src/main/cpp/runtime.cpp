@@ -59,7 +59,7 @@ struct KeyPress {long long seq=0;size_t file=0;std::string section;bool back=fal
 // auto (0.7.60): the game's own per-renderer instance is written in place (its effects keep running on it); a loaded asset
 // or a material another renderer shows is copied first, and the game's instance made from that copy is followed in place.
 struct TexModControl {std::string strategy="auto",lod="full";bool capture=false;vkcap::Mode hash=vkcap::Mode::Off;long long testRequest=0;std::vector<std::string> testStrategies{"auto","direct","clone"};int observeMs=4000;};
-struct ControlState {std::string loadingFit="original";TexModControl tex;Experiments exp;bool gameTools=false,enabled=false,lodPin=true,hideUid=false,npcModels=false;int logLevel=int(Level::Info);std::vector<std::string> selected;long long exportBones=0,refreshBones=0,renderMark=0;unsigned refreshBonesCharacter=0;std::map<std::string,std::map<std::string,int>> variables;std::map<std::string,std::vector<KeyPress>> keys;};
+struct ControlState {std::string loadingFit="original";TexModControl tex;Experiments exp;bool gameTools=false,enabled=false,lodPin=true,hideUid=false,npcModels=false;int logLevel=int(Level::Info);std::vector<std::string> selected;long long synthesisRequest=0,exportBones=0,refreshBones=0,renderMark=0;unsigned refreshBonesCharacter=0;std::map<std::string,std::map<std::string,int>> variables;std::map<std::string,std::vector<KeyPress>> keys;};
 ControlState parseControl(const std::string& raw){
  Json c=JsonParser(raw).parse();require(c.type==Json::Object,"control.json 不是对象");ControlState s;
  const auto& a=c.at("selected");require(a.type==Json::Array&&a.array.size()<=128,"selected 列表无效");
@@ -68,6 +68,7 @@ ControlState parseControl(const std::string& raw){
  s.enabled=c.at("enabled").type==Json::Bool&&c.at("enabled").boolean;s.exportBones=integerOf(c.at("exportBones"));
  s.lodPin=c.at("lodPin").type!=Json::Bool||c.at("lodPin").boolean;   // default on (0.7.103)
  s.gameTools=c.at("gameTools").type==Json::Bool&&c.at("gameTools").boolean;
+ s.synthesisRequest=integerOf(c.at("synthesisRequest"));require(s.synthesisRequest>=0,"合成台请求计数无效");
  s.hideUid=c.at("hideUid").type==Json::Bool&&c.at("hideUid").boolean;
  s.npcModels=c.at("npcModels").type==Json::Bool&&c.at("npcModels").boolean;
  const auto& fit=c.at("loadingFit");if(fit.type==Json::String&&(fit.string=="original"||fit.string=="cover"||fit.string=="stretch"))s.loadingFit=fit.string;
@@ -3088,6 +3089,7 @@ struct Runtime::Impl {
   for(auto& m:models){auto g=learnedGen.find(m.path);if(g==learnedGen.end()||g->second!=m.generation){learned.erase(m.path);learnedId.erase(m.path);staleNote.erase(m.path);learnedGen[m.path]=m.generation;for(auto it=missingLogged.lower_bound(m.path+"|");it!=missingLogged.end()&&it->first.compare(0,m.path.size()+1,m.path+"|")==0;)it=missingLogged.erase(it);}
    auto l=learned.find(m.path);if(l!=learned.end())for(auto& p:m.parts){auto t=l->second.find(p.name);if(t!=l->second.end()&&t->second.bones<p.minBones)l->second.erase(t);}}
   // A bone export is a request made while the game runs: the count found at start-up is not one.
+  if(c&&controlSeen&&c->synthesisRequest>ctl.synthesisRequest){tools.open();log("synthesis-request","收到 App 打开合成台请求");}
   if(c&&!controlSeen){controlSeen=true;exportSeen=c->exportBones;
    // Key presses already in control.json were made before this game start: taken as done, never replayed.
    for(auto& kv:c->keys)for(auto& k:kv.second)keySeen[kv.first]=std::max(keySeen[kv.first],k.seq);}

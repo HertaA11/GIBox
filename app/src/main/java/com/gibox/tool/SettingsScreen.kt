@@ -67,26 +67,31 @@ fun SettingsScreen(state: AppState) {
                     SettingsSwitch(
                         state = hideUid,
                         title = { Text("隐藏用户UID") },
-                        shapes = ListItemDefaults.segmentedShapes(0, 4),
+                        shapes = ListItemDefaults.segmentedShapes(0, 5),
                         onCheckedChange = { state.setHideUid(it) },
                     )
                     SettingsSwitch(
                         state = npcModels,
                         title = { Text("角色 MOD 同时替换对应 NPC", maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) },
-                        shapes = ListItemDefaults.segmentedShapes(1, 4),
+                        shapes = ListItemDefaults.segmentedShapes(1, 5),
                         onCheckedChange = { state.setNpcModels(it) },
                     )
                     SettingsSwitch(
                         state = gameTools,
-                        title = { Text("游戏内工具") },
-                        shapes = ListItemDefaults.segmentedShapes(2, 4),
+                        title = { Text("穿行摇杆") },
+                        shapes = ListItemDefaults.segmentedShapes(2, 5),
                         onCheckedChange = { state.setGameTools(it) },
+                    )
+                    SettingsMenuLink(
+                        title = { Text("打开合成台") },
+                        shapes = ListItemDefaults.segmentedShapes(3, 5),
+                        onClick = { state.openSynthesis() },
                     )
                     Box {
                         SettingsMenuLink(
                             title = { Text("加载图片比例") },
                             subtitle = { Text(Control.LOADING_FIT_LABELS[Control.LOADING_FITS.indexOf(fit).coerceAtLeast(0)]) },
-                            shapes = ListItemDefaults.segmentedShapes(3, 4),
+                            shapes = ListItemDefaults.segmentedShapes(4, 5),
                             onClick = { fitMenu = true },
                         )
                         DropdownMenu(expanded = fitMenu, onDismissRequest = { fitMenu = false }, modifier = Modifier.widthIn(min = 184.dp)) {

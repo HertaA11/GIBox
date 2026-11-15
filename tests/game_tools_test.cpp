@@ -29,7 +29,12 @@ void restored(){assert(gravity&&!kinematic&&collision&&handles.empty());}
 }
 int main(){actor=object();root=object();go=object();body=object();collider=object();cam=object();camTransform=object();Engine engine(0);engine.resolver=resolve;GameTools tools(engine);
  tools.tick(actor,false,1000);restored();assert(!moves&&!opens);
- tools.open();tools.tick(actor,true,1000);assert(opens==1&&handles.empty());tools.tick(actor,true,1050);assert(opens==1);tools.open();tools.tick(actor,true,1100);assert(opens==1);tools.open();tools.tick(0,true,2200);assert(opens==1);
+ // Enabling with no action must replace the initial disabled message; idle ticks preserve operation results.
+ assert(JsonParser(tools.status()).parse().at("message").string=="工具尚未启用");
+ tools.tick(actor,true,1000);auto enabled=JsonParser(tools.status()).parse();assert(enabled.at("allowed").boolean&&enabled.at("message").string=="工具已启用");
+ tools.tick(actor,false,1000);assert(JsonParser(tools.status()).parse().at("message").string=="工具尚未启用");
+ tools.tick(actor,true,1000);assert(JsonParser(tools.status()).parse().at("message").string=="工具已启用");
+ tools.open();tools.tick(actor,true,1000);assert(opens==1&&handles.empty());tools.tick(actor,true,1050);assert(opens==1);assert(JsonParser(tools.status()).parse().at("message").string=="已请求打开合成台");tools.open();tools.tick(actor,true,1100);assert(opens==1);tools.open();tools.tick(0,true,2200);assert(opens==1);
  tools.submit(input(1,2300,1,1));tools.tick(actor,true,2300);assert(!gravity&&kinematic&&!collision&&!handles.empty());tools.tick(actor,true,2350);assert(near(position.x,.25f/std::sqrt(2.f))&&near(position.z,position.x));
  tools.submit({});tools.tick(actor,true,2360);restored();
  // Timeout locks this activation; a late heartbeat cannot silently resume movement.
@@ -46,5 +51,8 @@ int main(){actor=object();root=object();go=object();body=object();collider=objec
  gravity=false;kinematic=true;collision=false;tools.submit(input(8,3600));tools.tick(actor,true,3600);tools.submit({});tools.tick(actor,true,3610);assert(!gravity&&kinematic&&!collision&&handles.empty());gravity=true;kinematic=false;collision=true;
  // Missing global-client RVAs are refused, rather than calling CN addresses.
  auto saved=abi::table();abi::table()={{uintptr_t(abi::toolsSynthesis),uintptr_t(abi::toolsSynthesis)}};assert(!GameTools::supported());tools.submit(input(9,3700));tools.open();tools.tick(actor,true,3700);restored();assert(opens==2);abi::table()=saved;
+ // App synthesis requests remain usable with the joystick switch off, once per request.
+ tools.submit({});tools.tick(actor,false,4800);tools.open();tools.tick(actor,false,4810);assert(opens==3&&handles.empty());
+ tools.tick(actor,false,4820);assert(opens==3&&JsonParser(tools.status()).parse().at("message").string=="已请求打开合成台");
  tools.shutdown();restored();for(void* p:allocated){std::free(p);}std::cout<<"Game tools: PASS (native entity movement, physics restoration and retry, input lease, correction stop, camera direction, synthesis request, unsupported build refusal)\n";
 }

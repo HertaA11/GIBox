@@ -48,10 +48,12 @@ class GameTools {
  void open(){std::lock_guard<std::mutex> lock(mutex);requested++;}
  bool wantsTick()const{std::lock_guard<std::mutex> lock(mutex);return input.enabled||reportedActive||requested!=seen;}
  std::string status()const{std::lock_guard<std::mutex> lock(mutex);return std::string("{\"ready\":true,\"allowed\":")+(allowed?"true":"false")+",\"supported\":"+(supported()?"true":"false")+",\"active\":"+(reportedActive?"true":"false")+",\"blockedArm\":"+std::to_string(blockedArm)+",\"message\":"+quote(message)+"}";}
- void tick(Ptr actor,bool permitted,uint64_t now){Input in;bool action;{std::lock_guard<std::mutex> lock(mutex);allowed=permitted;in=input;action=requested!=seen;seen=requested;}
+ void tick(Ptr actor,bool permitted,uint64_t now){Input in;bool action,permissionChanged;{std::lock_guard<std::mutex> lock(mutex);permissionChanged=allowed!=permitted;allowed=permitted;in=input;action=requested!=seen;seen=requested;}
   bool blocked;{std::lock_guard<std::mutex> lock(mutex);blocked=blockedArm&&blockedArm==in.arm;}
-  if(!permitted||!supported()){restore();if(permitted){say("当前客户端尚未适配游戏工具");}return;}
+  if(!supported()){if(restore()&&(permitted||action)){say("当前客户端尚未适配游戏工具");}return;}
+  if(permissionChanged&&permitted){say("工具已启用");}
   if(action){{std::lock_guard<std::mutex> lock(mutex);blockedArm=in.arm;}if(!restore()){return;}try{synthesis(actor,now);}catch(const std::exception& ex){say(std::string("合成台打开失败：")+ex.what());}return;}
+  if(!permitted){if(restore()&&permissionChanged){say("工具尚未启用");}return;}
   if(in.enabled&&in.arm&&(now<in.at||now-in.at>300||!actor)){{std::lock_guard<std::mutex> lock(mutex);blockedArm=in.arm;}blocked=true;}
   if(!in.enabled||blocked||!in.arm||now<in.at||now-in.at>300||!actor){bool was=entity!=0;if(restore()&&was){say(blocked?"穿行已暂停，请关闭后重开":"穿行已停止");}return;}
   try{if(entity!=actor||!live(root)||load<Ptr>(root+0x10)!=rootNative||!live(body)||load<Ptr>(body+0x10)!=bodyNative||!live(collider)||load<Ptr>(collider+0x10)!=colliderNative){if(!restore()){return;}attach(actor,now);}

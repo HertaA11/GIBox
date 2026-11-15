@@ -45,9 +45,8 @@ final class GameToolsPanel {
     private Button button(String label){Button b=new Button(activity);b.setText(label);b.setTextSize(13);return b;}
     private void create(){root=new FrameLayout(activity);root.setClipChildren(false);panel=new LinearLayout(activity);panel.setOrientation(LinearLayout.VERTICAL);panel.setPadding(dp(8),dp(4),dp(8),dp(8));
         GradientDrawable bg=new GradientDrawable();bg.setColor(0xee20252b);bg.setCornerRadius(dp(16));panel.setBackground(bg);
-        Button title=button("工具");panel.addView(title,new LinearLayout.LayoutParams(dp(164),dp(44)));
+        Button title=button("穿行");panel.addView(title,new LinearLayout.LayoutParams(dp(164),dp(44)));
         body=new LinearLayout(activity);body.setOrientation(LinearLayout.VERTICAL);scroll=new ScrollView(activity);scroll.setVisibility(View.GONE);scroll.addView(body);panel.addView(scroll,new LinearLayout.LayoutParams(dp(164),Math.max(dp(120),Math.min(dp(420),activity.getResources().getDisplayMetrics().heightPixels-dp(76)))));
-        Button synthesis=button("打开合成台");synthesis.setOnClickListener(v->{stop();try{NativeBridge.gameToolsOpen();}catch(UnsatisfiedLinkError e){status.setText("运行时尚未就绪");}});body.addView(synthesis);
         fly=button("穿行：关");fly.setOnClickListener(v->{if(flying)stop();else{arm++;flying=true;fly.setText("穿行：开");send();nextState=0;handler.removeCallbacks(pulse);handler.post(pulse);}});body.addView(fly);
         stick=new Stick();body.addView(stick,new LinearLayout.LayoutParams(dp(164),dp(140)));
         LinearLayout vertical=new LinearLayout(activity);vertical.setOrientation(LinearLayout.HORIZONTAL);Button rise=button("上升"),fall=button("下降");hold(rise,true);hold(fall,false);vertical.addView(rise,new LinearLayout.LayoutParams(0,dp(44),1));vertical.addView(fall,new LinearLayout.LayoutParams(0,dp(44),1));body.addView(vertical);

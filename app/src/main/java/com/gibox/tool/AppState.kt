@@ -322,6 +322,11 @@ class AppState(private val activity: Activity) {
     }
     fun gameTools(): Boolean = Control.gameTools(game)
     fun setGameTools(value: Boolean) = save("保存游戏工具") { Control.setGameTools(game, value) }
+    fun openSynthesis() = save("打开合成台") {
+        Control.openSynthesis(game)
+        AppLog.info(game, LOGGER, "synthesis-request 已发送，返回游戏后执行")
+        toast("已发送请求，请返回游戏")
+    }
     fun loadingFit(): String = Control.loadingFit(game)
     fun setLoadingFit(value: String) = save("保存加载图片比例") { Control.setLoadingFit(game, value) }
     fun npcModels(): Boolean = Control.npcModels(game)
