@@ -1,3 +1,4 @@
+#include "game_tools.hpp"
 #include <array>
 #include "runtime.hpp"
 #include "uid_hide.hpp"
@@ -58,7 +59,7 @@ struct KeyPress {long long seq=0;size_t file=0;std::string section;bool back=fal
 // auto (0.7.60): the game's own per-renderer instance is written in place (its effects keep running on it); a loaded asset
 // or a material another renderer shows is copied first, and the game's instance made from that copy is followed in place.
 struct TexModControl {std::string strategy="auto",lod="full";bool capture=false;vkcap::Mode hash=vkcap::Mode::Off;long long testRequest=0;std::vector<std::string> testStrategies{"auto","direct","clone"};int observeMs=4000;};
-struct ControlState {std::string loadingFit="original";TexModControl tex;Experiments exp;bool enabled=false,lodPin=true,hideUid=false,npcModels=false;int logLevel=int(Level::Info);std::vector<std::string> selected;long long exportBones=0,refreshBones=0,renderMark=0;unsigned refreshBonesCharacter=0;std::map<std::string,std::map<std::string,int>> variables;std::map<std::string,std::vector<KeyPress>> keys;};
+struct ControlState {std::string loadingFit="original";TexModControl tex;Experiments exp;bool gameTools=false,enabled=false,lodPin=true,hideUid=false,npcModels=false;int logLevel=int(Level::Info);std::vector<std::string> selected;long long exportBones=0,refreshBones=0,renderMark=0;unsigned refreshBonesCharacter=0;std::map<std::string,std::map<std::string,int>> variables;std::map<std::string,std::vector<KeyPress>> keys;};
 ControlState parseControl(const std::string& raw){
  Json c=JsonParser(raw).parse();require(c.type==Json::Object,"control.json 不是对象");ControlState s;
  const auto& a=c.at("selected");require(a.type==Json::Array&&a.array.size()<=128,"selected 列表无效");
@@ -66,6 +67,7 @@ ControlState parseControl(const std::string& raw){
  auto integerOf=[](const Json& j){if(j.type==Json::Null)return 0LL;require(j.type==Json::Number&&std::floor(j.number)==j.number&&std::abs(j.number)<=9007199254740991.,"control.json 计数值无效");return static_cast<long long>(j.number);};
  s.enabled=c.at("enabled").type==Json::Bool&&c.at("enabled").boolean;s.exportBones=integerOf(c.at("exportBones"));
  s.lodPin=c.at("lodPin").type!=Json::Bool||c.at("lodPin").boolean;   // default on (0.7.103)
+ s.gameTools=c.at("gameTools").type==Json::Bool&&c.at("gameTools").boolean;
  s.hideUid=c.at("hideUid").type==Json::Bool&&c.at("hideUid").boolean;
  s.npcModels=c.at("npcModels").type==Json::Bool&&c.at("npcModels").boolean;
  const auto& fit=c.at("loadingFit");if(fit.type==Json::String&&(fit.string=="original"||fit.string=="cover"||fit.string=="stretch"))s.loadingFit=fit.string;
@@ -187,7 +189,7 @@ template<class K,class V> struct Recent {size_t limit;std::map<K,V> now,before;e
  void clear(){now.clear();before.clear();}
 };
 struct Runtime::Impl {
- Engine e;std::string pkg,priv,shared,modelRoot,boneRoot;
+ Engine e;GameTools tools{e,[this](const std::string& event,const std::string& message){log(event,message);}};std::string pkg,priv,shared,modelRoot,boneRoot;
  LoadingScreens loading{e};LoadingReader loadingReader;ControlState loadingWorkerControl;std::shared_ptr<LoadingPrepared> loadingPending;uint64_t loadingAt=0,loadingFrameAt=0,loadingDiscoverAt=0,loadingImageProbeAt=0;Ptr loadingClass=0,loadingType=0;uint32_t loadingTypeHandle=0;bool loadingDiscovering=false;std::string loadingError,loadingLogged;
  void pollLoading(){if(loading.updating()||loadingDiscovering){return;}std::shared_ptr<LoadingPrepared> ready;bool enabled=ctl.enabled;std::string fit=ctl.loadingFit;std::vector<std::string> selected=ctl.selected;
   {std::lock_guard<std::mutex> lock(sm);ready.swap(loadingPending);if(pendingControl){enabled=pendingControl->enabled;selected=pendingControl->selected;fit=pendingControl->loadingFit;}}
@@ -3105,12 +3107,12 @@ struct Runtime::Impl {
   if(!cerr.empty())log("control-error",cerr);}
  // The step a failing tick was in, for tick-error (0.7.106: a whole minute of "托管数组超出上限" said nothing more).
  const char* tickPhase="";std::string tickErrorSaid;uint64_t tickErrorAt=0;unsigned tickErrorRepeats=0;
- void tick(uint64_t now){if(inTick)return;bindingNow=now;if(now<next){guard(now);animationTick(now);return;}inTick=true;next=now+100;tickPhase="开始";
+ void tick(uint64_t now){if(inTick)return;bindingNow=now;if(now<next){if(tools.wantsTick()){inTick=true;try{Ptr actor=0;try{if(ctl.gameTools){actor=current().entity;}}catch(const std::exception& ex){log("game-tools-entity",ex.what());}tools.tick(actor,ctl.gameTools,now);}catch(const std::exception& ex){log("game-tools-error",ex.what());}inTick=false;}guard(now);animationTick(now);return;}inTick=true;next=now+100;tickPhase="开始";
   try{
    if(!tickTid.load())tickTid.store(threadId());
    // consume() may replace `models`: hand-off pointers into it are dropped first and set again below.
    seen.erase(std::remove_if(seen.begin(),seen.end(),[&](const Seen& sn){return !seenLive(sn);}),seen.end());
-   tickPhase="读取文件与当前角色";wantedNow.clear();bindingTargets.clear();bindingReady=false;if(!worker.background()){workerTick(now);}consume();ch=current();bindingStats();tickPhase="骨骼库与预览";
+   tickPhase="读取文件与当前角色";wantedNow.clear();bindingTargets.clear();bindingReady=false;if(!worker.background()){workerTick(now);}consume();ch=current();tools.tick(ch.entity,ctl.gameTools,now);bindingStats();tickPhase="骨骼库与预览";
    if(ch.config!=shownCharacter){shownCharacter=ch.config;log("character",ch.entity?std::to_string(ch.config):std::string("无"));}
    try{loading.tick(ctl.enabled,ctl.selected,ctl.loadingFit);}catch(const std::exception& ex){if(loadingError!=ex.what()){loadingError=ex.what();log("loading-image-error",loadingError);}}
    try{textureDiagTick(now);}catch(const std::exception& ex){log("texture-diag-unsupported",std::string("本轮诊断中止：")+ex.what());}
@@ -3203,7 +3205,7 @@ void Runtime::spawned(Ptr go)noexcept{try{p->spawned(go);}catch(...){}}
 void Runtime::spawnedAfter()noexcept{try{p->spawnedAfter();}catch(...){}}
 Ptr Runtime::bindMesh(Ptr renderer,Ptr mesh)noexcept{try{return p->bindMesh(renderer,mesh);}catch(...){return mesh;}}
 void Runtime::meshBound(Ptr renderer)noexcept{try{p->meshBound(renderer);}catch(...){}}
-void Runtime::shutdown(){try{p->loading.shutdown();if(p->loadingTypeHandle){p->e.call<void>(abi::unpin,p->loadingTypeHandle);p->loadingTypeHandle=0;p->loadingType=0;}}catch(const std::exception&){}try{p->lodUnpinAll("运行时关闭");}catch(const std::exception&){}try{p->texRestoreEverything("运行时关闭");}catch(const std::exception&){}if(p->releaseAll()){p->pruneRestoreBackups(true);p->sceneClear(p->sceneCacheRoots);p->sceneClear(p->sceneListRoots);p->sceneClear(p->gliderRoots);p->gliderChildren.clear();p->sceneCache.clear();p->sceneList.clear();for(auto& r:p->rigidRefs)p->freeOwned(r.second);p->rigidRefs.clear();p->freeOwned(p->rigidTypeRoots);p->rigidFilterType=0;p->rigidTransformType=0;}}
+void Runtime::shutdown(){try{p->tools.shutdown();}catch(const std::exception&){}try{p->loading.shutdown();if(p->loadingTypeHandle){p->e.call<void>(abi::unpin,p->loadingTypeHandle);p->loadingTypeHandle=0;p->loadingType=0;}}catch(const std::exception&){}try{p->lodUnpinAll("运行时关闭");}catch(const std::exception&){}try{p->texRestoreEverything("运行时关闭");}catch(const std::exception&){}if(p->releaseAll()){p->pruneRestoreBackups(true);p->sceneClear(p->sceneCacheRoots);p->sceneClear(p->sceneListRoots);p->sceneClear(p->gliderRoots);p->gliderChildren.clear();p->sceneCache.clear();p->sceneList.clear();for(auto& r:p->rigidRefs)p->freeOwned(r.second);p->rigidRefs.clear();p->freeOwned(p->rigidTypeRoots);p->rigidFilterType=0;p->rigidTransformType=0;}}
 }
 
 void ms::Runtime::loadingCanvas(Ptr canvas,Ptr background)noexcept{try{if(!p->tickTid.load())p->tickTid.store(threadId());if(!p->inTick&&p->onTickThread("loading-canvas")){if(canvas&&!p->loadingClass){p->loadingClass=load<Ptr>(canvas);}p->loading.observe(canvas,background);p->pollLoading();}}catch(const std::exception& ex){p->log("loading-image-error",ex.what());}}
@@ -3211,3 +3213,7 @@ void ms::Runtime::loadingImage(Ptr image,bool shown)noexcept{try{if(!p->inTick&&
 void ms::Runtime::loadingDestroyed(Ptr canvas)noexcept{try{if(!p->inTick&&p->onTickThread("loading-destroy"))p->loading.destroyed(canvas);}catch(const std::exception& ex){p->log("loading-image-error",ex.what());}}
 
 void ms::Runtime::loadingFrame()noexcept{try{if(p->inTick||!p->onTickThread("loading-render"))return;auto now=clockMs();if(now<p->loadingFrameAt)return;p->loadingFrameAt=now+50;p->pollLoading();}catch(const std::exception& ex){if(p->loadingError!=ex.what()){p->loadingError=ex.what();p->log("loading-image-error",ex.what());}}}
+
+void ms::Runtime::gameToolsInput(bool enabled,float x,float z,float vertical,float speed,uint64_t arm){p->tools.submit({enabled,x,z,vertical,speed,arm,clockMs()});}
+void ms::Runtime::gameToolsOpen(){p->tools.open();}
+std::string ms::Runtime::gameToolsStatus()const{return p->tools.status();}

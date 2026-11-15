@@ -49,6 +49,9 @@ public final class NativeBridge {
         return new String(drawsUtf8(request.getBytes(java.nio.charset.StandardCharsets.UTF_8)), java.nio.charset.StandardCharsets.UTF_8);
     }
     private static native byte[] drawsUtf8(byte[] request);
+    public static native void gameToolsInput(boolean enabled,float x,float z,float vertical,float speed,long arm);
+    public static native void gameToolsOpen();
+    public static native String gameToolsState();
     public static native void start(String packageName,String privateDir);
     private static native byte[] decodeDds(byte[] dds);
 }

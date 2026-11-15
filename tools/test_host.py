@@ -10,6 +10,8 @@ def run(cmd):
 flags=['-std=c++17','-Wall','-Wextra','-Werror','-DGIBOX_HOST_TEST','-Iapp/src/main/cpp','-Ithird_party/bcdec']
 run(['g++',*flags,'tests/core_test.cpp','app/src/main/cpp/runtime.cpp','app/src/main/cpp/dds.cpp','-o',out/'core_test'])
 run([out/'core_test'])
+run(['g++',*flags,'-pthread','tests/game_tools_test.cpp','-o',out/'game_tools_test'])
+run([out/'game_tools_test'])
 run(['g++',*flags,'tests/texture_diag_test.cpp','-o',out/'texture_diag_test'])
 run([out/'texture_diag_test'])
 run(['g++',*flags,'tests/loading_images_test.cpp','-o',out/'loading_images_test'])
@@ -29,7 +31,7 @@ if (root/'tests/runtime_test.cpp').exists():
     run([out/'runtime_test'])
 # A module targeting Xposed API 102 cannot load de.robv.android.xposed classes: whatever the modern entry reaches
 # (ModernEntry -> Loader -> Control, NativeBridge) must not refer to them, or loading it fails (0.7.66 / 0.7.67).
-for name in ['ModernEntry','Loader','Control','NativeBridge','ModuleStatus']:
+for name in ['ModernEntry','Loader','Control','NativeBridge','ModuleStatus','GameToolsPanel']:
     code=''.join(l for l in (root/'app/src/main/java/com/gibox/tool'/(name+'.java')).read_text(encoding='utf-8').splitlines(True) if not l.lstrip().startswith(('*','/*','//')))
     assert 'de.robv' not in code and 'Entry.' not in code.replace('ModernEntry',''), name+' refers to the legacy Xposed API or to Entry'
 print('Modern entry classes: PASS (no legacy Xposed API reachable)')

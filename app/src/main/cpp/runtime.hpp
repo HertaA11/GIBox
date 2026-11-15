@@ -19,6 +19,8 @@ struct Engine {
 class Runtime {
  struct Impl;std::unique_ptr<Impl> p;
  public:
+ void gameToolsInput(bool enabled,float x,float z,float vertical,float speed,uint64_t arm);
+ void gameToolsOpen();std::string gameToolsStatus()const;
  // threaded=false runs all file work inline (host tests); the game uses a background thread so
  // the game thread only makes engine calls.
  Runtime(Engine engine,std::string packageName,std::string privateDir,std::string mediaRoot="/storage/emulated/0/Android/media",bool threaded=true);~Runtime();

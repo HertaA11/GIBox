@@ -68,6 +68,8 @@ public final class Control {
     }
     public static boolean enabled(String pkg) { return load(pkg).optBoolean("enabled", false); }
     /** Hide the account UID shown in the game's UI (control.json "hideUid", default off; read at the game's start). */
+    public static boolean gameTools(String pkg){return load(pkg).optBoolean("gameTools",false);}
+    public static synchronized void setGameTools(String pkg,boolean on)throws Exception{JSONObject j=load(pkg);j.put("gameTools",on);save(pkg,j);}
     public static boolean hideUid(String pkg) { return load(pkg).optBoolean("hideUid", false); }
     public static synchronized void setHideUid(String pkg, boolean on) throws Exception { JSONObject j = load(pkg); j.put("hideUid", on); save(pkg, j); }
     public static final String[] LOADING_FITS={"original","cover","stretch"};

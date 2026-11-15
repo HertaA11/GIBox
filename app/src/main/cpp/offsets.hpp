@@ -82,8 +82,13 @@ enum Offset:uintptr_t {
  getMesh=0x8f4217c,setMesh=0x8f4235c,getBones=0x8f420b4,getMaterials=0x8f03940,setMaterials=0x8f0399c,
  clone=0x8ffeb20,destroy=0x8ffe3a0,getName=0x8ffe494,getParent=0x8fffc18,
  arrayNew=0x43beb7c,objectNew=0x43cdaf8,pin=0xed0741c,unpin=0xed07434,
- // Mesh.set_isReadable(bool).
+ // CN 7.2: normal interaction opens Synthesis; entity setter also updates entity position caches.
+ toolsSynthesis=0xfdba624,toolsEntityRoot=0x9551d6c,toolsEntityPosition=0x954eccc,toolsEntitySetPosition=0x9539088,
+ toolsTransformPosition=0x9001200,toolsForward=0x9001f94,toolsCamera=0xc806d20,toolsComponentTransform=0x80e5930,
+ toolsColliderGet=0x112ec4a8,toolsColliderSet=0x112ec4ac,toolsColliderBody=0x112ec4b0,
+ toolsGravityGet=0x112f641c,toolsGravitySet=0x112f6420,toolsKinematicGet=0x112f644c,toolsKinematicSet=0x112f6450,
  meshInit=0xc53a760, // Mesh..ctor(), CN 7.2 dump MethodIndex 19668; fresh CPU-readable mesh.
+ // Mesh.set_isReadable(bool).
  setReadable=0xc53a98c,setIndexFormat=0xc53a828,getBindposes=0xc53a984,
  getPositions=0xc53adcc,setPositions=0xc53addc,setNormals=0xc53adfc,
  getUV=0xc53ae28,setUV=0xc53ae38,setUV2=0xc53ae58,setUV3=0xc53ae78,setUV4=0xc53ae98,
