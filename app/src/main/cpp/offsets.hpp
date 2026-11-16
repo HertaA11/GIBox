@@ -83,7 +83,7 @@ enum Offset:uintptr_t {
  clone=0x8ffeb20,destroy=0x8ffe3a0,getName=0x8ffe494,getParent=0x8fffc18,
  arrayNew=0x43beb7c,objectNew=0x43cdaf8,pin=0xed0741c,unpin=0xed07434,
  // CN 7.2: BGMCJLBBGJF.PGODCGCKIHI(float), camera proximity/angle opacity.
- cameraFadeSet=0xa0a6c50,cameraForward=0x9001f94,cameraTransform=0x80e5930,
+ cameraFadeSet=0xa0a6c50,
  // Verified interaction key: SynthesisPage.
  synthesisOpen=0xfdba624,
  meshInit=0xc53a760, // Mesh..ctor(), CN 7.2 dump MethodIndex 19668; fresh CPU-readable mesh.
