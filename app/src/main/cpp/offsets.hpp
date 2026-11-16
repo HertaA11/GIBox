@@ -84,8 +84,14 @@ enum Offset:uintptr_t {
  arrayNew=0x43beb7c,objectNew=0x43cdaf8,pin=0xed0741c,unpin=0xed07434,
  // CN 7.2: BGMCJLBBGJF.PGODCGCKIHI(float), camera proximity/angle opacity.
  cameraFadeSet=0xa0a6c50,
- // Verified interaction key: SynthesisPage.
- synthesisOpen=0xfdba624,
+ // CN 7.2 HUD LateUpdateView, UnityEvent.Invoke and the SynthesisPage dispatcher.
+ synthesisHudFrame=0xe3269b4,synthesisClick=0x8f41680,synthesisOpen=0xfdba624,
+ uiGoTransform=0x95777e8,uiComponentTransform=0x80e5930,uiChildCount=0x9003ae4,uiChild=0x9003d44,
+ uiSetParent=0x90023bc,uiSetSibling=0x9003b4c,uiSetName=0x8ffe604,
+ uiAnchorMin=0x8ffee48,uiAnchorMax=0x8ffeea0,uiSizeDelta=0x8fff114,uiAnchoredPosition=0x8fff02c,uiLocalScale=0x90021f4,
+ uiNewClick=0x8c67888,uiSetClick=0x105f2434,uiCreateText=0xcc4cb24,uiSimpleFont=0x10e62378,
+ uiSetFont=0xcc4f14c,uiFontSize=0xcc4f59c,uiAlignment=0xcc4cadc,uiOverflowX=0xcc4f5fc,uiOverflowY=0xcc4f65c,
+ uiTargetGraphic=0xc6197c0,
  meshInit=0xc53a760, // Mesh..ctor(), CN 7.2 dump MethodIndex 19668; fresh CPU-readable mesh.
  // Mesh.set_isReadable(bool).
  setReadable=0xc53a98c,setIndexFormat=0xc53a828,getBindposes=0xc53a984,
@@ -155,6 +161,11 @@ enum Offset:uintptr_t {
 // the hand-off hook is installed only when all match.
 struct CodeCheck {Offset rva;const char* hex;};
 inline CodeCheck cameraFadeCheck={cameraFadeSet,"ffc300d1e80b00fdfe0f00f9f44f02a9"};
+inline constexpr CodeCheck synthesisChecks[]={{synthesisHudFrame,"fe4fbfa968a403b008596e391f050071"},
+ {synthesisClick,"fe5fbda9f65701a9f44f02a9f30300aa"},{synthesisOpen,"ff4305d1fd7b0fa9fc6f10a9fa6711a9"}};
+// BFIFKIIDFKN -> MonoInLevelMainPage -> top layout, native button and two SimpleText font sources.
+inline constexpr uintptr_t synthesisHud=0x4f0,synthesisTop=0x98,synthesisTemplate=0xf0,
+ synthesisFont=0x490,synthesisFontFallback=0x160,buttonClickEvent=0xd8;
 inline CodeCheck handoffChecks[]={{componentsInChildren,"e403022ae2031f2a23008052e5031f2a"},
  {gameObject,"614d1c16604d1c16c00000b4080840f9"},{receive,"fe4fbfa9288706f0e50304aae403032a"}};
 inline CodeCheck loadingChecks[]={{loadingStart,"fe0f1ff848f003f0e10300aa08755a39"},{loadingDestroy,"fe0f1ff848f003f0e10300aa08815a39"},{imageEnable,"fe4fbfa9f30300aa97eaff94e80313aa"},{imageDisable,"fe4fbfa9f30300aaeaeaff9468124439"},{loadingRender,"a898019008d142f9080140f9a80000b4"}};

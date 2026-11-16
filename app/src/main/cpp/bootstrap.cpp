@@ -61,6 +61,14 @@ using CameraFadeFn=void(*)(uintptr_t,float,uintptr_t);
 CameraFadeFn cameraFadeOriginal=nullptr;
 void onCameraFade(uintptr_t self,float value,uintptr_t method){cameraFadeOriginal(self,ms::cameraFade::adjust(self,value),method);}
 using UiLifeFn=void(*)(uintptr_t,uintptr_t);
+UiLifeFn synthesisClickOriginal=nullptr;
+void onSynthesisClick(uintptr_t event,uintptr_t method){
+ if(auto* p=published.load(std::memory_order_acquire);p&&p->synthesisClick(event))return;
+ synthesisClickOriginal(event,method);
+}
+void onSynthesisFrame(void*,DobbyRegisterContext* ctx){
+ if(auto* p=published.load(std::memory_order_acquire))p->synthesisFrame(ctx->general.regs.x0,now());
+}
 using LoadingFrameFn=void(*)(uintptr_t);LoadingFrameFn loadingRenderOriginal=nullptr;
 void onLoadingRender(uintptr_t method){if(auto* p=published.load(std::memory_order_acquire))p->loadingFrame();loadingRenderOriginal(method);}
 UiLifeFn loadingStartOriginal=nullptr,loadingDestroyOriginal=nullptr,imageEnableOriginal=nullptr,imageDisableOriginal=nullptr;
@@ -130,6 +138,14 @@ extern "C" JNIEXPORT void JNICALL Java_com_gibox_tool_NativeBridge_start(JNIEnv*
  if(ms::abi::found(ms::abi::at(ms::abi::cameraFadeSet))){
   if(!codeMatches(image.base,ms::abi::cameraFadeCheck))bootLog(pkg,"camera-fade-disabled","相机入口校验未通过");
   else if(DobbyHook(reinterpret_cast<void*>(image.base+ms::abi::at(ms::abi::cameraFadeSet)),reinterpret_cast<dobby_dummy_func_t>(onCameraFade),reinterpret_cast<dobby_dummy_func_t*>(&cameraFadeOriginal))!=0||!cameraFadeOriginal)bootLog(pkg,"camera-fade-disabled","相机渐隐挂钩失败");
+ }
+ // Native HUD button: install the isolated click handler before allowing the HUD hook to create it.
+ if(ms::abi::found(ms::abi::at(ms::abi::synthesisHudFrame))){
+  bool matched=true;
+  for(const auto& check:ms::abi::synthesisChecks)if(!codeMatches(image.base,check))matched=false;
+  if(!matched)bootLog(pkg,"synthesis-disabled","合成台界面入口校验未通过");
+  else if(DobbyHook(reinterpret_cast<void*>(image.base+ms::abi::at(ms::abi::synthesisClick)),reinterpret_cast<dobby_dummy_func_t>(onSynthesisClick),reinterpret_cast<dobby_dummy_func_t*>(&synthesisClickOriginal))!=0||!synthesisClickOriginal)bootLog(pkg,"synthesis-disabled","合成台点击挂钩失败");
+  else if(DobbyInstrument(reinterpret_cast<void*>(image.base+ms::abi::at(ms::abi::synthesisHudFrame)),onSynthesisFrame)!=0)bootLog(pkg,"synthesis-disabled","合成台界面挂钩失败");
  }
  // Loading backgrounds: only this build's verified entries; the tiny get_bgImg getter is not patched.
  if(ms::abi::at(ms::abi::loadingStart)<ms::abi::notFound){
