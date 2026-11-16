@@ -49,6 +49,7 @@ sources=sorted((root/'app/src/main/java').rglob('*.java'))
 run([java,'com.sun.tools.javac.Main','--release','8','-cp',stubclasses,'-d',classes,*sources,*sorted((root/'tests').glob('*.java'))])
 run([java,'-cp',classes,'com.gibox.tool.ConverterTest',out/'core_test'])
 run([java,'-cp',classes,'com.gibox.tool.DocumentPathsTest'])
+run([java,'-cp',os.pathsep.join([str(classes),str(stubclasses)]),'com.gibox.tool.DeviceHashesTest'])
 run([java,'-cp',os.pathsep.join([str(classes),str(stubclasses)]),'com.gibox.tool.GliderModTest'])
 patterns=out/'gimi-patterns'
 if patterns.exists():shutil.rmtree(patterns)
