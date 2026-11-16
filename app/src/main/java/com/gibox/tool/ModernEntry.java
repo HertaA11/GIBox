@@ -52,8 +52,7 @@ public final class ModernEntry extends XposedModule {
             hook(resume).intercept(chain -> {
                 Object result = chain.proceed();
                 Activity activity = (Activity) chain.getThisObject();
-                // No in-game panel for now (an ImGui overlay will replace it); everything is controlled from the app.
-                if (Control.supported(activity.getPackageName())) Loader.install(activity, apk, log);
+                if (Control.supported(activity.getPackageName())) { Loader.install(activity, apk, log); }
                 return result;
             });
             step("hooks installed (Instrumentation.callApplicationOnCreate, Activity.onResume); module APK " + apk, null);

@@ -10,6 +10,10 @@ def run(cmd):
 flags=['-std=c++17','-Wall','-Wextra','-Werror','-DGIBOX_HOST_TEST','-Iapp/src/main/cpp','-Ithird_party/bcdec']
 run(['g++',*flags,'tests/core_test.cpp','app/src/main/cpp/runtime.cpp','app/src/main/cpp/dds.cpp','-o',out/'core_test'])
 run([out/'core_test'])
+run(['g++',*flags,'-pthread','tests/portable_synthesis_test.cpp','-o',out/'portable_synthesis_test'])
+run([out/'portable_synthesis_test'])
+run(['g++',*flags,'tests/camera_fade_test.cpp','-o',out/'camera_fade_test'])
+run([out/'camera_fade_test'])
 run(['g++',*flags,'tests/texture_diag_test.cpp','-o',out/'texture_diag_test'])
 run([out/'texture_diag_test'])
 run(['g++',*flags,'tests/loading_images_test.cpp','-o',out/'loading_images_test'])
@@ -45,6 +49,7 @@ sources=sorted((root/'app/src/main/java').rglob('*.java'))
 run([java,'com.sun.tools.javac.Main','--release','8','-cp',stubclasses,'-d',classes,*sources,*sorted((root/'tests').glob('*.java'))])
 run([java,'-cp',classes,'com.gibox.tool.ConverterTest',out/'core_test'])
 run([java,'-cp',classes,'com.gibox.tool.DocumentPathsTest'])
+run([java,'-cp',os.pathsep.join([str(classes),str(stubclasses)]),'com.gibox.tool.DeviceHashesTest'])
 run([java,'-cp',os.pathsep.join([str(classes),str(stubclasses)]),'com.gibox.tool.GliderModTest'])
 patterns=out/'gimi-patterns'
 if patterns.exists():shutil.rmtree(patterns)

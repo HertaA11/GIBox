@@ -11,6 +11,7 @@
 #include "dobby.h"
 #include "vk_capture.hpp"
 #include "uid_hide.hpp"
+#include "camera_fade.hpp"
 
 namespace {
 std::atomic<bool> started{false};std::unique_ptr<ms::Runtime> runtime;
@@ -56,9 +57,12 @@ void onTextSet(uintptr_t text,uintptr_t value,uintptr_t method){
 void onPopulate(uintptr_t text,uintptr_t helper,uintptr_t method){
  if(text&&helper&&ms::uid::on.load(std::memory_order_relaxed)&&ms::uid::managedUid(*reinterpret_cast<const uintptr_t*>(text+ms::abi::uiTextString))){vertexClear(helper,0);uidHidden.fetch_add(1,std::memory_order_relaxed);return;}
  populateOriginal(text,helper,method);}
+using CameraFadeFn=void(*)(uintptr_t,float,uintptr_t);
+CameraFadeFn cameraFadeOriginal=nullptr;
+void onCameraFade(uintptr_t self,float value,uintptr_t method){cameraFadeOriginal(self,ms::cameraFade::adjust(self,value),method);}
 using UiLifeFn=void(*)(uintptr_t,uintptr_t);
 using LoadingFrameFn=void(*)(uintptr_t);LoadingFrameFn loadingRenderOriginal=nullptr;
-void onLoadingRender(uintptr_t method){loadingRenderOriginal(method);if(auto* p=published.load(std::memory_order_acquire))p->loadingFrame();}
+void onLoadingRender(uintptr_t method){if(auto* p=published.load(std::memory_order_acquire))p->loadingFrame();loadingRenderOriginal(method);}
 UiLifeFn loadingStartOriginal=nullptr,loadingDestroyOriginal=nullptr,imageEnableOriginal=nullptr,imageDisableOriginal=nullptr;
 void onLoadingStart(uintptr_t self,uintptr_t method){loadingStartOriginal(self,method);if(auto* p=published.load(std::memory_order_acquire))if(self)p->loadingCanvas(self,ms::load<uintptr_t>(self+0x28));}
 void onLoadingDestroy(uintptr_t self,uintptr_t method){if(auto* p=published.load(std::memory_order_acquire))p->loadingDestroyed(self);loadingDestroyOriginal(self,method);}
@@ -122,6 +126,11 @@ extern "C" JNIEXPORT void JNICALL Java_com_gibox_tool_NativeBridge_start(JNIEnv*
  runtime=std::move(rt);published.store(runtime.get(),std::memory_order_release);
  int result=DobbyInstrument(reinterpret_cast<void*>(image.base+ms::abi::at(ms::abi::tick)),onTick);
  if(result!=0){published.store(nullptr,std::memory_order_release);runtime.reset();throw std::runtime_error("DobbyInstrument 失败："+std::to_string(result));}bootStatus(pkg,"ready","模型运行时已就绪");
+ // Camera opacity remains a passthrough until selected in Settings.
+ if(ms::abi::found(ms::abi::at(ms::abi::cameraFadeSet))){
+  if(!codeMatches(image.base,ms::abi::cameraFadeCheck))bootLog(pkg,"camera-fade-disabled","相机入口校验未通过");
+  else if(DobbyHook(reinterpret_cast<void*>(image.base+ms::abi::at(ms::abi::cameraFadeSet)),reinterpret_cast<dobby_dummy_func_t>(onCameraFade),reinterpret_cast<dobby_dummy_func_t*>(&cameraFadeOriginal))!=0||!cameraFadeOriginal)bootLog(pkg,"camera-fade-disabled","相机渐隐挂钩失败");
+ }
  // Loading backgrounds: only this build's verified entries; the tiny get_bgImg getter is not patched.
  if(ms::abi::at(ms::abi::loadingStart)<ms::abi::notFound){
   struct UiHook{ms::abi::Offset offset;UiLifeFn replacement;UiLifeFn* original;};

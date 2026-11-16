@@ -37,7 +37,6 @@ public final class Entry implements IXposedHookLoadPackage, IXposedHookZygoteIni
             @Override protected void afterHookedMethod(MethodHookParam hook) {
                 final Activity activity = (Activity) hook.thisObject;
                 if (!Control.supported(activity.getPackageName())) return;
-                // No in-game panel for now (an ImGui overlay will replace it); everything is controlled from the app.
                 install(activity);
             }
         });

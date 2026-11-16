@@ -320,6 +320,13 @@ class AppState(private val activity: Activity) {
         Control.setHideUid(game, on)
         AppLog.info(game, LOGGER, "hide-uid " + if (on) "开启（重启游戏后生效）" else "关闭")
     }
+    fun openSynthesis() = save("随身合成台") {
+        Control.openSynthesis(game)
+        AppLog.info(game, LOGGER, "synthesis-request 已发送，返回游戏后执行")
+        toast("已发送请求，请返回游戏")
+    }
+    fun cameraFade(): String = Control.cameraFade(game)
+    fun setCameraFade(value: String) = save("保存角色渐隐设置") { Control.setCameraFade(game, value) }
     fun loadingFit(): String = Control.loadingFit(game)
     fun setLoadingFit(value: String) = save("保存加载图片比例") { Control.setLoadingFit(game, value) }
     fun npcModels(): Boolean = Control.npcModels(game)

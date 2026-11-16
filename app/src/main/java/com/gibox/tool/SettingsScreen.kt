@@ -60,26 +60,38 @@ fun SettingsScreen(state: AppState) {
                 val rev = state.revision
                 val hideUid = remember(rev) { state.hideUid() }
                 val npcModels = remember(rev) { state.npcModels() }
+                val fade = remember(rev) { state.cameraFade() == "disabled" }
                 val fit = remember(rev) { state.loadingFit() }
                 var fitMenu by remember { mutableStateOf(false) }
                 SettingsGroup(title = { SectionTitle("通用") }, verticalArrangement = gap) {
                     SettingsSwitch(
                         state = hideUid,
                         title = { Text("隐藏用户UID") },
-                        shapes = ListItemDefaults.segmentedShapes(0, 3),
+                        shapes = ListItemDefaults.segmentedShapes(0, 5),
                         onCheckedChange = { state.setHideUid(it) },
                     )
                     SettingsSwitch(
                         state = npcModels,
                         title = { Text("角色 MOD 同时替换对应 NPC", maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) },
-                        shapes = ListItemDefaults.segmentedShapes(1, 3),
+                        shapes = ListItemDefaults.segmentedShapes(1, 5),
                         onCheckedChange = { state.setNpcModels(it) },
+                    )
+                    SettingsMenuLink(
+                        title = { Text("随身合成台") },
+                        shapes = ListItemDefaults.segmentedShapes(2, 5),
+                        onClick = { state.openSynthesis() },
+                    )
+                    SettingsSwitch(
+                        state = fade,
+                        title = { Text("取消角色渐隐") },
+                        shapes = ListItemDefaults.segmentedShapes(3, 5),
+                        onCheckedChange = { state.setCameraFade(if (it) "disabled" else "original") },
                     )
                     Box {
                         SettingsMenuLink(
                             title = { Text("加载图片比例") },
                             subtitle = { Text(Control.LOADING_FIT_LABELS[Control.LOADING_FITS.indexOf(fit).coerceAtLeast(0)]) },
-                            shapes = ListItemDefaults.segmentedShapes(2, 3),
+                            shapes = ListItemDefaults.segmentedShapes(4, 5),
                             onClick = { fitMenu = true },
                         )
                         DropdownMenu(expanded = fitMenu, onDismissRequest = { fitMenu = false }, modifier = Modifier.widthIn(min = 184.dp)) {

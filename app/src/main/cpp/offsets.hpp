@@ -73,6 +73,7 @@ enum Offset:uintptr_t {
  // Loading UI / Image / Sprite: CN dump 7.2, verified class signatures. No global fallback RVAs.
  loadingRender=0x124f5c98,loadingStart=0xd9c7e8c,loadingBackground=0xd9c7ce4,loadingDestroy=0xd9c7f54,
  imageEnable=0x8c625cc,imageDisable=0x8c6266c,imageSprite=0x8c5ec4c,imageSetSprite=0x8c5ec54,
+ imageSetOverride=0x8c5f148, // UI.Image.set_overrideSprite; m_OverrideSprite is +0xe0 (CN 7.2 dump).
  imageType=0x8c5f2cc,imageSetType=0x8c5f2d4,imageAspect=0x8c5f304,imageSetAspect=0x8c5f30c,
  graphicRect=0xcc5e23c,rectBounds=0x8ffed28,textureWrap=0xc809098,textureFilter=0xc809008,
  graphicColor=0xcc5df44,graphicSetColor=0xcc5df50,spriteCreate=0xa7ed504,
@@ -81,6 +82,11 @@ enum Offset:uintptr_t {
  getMesh=0x8f4217c,setMesh=0x8f4235c,getBones=0x8f420b4,getMaterials=0x8f03940,setMaterials=0x8f0399c,
  clone=0x8ffeb20,destroy=0x8ffe3a0,getName=0x8ffe494,getParent=0x8fffc18,
  arrayNew=0x43beb7c,objectNew=0x43cdaf8,pin=0xed0741c,unpin=0xed07434,
+ // CN 7.2: BGMCJLBBGJF.PGODCGCKIHI(float), camera proximity/angle opacity.
+ cameraFadeSet=0xa0a6c50,
+ // Verified interaction key: SynthesisPage.
+ synthesisOpen=0xfdba624,
+ meshInit=0xc53a760, // Mesh..ctor(), CN 7.2 dump MethodIndex 19668; fresh CPU-readable mesh.
  // Mesh.set_isReadable(bool).
  setReadable=0xc53a98c,setIndexFormat=0xc53a828,getBindposes=0xc53a984,
  getPositions=0xc53adcc,setPositions=0xc53addc,setNormals=0xc53adfc,
@@ -148,6 +154,7 @@ enum Offset:uintptr_t {
 // First 16 code bytes of the hand-off and binding entries (from the handoff and locator captures);
 // the hand-off hook is installed only when all match.
 struct CodeCheck {Offset rva;const char* hex;};
+inline CodeCheck cameraFadeCheck={cameraFadeSet,"ffc300d1e80b00fdfe0f00f9f44f02a9"};
 inline CodeCheck handoffChecks[]={{componentsInChildren,"e403022ae2031f2a23008052e5031f2a"},
  {gameObject,"614d1c16604d1c16c00000b4080840f9"},{receive,"fe4fbfa9288706f0e50304aae403032a"}};
 inline CodeCheck loadingChecks[]={{loadingStart,"fe0f1ff848f003f0e10300aa08755a39"},{loadingDestroy,"fe0f1ff848f003f0e10300aa08815a39"},{imageEnable,"fe4fbfa9f30300aa97eaff94e80313aa"},{imageDisable,"fe4fbfa9f30300aaeaeaff9468124439"},{loadingRender,"a898019008d142f9080140f9a80000b4"}};
