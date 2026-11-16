@@ -67,7 +67,8 @@ public final class Control {
         JSONArray a = load(pkg).optJSONArray("selected"); if (a != null) for (int i = 0; i < a.length(); i++) if (model.equals(a.optString(i))) return true; return false;
     }
     public static boolean enabled(String pkg) { return load(pkg).optBoolean("enabled", false); }
-    public static synchronized void openSynthesis(String pkg)throws Exception{JSONObject j=load(pkg);j.put("synthesisRequest",Math.max(0,j.optLong("synthesisRequest",0))+1);save(pkg,j);}
+    public static boolean synthesisButton(String pkg) { return load(pkg).optBoolean("synthesisButton", false); }
+    public static synchronized void setSynthesisButton(String pkg, boolean on) throws Exception { JSONObject j = load(pkg); j.put("synthesisButton", on); save(pkg, j); }
     public static String cameraFade(String pkg){String v=load(pkg).optString("cameraFade","original");return v.equals("disabled")||v.equals("look_up")?"disabled":"original";}
     public static synchronized void setCameraFade(String pkg,String value)throws Exception{if(!"original".equals(value)&&!"disabled".equals(value))throw new IllegalArgumentException("角色渐隐模式无效");JSONObject j=load(pkg);j.put("cameraFade",value);save(pkg,j);}
     public static boolean hideUid(String pkg) { return load(pkg).optBoolean("hideUid", false); }

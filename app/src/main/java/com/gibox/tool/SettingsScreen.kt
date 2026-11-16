@@ -60,6 +60,7 @@ fun SettingsScreen(state: AppState) {
                 val rev = state.revision
                 val hideUid = remember(rev) { state.hideUid() }
                 val npcModels = remember(rev) { state.npcModels() }
+                val synthesis = remember(rev) { state.synthesisButton() }
                 val fade = remember(rev) { state.cameraFade() == "disabled" }
                 val fit = remember(rev) { state.loadingFit() }
                 var fitMenu by remember { mutableStateOf(false) }
@@ -76,10 +77,12 @@ fun SettingsScreen(state: AppState) {
                         shapes = ListItemDefaults.segmentedShapes(1, 5),
                         onCheckedChange = { state.setNpcModels(it) },
                     )
-                    SettingsMenuLink(
+                    SettingsSwitch(
+                        state = synthesis,
                         title = { Text("随身合成台") },
+                        subtitle = { Text("在游戏右上角显示「合成」按钮") },
                         shapes = ListItemDefaults.segmentedShapes(2, 5),
-                        onClick = { state.openSynthesis() },
+                        onCheckedChange = { state.setSynthesisButton(it) },
                     )
                     SettingsSwitch(
                         state = fade,
