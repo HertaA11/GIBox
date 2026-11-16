@@ -1,6 +1,7 @@
 package com.gibox.tool;
 
 import android.content.Context;
+import java.io.DataInputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
@@ -35,6 +36,17 @@ final class Loader {
         if (!temp.renameTo(out)) throw new IllegalStateException("Cannot install " + out);
     }
 
+    private static byte[] synthesisIcon(ZipFile zip) throws Exception {
+        ZipEntry entry = zip.getEntry("assets/synthesis-icon.png");
+        if (entry == null || entry.getSize() <= 0 || entry.getSize() > 64 * 1024)
+            throw new IllegalStateException("合成台图标资源无效");
+        byte[] png = new byte[(int) entry.getSize()];
+        try (DataInputStream in = new DataInputStream(zip.getInputStream(entry))) {
+            in.readFully(png);
+        }
+        return NativeBridge.decodePng(png);
+    }
+
     /** In a game process, once: the mark for the app, then libgibox.so out of the module APK, loaded and started. */
     static void install(final Context context, final String apk, final Log log) {
         if (!loading.compareAndSet(false, true)) return;
@@ -52,15 +64,18 @@ final class Loader {
                     File runtime = new File(privateDir, "runtime");
                     if (!runtime.isDirectory() && !runtime.mkdirs()) throw new IllegalStateException("Cannot create runtime directory");
                     File library = new File(runtime, "libgibox.so");
+                    byte[] icon = null;
                     try (ZipFile zip = new ZipFile(apk)) {
                         extract(zip, "lib/arm64-v8a/libgibox.so", library);
+                        try { icon = synthesisIcon(zip); }
+                        catch (Exception e) { log.log("GIBox synthesis-icon 合成台图标加载失败", e); }
                     }
                     library.setReadable(true, true); library.setExecutable(true, true);
                     log.log("GIBox library-extracted libgibox.so，" + library.length() + " 字节，开始加载", null);
                     NativeBridge.loadModule(library.getAbsolutePath());
                     log.log("GIBox library-loaded libgibox.so 已加载，启动运行时", null);
                     // Mods are imported and converted in the app; the game only loads finished models (no scanning here).
-                    NativeBridge.start(context.getPackageName(),privateDir.getAbsolutePath());
+                    NativeBridge.start(context.getPackageName(), privateDir.getAbsolutePath(), icon);
                     log.log("GIBox runtime-loaded 游戏 " + context.getPackageName(), null);
                 } catch (Throwable e) {
                     loading.set(false);

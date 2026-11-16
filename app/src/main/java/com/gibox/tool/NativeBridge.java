@@ -13,7 +13,7 @@ public final class NativeBridge {
         if (!loaded) { System.loadLibrary("gibox"); loaded=true; }
         return decodeDds(image);
     }
-    private static byte[] decodePng(byte[] source) {
+    static byte[] decodePng(byte[] source) {
         android.graphics.BitmapFactory.Options bounds = new android.graphics.BitmapFactory.Options();
         bounds.inJustDecodeBounds = true; android.graphics.BitmapFactory.decodeByteArray(source, 0, source.length, bounds);
         int w = bounds.outWidth, h = bounds.outHeight;
@@ -49,6 +49,6 @@ public final class NativeBridge {
         return new String(drawsUtf8(request.getBytes(java.nio.charset.StandardCharsets.UTF_8)), java.nio.charset.StandardCharsets.UTF_8);
     }
     private static native byte[] drawsUtf8(byte[] request);
-    public static native void start(String packageName,String privateDir);
+    public static native void start(String packageName,String privateDir,byte[] synthesisIcon);
     private static native byte[] decodeDds(byte[] dds);
 }

@@ -5,7 +5,7 @@
 namespace ms {
 namespace synthesisAbi {
 struct V2 {float x,y;};
-struct V3 {float x,y,z;};
+struct Rect {float x,y,w,h;};
 struct Color {float r,g,b,a;};
 }
 
@@ -13,11 +13,11 @@ struct Color {float r,g,b,a;};
 // UnityEvent; the event hook only consumes that instance.
 class PortableSynthesis {
  using V2=synthesisAbi::V2;
- using V3=synthesisAbi::V3;
+ using Rect=synthesisAbi::Rect;
  using Color=synthesisAbi::Color;
  struct Roots {
   Engine& e;
-  std::array<uint32_t,5> handles{};
+  std::array<uint32_t,4> handles{};
   size_t count=0;
   explicit Roots(Engine& engine):e(engine){}
   ~Roots(){while(count)e.call<void>(abi::unpin,handles[--count]);}
@@ -30,10 +30,11 @@ class PortableSynthesis {
  };
 
  Engine& e;
+ Texture icon;
  std::function<void(const std::string&,const std::string&)> log;
  bool enabled=false,pending=false;
- Ptr root=0,clickEvent=0;
- uint32_t rootHandle=0,eventHandle=0;
+ Ptr root=0,clickEvent=0,texture=0,sprite=0;
+ uint32_t rootHandle=0,eventHandle=0,textureHandle=0,spriteHandle=0;
  uint64_t lastOpen=0,nextCreate=0;
  std::string lastError;
 
@@ -57,11 +58,32 @@ class PortableSynthesis {
   pending=false;clickEvent=0;
   if(live(root)){e.op(abi::goSetActive,root,0);e.action(abi::destroy,root);}
   root=0;
+  if(live(sprite))e.action(abi::destroy,sprite);
+  if(live(texture))e.action(abi::destroy,texture);
+  sprite=texture=0;
+  if(spriteHandle)e.call<void>(abi::unpin,std::exchange(spriteHandle,0));
+  if(textureHandle)e.call<void>(abi::unpin,std::exchange(textureHandle,0));
   if(eventHandle)e.call<void>(abi::unpin,std::exchange(eventHandle,0));
   if(rootHandle)e.call<void>(abi::unpin,std::exchange(rootHandle,0));
  }
 
- void create(Ptr topTransform,Ptr source,Ptr font){
+ void createSprite(){
+  auto type=e.call<Ptr>(abi::textureType);
+  require(type,"合成台图标缺少纹理类型");
+  texture=e.call<Ptr>(abi::objectNew,load<Ptr>(type));
+  require(texture,"合成台图标纹理分配失败");
+  textureHandle=retain(texture);
+  e.call<void>(abi::textureInit,texture,int(icon.w),int(icon.h),4,0,0,Ptr(0));
+  checked(texture,"合成台图标纹理初始化失败");
+  e.call<void>(abi::texturePixels,texture,reinterpret_cast<Ptr>(icon.pixels.data()),int(icon.pixels.size()),Ptr(0));
+  e.op(abi::textureWrap,texture,1);
+  e.op(abi::textureFilter,texture,1);
+  e.action(abi::textureApply,texture);
+  sprite=checked(e.call<Ptr>(abi::spriteCreate,texture,Rect{0,0,float(icon.w),float(icon.h)},V2{.5f,.5f},Ptr(0)),"合成台图标 Sprite 创建失败");
+  spriteHandle=retain(sprite);
+ }
+
+ void create(Ptr topTransform,Ptr source){
   auto sourceTransform=checked(e.get(abi::uiComponentTransform,source),"合成台按钮模板不可用");
   auto wrapper=checked(e.get(abi::getParent,sourceTransform),"合成台按钮模板没有容器");
   auto sourceRoot=checked(e.get(abi::gameObject,wrapper),"合成台按钮模板容器不可用");
@@ -89,31 +111,18 @@ class PortableSynthesis {
   e.action(abi::uiNewClick,event);
   e.set(abi::uiSetClick,button,event);
 
-  // DefaultControls.Resources is seven sprite references; the AArch64 ABI passes it indirectly.
-  std::array<Ptr,7> resources{};
-  auto label=checked(e.call<Ptr>(abi::uiCreateText,resources.data(),Ptr(0)),"合成台文字创建失败");
-  Ptr labelTransform;
-  try{
-   temp.hold(label);
-   labelTransform=checked(e.get(abi::uiGoTransform,label),"合成台文字没有布局组件");
-   parent(labelTransform,buttonTransform);
-  }catch(...){e.action(abi::destroy,label);throw;}
-  e.call<void>(abi::uiAnchorMin,labelTransform,V2{0,0},Ptr(0));
-  e.call<void>(abi::uiAnchorMax,labelTransform,V2{1,1},Ptr(0));
-  e.call<void>(abi::uiSizeDelta,labelTransform,V2{0,0},Ptr(0));
-  e.call<void>(abi::uiAnchoredPosition,labelTransform,V2{0,0},Ptr(0));
-  e.call<void>(abi::uiLocalScale,labelTransform,V3{1,1,1},Ptr(0));
-
-  auto text=component(label,temp.text("Text"));
-  e.set(abi::uiSetFont,text,font);
-  e.set(abi::uiTextSet,text,temp.text("合成"));
-  e.op(abi::uiFontSize,text,22);
-  e.op(abi::uiAlignment,text,4); // MiddleCenter
-  e.op(abi::uiOverflowX,text,1);
-  e.op(abi::uiOverflowY,text,1);
-  e.call<void>(abi::graphicSetColor,text,Color{1,1,1,1},Ptr(0));
-  e.set(abi::uiTargetGraphic,button,text);
-  hideChildren(buttonTransform,0,labelTransform);
+  // Reuse the native icon RectTransform; the surrounding layout controls its size.
+  auto iconTransform=checked(e.call<Ptr>(abi::uiFindChild,buttonTransform,temp.text("Icon"),Ptr(0)),"合成台按钮模板没有图标");
+  auto iconObject=checked(e.get(abi::gameObject,iconTransform),"合成台图标节点不可用");
+  auto image=component(iconObject,temp.text("Image"));
+  createSprite();
+  e.op(abi::imageSetType,image,0); // Simple
+  e.op(abi::imageSetAspect,image,1);
+  e.call<void>(abi::graphicSetColor,image,Color{1,1,1,1},Ptr(0));
+  e.op(abi::uiSetTransition,button,1); // ColorTint keeps the icon through pressed/selected states.
+  e.set(abi::uiTargetGraphic,button,image);
+  e.set(abi::imageSetOverride,image,sprite);
+  hideChildren(buttonTransform,0,iconTransform);
   hideChildren(rootTransform,1);
   clickEvent=event;
   e.op(abi::goSetActive,root,1);
@@ -130,8 +139,8 @@ class PortableSynthesis {
  }
 
  public:
- explicit PortableSynthesis(Engine& engine,std::function<void(const std::string&,const std::string&)> reporter={})
-  :e(engine),log(std::move(reporter)){}
+ explicit PortableSynthesis(Engine& engine,Texture image,std::function<void(const std::string&,const std::string&)> reporter={})
+  :e(engine),icon(std::move(image)),log(std::move(reporter)){}
  void setEnabled(bool on){
   if(enabled==on)return;
   enabled=on;nextCreate=0;lastError.clear();
@@ -143,7 +152,7 @@ class PortableSynthesis {
   pending=true;return true;
  }
  void frame(Ptr controller,uint64_t now){
-  if(!enabled||!controller)return;
+  if(!enabled||!controller||icon.pixels.empty())return;
   collect();
   auto hud=load<Ptr>(controller+abi::synthesisHud);
   auto top=live(hud)?load<Ptr>(hud+abi::synthesisTop):0;
@@ -158,13 +167,9 @@ class PortableSynthesis {
   if(now<nextCreate)return;
 
   auto source=load<Ptr>(hud+abi::synthesisTemplate);
-  auto fontText=load<Ptr>(hud+abi::synthesisFont);
-  if(!live(fontText))fontText=load<Ptr>(hud+abi::synthesisFontFallback);
-  if(!live(source)||!live(fontText))return;
-  auto font=e.get(abi::uiSimpleFont,fontText);
-  if(!live(font))return;
+  if(!live(source))return;
   nextCreate=now+1000;
-  try{create(topTransform,source,font);lastError.clear();}
+  try{create(topTransform,source);lastError.clear();}
   catch(const std::exception& ex){
    remove();
    if(lastError!=ex.what()){lastError=ex.what();say("无法显示合成按钮："+lastError);}

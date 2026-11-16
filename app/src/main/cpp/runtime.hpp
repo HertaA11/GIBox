@@ -21,7 +21,7 @@ class Runtime {
  public:
  // threaded=false runs all file work inline (host tests); the game uses a background thread so
  // the game thread only makes engine calls.
- Runtime(Engine engine,std::string packageName,std::string privateDir,std::string mediaRoot="/storage/emulated/0/Android/media",bool threaded=true);~Runtime();
+ Runtime(Engine engine,std::string packageName,std::string privateDir,std::string mediaRoot="/storage/emulated/0/Android/media",bool threaded=true,Texture synthesisIcon={});~Runtime();
  // Calls must be serial, inside the game's Tick, including shutdown().
  void tick(uint64_t now);void shutdown();
  // The game's async model hand-off (abi::receive), before and after its own callback; same thread as tick(), never inside it.

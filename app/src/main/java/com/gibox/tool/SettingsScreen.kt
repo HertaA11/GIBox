@@ -80,7 +80,7 @@ fun SettingsScreen(state: AppState) {
                     SettingsSwitch(
                         state = synthesis,
                         title = { Text("随身合成台") },
-                        subtitle = { Text("在游戏右上角显示「合成」按钮") },
+                        subtitle = { Text("在游戏右上角显示合成台图标") },
                         shapes = ListItemDefaults.segmentedShapes(2, 5),
                         onCheckedChange = { state.setSynthesisButton(it) },
                     )

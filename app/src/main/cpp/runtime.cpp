@@ -191,7 +191,7 @@ template<class K,class V> struct Recent {size_t limit;std::map<K,V> now,before;e
  void clear(){now.clear();before.clear();}
 };
 struct Runtime::Impl {
- Engine e;PortableSynthesis synthesis{e,[this](const std::string& event,const std::string& message){log(event,message);}};std::string pkg,priv,shared,modelRoot,boneRoot;
+ Engine e;PortableSynthesis synthesis;std::string pkg,priv,shared,modelRoot,boneRoot;
  LoadingScreens loading{e};LoadingReader loadingReader;ControlState loadingWorkerControl;std::shared_ptr<LoadingPrepared> loadingPending;uint64_t loadingAt=0,loadingFrameAt=0,loadingDiscoverAt=0,loadingImageProbeAt=0;Ptr loadingClass=0,loadingType=0;uint32_t loadingTypeHandle=0;bool loadingDiscovering=false;std::string loadingError,loadingLogged;
  void pollLoading(){if(loading.updating()||loadingDiscovering){return;}std::shared_ptr<LoadingPrepared> ready;bool enabled=ctl.enabled;std::string fit=ctl.loadingFit;std::vector<std::string> selected=ctl.selected;
   {std::lock_guard<std::mutex> lock(sm);ready.swap(loadingPending);if(pendingControl){enabled=pendingControl->enabled;selected=pendingControl->selected;fit=pendingControl->loadingFit;}}
@@ -292,7 +292,8 @@ struct Runtime::Impl {
  struct TexDiagSeen {std::string key;texdiag::Renderer info;};std::map<Ptr,TexDiagSeen> texDiagSeen;std::map<std::string,std::string> texDiagLogged,texDiagMatched;
  Worker worker;  // last member: destroyed (joined) first, while everything it touches still exists
 
- Impl(Engine x,std::string p,std::string d,std::string media,bool threaded):e(std::move(x)),pkg(std::move(p)),priv(std::move(d)),worker(threaded){
+ Impl(Engine x,std::string p,std::string d,std::string media,bool threaded,Texture icon):e(std::move(x)),
+  synthesis(e,std::move(icon),[this](const std::string& event,const std::string& message){log(event,message);}),pkg(std::move(p)),priv(std::move(d)),worker(threaded){
   require(pkg=="com.miHoYo.Yuanshen"||pkg=="com.miHoYo.ys.bilibili"||pkg=="com.miHoYo.GenshinImpact","不支持的包名");shared=media+"/"+pkg+"/GIBox";modelRoot=shared+"/models";boneRoot=shared+"/skeletons";
   for(auto& s:{priv,shared,modelRoot,boneRoot})std::filesystem::create_directories(s);
   logLevel.store(logThresholdOf(shared));
@@ -3200,7 +3201,7 @@ struct Runtime::Impl {
    status("error",what,{},{what});}
   inTick=false;animationTick(now);}
 };
-Runtime::Runtime(Engine e,std::string pkg,std::string priv,std::string media,bool threaded):p(std::make_unique<Impl>(std::move(e),std::move(pkg),std::move(priv),std::move(media),threaded)){}
+Runtime::Runtime(Engine e,std::string pkg,std::string priv,std::string media,bool threaded,Texture icon):p(std::make_unique<Impl>(std::move(e),std::move(pkg),std::move(priv),std::move(media),threaded,std::move(icon))){}
 Runtime::~Runtime()=default; // Engine cleanup requires shutdown() on the game thread; the worker is joined here.
 void Runtime::tick(uint64_t now){p->tick(now);}
 void Runtime::spawned(Ptr go)noexcept{try{p->spawned(go);}catch(...){}}

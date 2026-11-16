@@ -95,6 +95,19 @@ bool codeMatches(uintptr_t base,const ms::abi::CodeCheck& c){auto* p=reinterpret
 struct Image{uintptr_t base=0;const ElfW(Phdr)* ph=nullptr;size_t count=0;};
 int findImage(dl_phdr_info* info,size_t,void* ptr){std::string name=info->dlpi_name?info->dlpi_name:"";auto p=name.find_last_of('/');name=name.substr(p==name.npos?0:p+1);if(name!="libyuanshen.so")return 0;auto& out=*static_cast<Image*>(ptr);out={info->dlpi_addr,info->dlpi_phdr,info->dlpi_phnum};return 1;}
 std::string jstringValue(JNIEnv* env,jstring s){ms::require(s!=nullptr,"Java 字符串为空");const char* p=env->GetStringUTFChars(s,nullptr);ms::require(p!=nullptr,"无法解码 Java 字符串");std::string out=p;env->ReleaseStringUTFChars(s,p);return out;}
+ms::Texture readSynthesisIcon(JNIEnv* env,jbyteArray data){
+ if(!data)return {};
+ auto size=env->GetArrayLength(data);
+ if(size<8||size>8+256*256*4)return {};
+ ms::Bytes rgba(size);env->GetByteArrayRegion(data,0,size,reinterpret_cast<jbyte*>(rgba.data()));
+ if(env->ExceptionCheck())return {};
+ auto w=ms::u32(rgba.data()),h=ms::u32(rgba.data()+4);
+ if(!w||!h||w>256||h>256||rgba.size()!=8+4u*w*h)return {};
+ ms::Texture icon{w,h,ms::Bytes(4u*w*h)};
+ // Android gives rows from the top; the game's LoadRawTextureData expects the bottom row first.
+ for(unsigned y=0;y<h;++y)std::memcpy(icon.pixels.data()+4u*w*(h-1-y),rgba.data()+8+4u*w*y,4u*w);
+ return icon;
+}
 void exception(JNIEnv* env,const std::exception& e){env->ThrowNew(env->FindClass("java/lang/IllegalArgumentException"),e.what());}
 std::string sharedDir(const std::string& pkg){return "/storage/emulated/0/Android/media/"+pkg+"/GIBox";}
 // Start-up lines go to the same "GIBox Log.txt" as the runtime (logger "bootstrap", XXMI line format).
@@ -102,8 +115,8 @@ void bootLog(const std::string& pkg,const std::string& state,const std::string& 
  std::filesystem::create_directories(dir);ms::appendLog(dir,ms::logLine("bootstrap",level,detail.empty()?state:state+' '+detail));}catch(const std::exception&){}}
 void bootStatus(const std::string& pkg,const std::string& state,const std::string& detail){auto dir=sharedDir(pkg);try{std::filesystem::create_directories(dir);auto s="{\"state\":"+ms::quote(state)+",\"detail\":"+ms::quote(detail)+",\"characterId\":0,\"model\":\"\"}";ms::write(dir+"/status.json.tmp",s);std::filesystem::rename(dir+"/status.json.tmp",dir+"/status.json");}catch(const std::exception&){}bootLog(pkg,state,detail);}
 }
-extern "C" JNIEXPORT void JNICALL Java_com_gibox_tool_NativeBridge_start(JNIEnv* env,jclass,jstring jp,jstring jd){try{
- auto pkg=jstringValue(env,jp),priv=jstringValue(env,jd);ms::require(pkg=="com.miHoYo.Yuanshen"||pkg=="com.miHoYo.ys.bilibili"||pkg=="com.miHoYo.GenshinImpact","不支持的包名");if(started.exchange(true))return;
+extern "C" JNIEXPORT void JNICALL Java_com_gibox_tool_NativeBridge_start(JNIEnv* env,jclass,jstring jp,jstring jd,jbyteArray iconData){try{
+ auto pkg=jstringValue(env,jp),priv=jstringValue(env,jd);auto icon=readSynthesisIcon(env,iconData);if(env->ExceptionCheck())return;ms::require(pkg=="com.miHoYo.Yuanshen"||pkg=="com.miHoYo.ys.bilibili"||pkg=="com.miHoYo.GenshinImpact","不支持的包名");if(started.exchange(true))return;
  // The index-buffer hashes (vk_capture.hpp) hook the Vulkan loader now, before the game makes its device; only when
  // control.json textureMods.hashMode (or the older ibHash / capture switches) is on at this start (a change takes a restart).
  {auto mode=ms::vkcap::Mode::Off;try{auto c=ms::JsonParser(ms::text(sharedDir(pkg)+"/control.json")).parse();const auto& t=c.at("textureMods");
@@ -111,7 +124,7 @@ extern "C" JNIEXPORT void JNICALL Java_com_gibox_tool_NativeBridge_start(JNIEnv*
     mode=ms::vkcap::modeFrom(t.at("hashMode").type==ms::Json::String?t.at("hashMode").string:std::string(),flag("ibHash"),flag("capture"));}}catch(const std::exception&){}
   if(mode!=ms::vkcap::Mode::Off){ms::vkcap::tracker().allForms=mode==ms::vkcap::Mode::Full;std::string detail;bool ok=false;try{ok=ms::vkhook::install(detail);}catch(const std::exception& e){detail=e.what();}
    bootLog(pkg,ok?"vulkan-capture":"vulkan-capture-disabled",ok?"已安装："+detail+"（只读索引缓冲 hash，模式 "+ms::vkcap::modeName(mode)+(mode==ms::vkcap::Mode::Full?"，每次上传计算全部 12 种":"，每次上传只按原样计算一次")+"）":detail);}}
- std::thread([pkg,priv]{try{bootStatus(pkg,"waiting","等待 libyuanshen.so");Image image;for(unsigned n=0;n<480&&!image.base;n++){dl_iterate_phdr(findImage,&image);if(!image.base)std::this_thread::sleep_for(std::chrono::milliseconds(500));}ms::require(image.base!=0,"等待 libyuanshen.so 加载超时");
+ std::thread([pkg,priv,icon=std::move(icon)]() mutable{try{bootStatus(pkg,"waiting","等待 libyuanshen.so");Image image;for(unsigned n=0;n<480&&!image.base;n++){dl_iterate_phdr(findImage,&image);if(!image.base)std::this_thread::sleep_for(std::chrono::milliseconds(500));}ms::require(image.base!=0,"等待 libyuanshen.so 加载超时");
  auto actual=ms::loadedBuildId(image.base,image.ph,image.count,sizeof(ElfW(Phdr)));if(!ms::abi::select(actual)){bootStatus(pkg,"buildid-mismatch","实际 Build ID："+actual);return;}
  // UID hiding: hooked only when "hideUid" is on at this start. Each address must be inside an executable segment and
  // start a function body (not a B to elsewhere: hooking a 4-byte wrapper would write over the next method).
@@ -129,7 +142,8 @@ extern "C" JNIEXPORT void JNICALL Java_com_gibox_tool_NativeBridge_start(JNIEnv*
  // Offsets of this build not found yet (offsets.hpp pendingRequired): nothing is hooked or called.
  if(*ms::abi::pendingRequired){bootStatus(pkg,"offsets-pending",std::string("此版本还缺偏移：")+ms::abi::pendingRequired);return;}
  ms::Engine engine(image.base);
- auto rt=std::make_unique<ms::Runtime>(std::move(engine),pkg,priv);
+ bool hasSynthesisIcon=!icon.pixels.empty();
+ auto rt=std::make_unique<ms::Runtime>(std::move(engine),pkg,priv,"/storage/emulated/0/Android/media",true,std::move(icon));
  // Publish before Dobby makes Tick executable through its trampoline.
  runtime=std::move(rt);published.store(runtime.get(),std::memory_order_release);
  int result=DobbyInstrument(reinterpret_cast<void*>(image.base+ms::abi::at(ms::abi::tick)),onTick);
@@ -143,7 +157,8 @@ extern "C" JNIEXPORT void JNICALL Java_com_gibox_tool_NativeBridge_start(JNIEnv*
  if(ms::abi::found(ms::abi::at(ms::abi::synthesisHudFrame))){
   bool matched=true;
   for(const auto& check:ms::abi::synthesisChecks)if(!codeMatches(image.base,check))matched=false;
-  if(!matched)bootLog(pkg,"synthesis-disabled","合成台界面入口校验未通过");
+  if(!hasSynthesisIcon)bootLog(pkg,"synthesis-disabled","合成台图标资源不可用");
+  else if(!matched)bootLog(pkg,"synthesis-disabled","合成台界面入口校验未通过");
   else if(DobbyHook(reinterpret_cast<void*>(image.base+ms::abi::at(ms::abi::synthesisClick)),reinterpret_cast<dobby_dummy_func_t>(onSynthesisClick),reinterpret_cast<dobby_dummy_func_t*>(&synthesisClickOriginal))!=0||!synthesisClickOriginal)bootLog(pkg,"synthesis-disabled","合成台点击挂钩失败");
   else if(DobbyInstrument(reinterpret_cast<void*>(image.base+ms::abi::at(ms::abi::synthesisHudFrame)),onSynthesisFrame)!=0)bootLog(pkg,"synthesis-disabled","合成台界面挂钩失败");
  }
