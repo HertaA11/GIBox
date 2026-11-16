@@ -37,11 +37,8 @@ public final class Entry implements IXposedHookLoadPackage, IXposedHookZygoteIni
             @Override protected void afterHookedMethod(MethodHookParam hook) {
                 final Activity activity = (Activity) hook.thisObject;
                 if (!Control.supported(activity.getPackageName())) return;
-                install(activity);GameToolsPanel.attach(activity);
+                install(activity);
             }
-        });
-        XposedHelpers.findAndHookMethod(Activity.class, "onPause", new XC_MethodHook() {
-            @Override protected void beforeHookedMethod(MethodHookParam hook) { GameToolsPanel.pause((Activity)hook.thisObject); }
         });
     }
 

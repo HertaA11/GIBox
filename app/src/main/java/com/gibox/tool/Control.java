@@ -67,9 +67,11 @@ public final class Control {
         JSONArray a = load(pkg).optJSONArray("selected"); if (a != null) for (int i = 0; i < a.length(); i++) if (model.equals(a.optString(i))) return true; return false;
     }
     public static boolean enabled(String pkg) { return load(pkg).optBoolean("enabled", false); }
-    public static boolean gameTools(String pkg){return load(pkg).optBoolean("gameTools",false);}
-    public static synchronized void setGameTools(String pkg,boolean on)throws Exception{JSONObject j=load(pkg);j.put("gameTools",on);save(pkg,j);}
     public static synchronized void openSynthesis(String pkg)throws Exception{JSONObject j=load(pkg);j.put("synthesisRequest",Math.max(0,j.optLong("synthesisRequest",0))+1);save(pkg,j);}
+    public static final String[] CAMERA_FADES={"original","disabled","look_up"};
+    public static final String[] CAMERA_FADE_LABELS={"保持原样","完全关闭","仅抬头时关闭"};
+    public static String cameraFade(String pkg){String v=load(pkg).optString("cameraFade","original");for(String s:CAMERA_FADES)if(s.equals(v))return v;return "original";}
+    public static synchronized void setCameraFade(String pkg,String value)throws Exception{boolean valid=false;for(String s:CAMERA_FADES)valid|=s.equals(value);if(!valid)throw new IllegalArgumentException("角色渐隐模式无效");JSONObject j=load(pkg);j.put("cameraFade",value);save(pkg,j);}
     public static boolean hideUid(String pkg) { return load(pkg).optBoolean("hideUid", false); }
     public static synchronized void setHideUid(String pkg, boolean on) throws Exception { JSONObject j = load(pkg); j.put("hideUid", on); save(pkg, j); }
     public static final String[] LOADING_FITS={"original","cover","stretch"};

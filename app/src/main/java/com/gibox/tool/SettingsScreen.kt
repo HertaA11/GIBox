@@ -60,7 +60,8 @@ fun SettingsScreen(state: AppState) {
                 val rev = state.revision
                 val hideUid = remember(rev) { state.hideUid() }
                 val npcModels = remember(rev) { state.npcModels() }
-                val gameTools = remember(rev) { state.gameTools() }
+                val fade = remember(rev) { state.cameraFade() }
+                var fadeMenu by remember { mutableStateOf(false) }
                 val fit = remember(rev) { state.loadingFit() }
                 var fitMenu by remember { mutableStateOf(false) }
                 SettingsGroup(title = { SectionTitle("通用") }, verticalArrangement = gap) {
@@ -76,17 +77,28 @@ fun SettingsScreen(state: AppState) {
                         shapes = ListItemDefaults.segmentedShapes(1, 5),
                         onCheckedChange = { state.setNpcModels(it) },
                     )
-                    SettingsSwitch(
-                        state = gameTools,
-                        title = { Text("穿行摇杆") },
-                        shapes = ListItemDefaults.segmentedShapes(2, 5),
-                        onCheckedChange = { state.setGameTools(it) },
-                    )
                     SettingsMenuLink(
-                        title = { Text("打开合成台") },
-                        shapes = ListItemDefaults.segmentedShapes(3, 5),
+                        title = { Text("随身合成台") },
+                        shapes = ListItemDefaults.segmentedShapes(2, 5),
                         onClick = { state.openSynthesis() },
                     )
+                    Box {
+                        SettingsMenuLink(
+                            title = { Text("取消角色渐隐") },
+                            subtitle = { Text(Control.CAMERA_FADE_LABELS[Control.CAMERA_FADES.indexOf(fade).coerceAtLeast(0)]) },
+                            shapes = ListItemDefaults.segmentedShapes(3, 5),
+                            onClick = { fadeMenu = true },
+                        )
+                        DropdownMenu(expanded = fadeMenu, onDismissRequest = { fadeMenu = false }, modifier = Modifier.widthIn(min = 184.dp)) {
+                            Control.CAMERA_FADES.forEachIndexed { index, value ->
+                                DropdownMenuItem(
+                                    text = { Text(Control.CAMERA_FADE_LABELS[index]) },
+                                    modifier = Modifier.background(if (fade == value) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent),
+                                    onClick = { fadeMenu = false; state.setCameraFade(value) },
+                                )
+                            }
+                        }
+                    }
                     Box {
                         SettingsMenuLink(
                             title = { Text("加载图片比例") },

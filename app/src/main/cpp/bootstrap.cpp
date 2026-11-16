@@ -11,6 +11,7 @@
 #include "dobby.h"
 #include "vk_capture.hpp"
 #include "uid_hide.hpp"
+#include "camera_fade.hpp"
 
 namespace {
 std::atomic<bool> started{false};std::unique_ptr<ms::Runtime> runtime;
@@ -56,6 +57,9 @@ void onTextSet(uintptr_t text,uintptr_t value,uintptr_t method){
 void onPopulate(uintptr_t text,uintptr_t helper,uintptr_t method){
  if(text&&helper&&ms::uid::on.load(std::memory_order_relaxed)&&ms::uid::managedUid(*reinterpret_cast<const uintptr_t*>(text+ms::abi::uiTextString))){vertexClear(helper,0);uidHidden.fetch_add(1,std::memory_order_relaxed);return;}
  populateOriginal(text,helper,method);}
+using CameraFadeFn=void(*)(uintptr_t,float,uintptr_t);
+CameraFadeFn cameraFadeOriginal=nullptr;
+void onCameraFade(uintptr_t self,float value,uintptr_t method){cameraFadeOriginal(self,ms::cameraFade::adjust(self,value),method);}
 using UiLifeFn=void(*)(uintptr_t,uintptr_t);
 using LoadingFrameFn=void(*)(uintptr_t);LoadingFrameFn loadingRenderOriginal=nullptr;
 void onLoadingRender(uintptr_t method){if(auto* p=published.load(std::memory_order_acquire))p->loadingFrame();loadingRenderOriginal(method);}
@@ -122,6 +126,11 @@ extern "C" JNIEXPORT void JNICALL Java_com_gibox_tool_NativeBridge_start(JNIEnv*
  runtime=std::move(rt);published.store(runtime.get(),std::memory_order_release);
  int result=DobbyInstrument(reinterpret_cast<void*>(image.base+ms::abi::at(ms::abi::tick)),onTick);
  if(result!=0){published.store(nullptr,std::memory_order_release);runtime.reset();throw std::runtime_error("DobbyInstrument 失败："+std::to_string(result));}bootStatus(pkg,"ready","模型运行时已就绪");
+ // Camera opacity remains a passthrough until selected in Settings.
+ if(ms::abi::found(ms::abi::at(ms::abi::cameraFadeSet))){
+  if(!codeMatches(image.base,ms::abi::cameraFadeCheck)||!ms::cameraFade::configure(image.base))bootLog(pkg,"camera-fade-disabled","相机入口校验未通过");
+  else if(DobbyHook(reinterpret_cast<void*>(image.base+ms::abi::at(ms::abi::cameraFadeSet)),reinterpret_cast<dobby_dummy_func_t>(onCameraFade),reinterpret_cast<dobby_dummy_func_t*>(&cameraFadeOriginal))!=0||!cameraFadeOriginal)bootLog(pkg,"camera-fade-disabled","相机渐隐挂钩失败");
+ }
  // Loading backgrounds: only this build's verified entries; the tiny get_bgImg getter is not patched.
  if(ms::abi::at(ms::abi::loadingStart)<ms::abi::notFound){
   struct UiHook{ms::abi::Offset offset;UiLifeFn replacement;UiLifeFn* original;};
@@ -153,7 +162,3 @@ extern "C" JNIEXPORT jbyteArray JNICALL Java_com_gibox_tool_NativeBridge_rehears
  std::string request(size_t(n),'\0');env->GetByteArrayRegion(input,0,n,reinterpret_cast<jbyte*>(request.data()));if(env->ExceptionCheck())return nullptr;auto out=ms::rehearseJson(request);
  auto a=env->NewByteArray(jsize(out.size()));if(!a)return nullptr;env->SetByteArrayRegion(a,0,jsize(out.size()),reinterpret_cast<const jbyte*>(out.data()));return a;}catch(const std::exception& e){exception(env,e);return nullptr;}}
 extern "C" JNIEXPORT jbyteArray JNICALL Java_com_gibox_tool_NativeBridge_decodeDds(JNIEnv* env,jclass,jbyteArray input){try{ms::require(input!=nullptr,"DDS 数据为空");auto n=env->GetArrayLength(input);ms::require(n>=128&&n<=256*1024*1024,"DDS input size");ms::Bytes b(n);env->GetByteArrayRegion(input,0,n,reinterpret_cast<jbyte*>(b.data()));if(env->ExceptionCheck())return nullptr;auto t=ms::shrinkTexture(ms::decodeDds(b),1024);ms::Bytes out(8+t.pixels.size());ms::put32(out.data(),t.w);ms::put32(out.data()+4,t.h);std::memcpy(out.data()+8,t.pixels.data(),t.pixels.size());auto a=env->NewByteArray(out.size());if(!a)return nullptr;env->SetByteArrayRegion(a,0,out.size(),reinterpret_cast<jbyte*>(out.data()));return a;}catch(const std::exception& e){exception(env,e);return nullptr;}}
-
-extern "C" JNIEXPORT void JNICALL Java_com_gibox_tool_NativeBridge_gameToolsInput(JNIEnv*,jclass,jboolean enabled,jfloat x,jfloat z,jfloat vertical,jfloat speed,jlong arm){if(auto* p=published.load(std::memory_order_acquire)){p->gameToolsInput(enabled!=0,x,z,vertical,speed,uint64_t(arm));}}
-extern "C" JNIEXPORT void JNICALL Java_com_gibox_tool_NativeBridge_gameToolsOpen(JNIEnv*,jclass){if(auto* p=published.load(std::memory_order_acquire)){p->gameToolsOpen();}}
-extern "C" JNIEXPORT jstring JNICALL Java_com_gibox_tool_NativeBridge_gameToolsState(JNIEnv* env,jclass){try{auto* p=published.load(std::memory_order_acquire);auto status=p?p->gameToolsStatus():std::string("{\"ready\":false}");return env->NewStringUTF(status.c_str());}catch(...){return env->NewStringUTF("{\"ready\":false}");}}
