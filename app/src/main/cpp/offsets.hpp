@@ -69,8 +69,8 @@ inline constexpr bool found(uintptr_t rva){return rva!=0&&rva<notFound;}
 inline constexpr uintptr_t uiTextString=0xd8;
 enum Offset:uintptr_t {
  tick=0x7e8cb08,manager=0x158095a0,
- // CN 7.2 dump.cs, UnityEngine.MeshFilter MethodIndex 19618 / 19619. Global stays unavailable until verified.
- // Loading UI / Image / Sprite: CN dump 7.2, verified class signatures. No global fallback RVAs.
+ // MeshFilter / loading UI: both 7.2 clients are mapped below from their dumps and matching ELF images.
+ // The enum contains CN RVAs; the global profile must provide every corresponding entry.
  loadingRender=0x124f5c98,loadingStart=0xd9c7e8c,loadingBackground=0xd9c7ce4,loadingDestroy=0xd9c7f54,
  imageEnable=0x8c625cc,imageDisable=0x8c6266c,imageSprite=0x8c5ec4c,imageSetSprite=0x8c5ec54,
  imageSetOverride=0x8c5f148, // UI.Image.set_overrideSprite; m_OverrideSprite is +0xe0 (CN 7.2 dump).
@@ -158,17 +158,18 @@ enum Offset:uintptr_t {
 // the hand-off hook is installed only when all match.
 struct CodeCheck {Offset rva;const char* hex;};
 inline CodeCheck cameraFadeCheck={cameraFadeSet,"ffc300d1e80b00fdfe0f00f9f44f02a9"};
-inline constexpr CodeCheck synthesisChecks[]={{synthesisHudFrame,"fe4fbfa968a403b008596e391f050071"},
+inline CodeCheck synthesisChecks[]={{synthesisHudFrame,"fe4fbfa968a403b008596e391f050071"},
  {synthesisClick,"fe5fbda9f65701a9f44f02a9f30300aa"},{synthesisOpen,"ff4305d1fd7b0fa9fc6f10a9fa6711a9"}};
 // BFIFKIIDFKN -> MonoInLevelMainPage -> top layout and native button template.
-inline constexpr uintptr_t synthesisHud=0x4f0,synthesisTop=0x98,synthesisTemplate=0xf0,buttonClickEvent=0xd8;
+inline uintptr_t synthesisHud=0x4f0; // Global BFIFKIIDFKN stores the same HUD field at +0x238.
+inline constexpr uintptr_t synthesisTop=0x98,synthesisTemplate=0xf0,buttonClickEvent=0xd8;
 inline CodeCheck handoffChecks[]={{componentsInChildren,"e403022ae2031f2a23008052e5031f2a"},
  {gameObject,"614d1c16604d1c16c00000b4080840f9"},{receive,"fe4fbfa9288706f0e50304aae403032a"}};
 inline CodeCheck loadingChecks[]={{loadingStart,"fe0f1ff848f003f0e10300aa08755a39"},{loadingDestroy,"fe0f1ff848f003f0e10300aa08815a39"},{imageEnable,"fe4fbfa9f30300aa97eaff94e80313aa"},{imageDisable,"fe4fbfa9f30300aaeaeaff9468124439"},{loadingRender,"a898019008d142f9080140f9a80000b4"}};
 inline CodeCheck bindChecks[]={{lodBind,"ff8304d1e9230b6dfd7b0ca9fc6f0da9"},{meshBones,"ff8304d1e85b00fdfd7b0ca9fc6f0da9"}};
 
 // ---------------------------------------------------------------- the global client (com.miHoYo.GenshinImpact, 7.2)
-// Build ID 32f920af... Its il2cpp metadata numbers every method as the CN build does: each Unity method above was carried
+// Build ID 32f920af... Unity methods retain their metadata indices: each Unity method above was carried
 // over by MethodIndex and checked by class and signature in the two dump.cs files. The game's own classes keep their
 // obfuscated names but not their field order: Tick (LFEMMJADHPE), receive (GCGEJOPPGAE.BEBHBDFCIOK) and the manager
 // accessor (NKIIBJKODNH.POKJNBEFKHA, 0xb80253c: ADRP; MOV W9,#0x90e0; LDR; LDR X0,[X8,X9]) by name and signature, the
@@ -187,7 +188,7 @@ inline CodeCheck bindChecks[]={{lodBind,"ff8304d1e9230b6dfd7b0ca9fc6f0da9"},{mes
 //  lodBind 0x584fc98, meshBones 0x579c768: the CN entry bytes, the hits nearest to where the pairs put them (14 and 11 bytes
 //  off), 0xb3530 apart exactly as in CN; the hooks still check these 16 bytes before installing.
 struct Profile {const char* buildId;const char* pending;uintptr_t managerActive,managerSlot,entityVisual,visualRenderers;
- std::vector<uint16_t> managerLists,managerIds,entityIds;std::vector<std::pair<Offset,uintptr_t>> rvas;std::vector<std::pair<Offset,const char*>> checks;};
+ std::vector<uint16_t> managerLists,managerIds,entityIds;std::vector<std::pair<Offset,uintptr_t>> rvas;std::vector<std::pair<Offset,const char*>> checks;uintptr_t synthesisHud=0x4f0;};
 inline const Profile& globalProfile(){static const Profile p{"32f920af1fd831959a440d294fa996a09657afb8","",0xc4e,0x90e0,0xc8,0x68,
  {0x18,0x28,0x90,0xb0,0xf8,0x110,0x128,0x158,0x1a8,0x1b8,0x1d0,0x1e8},{0x238,0x254,0x260,0x27c,0x2c4},
  {0x368,0x36c,0x384,0x3ec,0x404,0x428,0x440,0x458,0x460,0x484,0x48c,0x4d8},
@@ -202,22 +203,56 @@ inline const Profile& globalProfile(){static const Profile p{"32f920af1fd831959a
   {nativeAlloc,0x517af94},{nativeAllocator,0x15d5df20},{findObjectsOfType,0x91bef30},{findObjectsNative,0x5b53dcc},{componentsInChildren,0x97a7ec0},{componentByName,0x97a7e00},{uiTextSet,0x10f32c44},{uiTextPopulate,0x10f335f8},{uiVertexClear,0x10fc44b4},{behaviourEnabled,0xa7eb77c},{lodPause,0x1369a604},{lodResume,0x1369a60c},{lodSelfPaused,0x1369a610},{lodCurrent,0x1369a564},
   {gameObject,0x80e898c},{receive,0x9798c6c},{lodBind,0x584fc98},{meshBones,0x579c768},{wrapperFor,0x5b4da54},{typeObject,0x43b1bbc},
   {classFromType,0x43b2868},{meshSubmeshes,0xabc45a0},{meshVertices,0xabc457c},{meshReadable,0xabc4570},{meshIndexStart,0xabc4414},{meshIndexCount,0xabc445c},
-  {textureWidth,0xa865694},{textureHeight,0xa8656b8},{textureFormat,0x8f688ac},{textureMips,0x8f687b4}},
+  {textureWidth,0xa865694},{textureHeight,0xa8656b8},{textureFormat,0x8f688ac},{textureMips,0x8f687b4},
+  {loadingRender,0x13104728},{loadingStart,0xe421750},{loadingBackground,0xe421748},{loadingDestroy,0xe421630},
+  {imageEnable,0x10fbdea4},{imageDisable,0x10fbdf44},{imageSprite,0x10fba524},{imageSetSprite,0x10fba52c},
+  {imageSetOverride,0x10fbaa20},{imageType,0x10fbaba4},{imageSetType,0x10fbabac},{imageAspect,0x10fbabdc},
+  {imageSetAspect,0x10fbabe4},{graphicRect,0x10f41c20},{rectBounds,0x91bf7cc},{textureWrap,0xa86596c},
+  {textureFilter,0xa8658dc},{graphicColor,0x10f41928},{graphicSetColor,0x10f41934},{spriteCreate,0x8435f80},
+  {imageActive,0xa7eb780},{goActive,0x97a818c},{goActiveSelf,0x97a8188},{goSetActive,0x97a8184},
+  {filterMesh,0xabc1a74},{filterSetMesh,0xabc1c2c},{cameraFadeSet,0xd36e1f4},{synthesisHudFrame,0x115e3014},
+  {synthesisClick,0x903e454},{synthesisOpen,0x8947a00},{uiGoTransform,0x97a7f74},{uiComponentTransform,0x80e876c},
+  {uiChildCount,0x91c458c},{uiChild,0x91c47ec},{uiSetParent,0x91c2e64},{uiSetSibling,0x91c45f4},
+  {uiSetName,0x91bf0a8},{uiFindChild,0x91c4680},{uiNewClick,0x10fc3160},{uiSetClick,0x11d71c74},
+  {uiSetTransition,0xaca2cdc},{uiTargetGraphic,0xaca2fa8},{meshInit,0xabc4348}},
  {{componentsInChildren,"e403022ae2031f2a23008052e5031f2a"},{gameObject,"9274261791742617c00000b4080840f9"},{receive,"fe4fbfa968ff0590e50304aae403032a"},
-  {lodBind,"ff8304d1e9230b6dfd7b0ca9fc6f0da9"},{meshBones,"ff8304d1e85b00fdfd7b0ca9fc6f0da9"}}};return p;}
+  {lodBind,"ff8304d1e9230b6dfd7b0ca9fc6f0da9"},{meshBones,"ff8304d1e85b00fdfd7b0ca9fc6f0da9"},
+  {cameraFadeSet,"ffc300d1e80b00fdfe0f00f9f44f02a9"},
+  {synthesisHudFrame,"fe4fbfa9680d02f008a97f391f050071"},
+  {synthesisClick,"fe5fbda9f65701a9f44f02a9f30300aa"},
+  {synthesisOpen,"ff4305d1fd7b0fa9fc6f10a9fa6711a9"},
+  {loadingStart,"fe0f1ff8289b03d0e10300aa08c14e39"},
+  {loadingDestroy,"fe0f1ff8289b03d0e10300aa08ad4e39"},
+  {imageEnable,"fe4fbfa9f30300aada0afe97e80313aa"},
+  {imageDisable,"fe4fbfa9f30300aa2d0bfe9768124439"},
+  {loadingRender,"883601b008d141f9087940f9a80000b4"}},0x238};return p;}
 // The selected build's table, CN value -> this build's (empty for the CN build, whose values are the enum's).
 inline std::vector<std::pair<uintptr_t,uintptr_t>>& table(){static std::vector<std::pair<uintptr_t,uintptr_t>> t;return t;}
 inline uintptr_t at(Offset o){auto& t=table();if(t.empty())return uintptr_t(o);
  size_t lo=0,hi=t.size();while(lo<hi){size_t m=(lo+hi)/2;if(t[m].first<uintptr_t(o))lo=m+1;else hi=m;}return lo<t.size()&&t[lo].first==uintptr_t(o)?t[lo].second:notFound+0x40;}
 // Picks the table for the loaded game's Build ID; false when GIBox has none for it.
 inline bool select(const std::string& id){
- static const std::string cn=buildId;if(id==cn)return true;
- const Profile& g=globalProfile();if(id!=g.buildId)return false;
- buildId=g.buildId;pendingRequired=g.pending;managerActive=g.managerActive;managerSlot=g.managerSlot;entityVisual=g.entityVisual;visualRenderers=g.visualRenderers;
- managerLists=g.managerLists;managerIds=g.managerIds;entityIds=g.entityIds;
- auto& t=table();t.clear();for(auto& r:g.rvas)t.push_back({uintptr_t(r.first),r.second});
+ // Snapshot CN before the first selection, so switching back also restores field offsets and hook signatures.
+ static const Profile cn=[](){Profile p{buildId,pendingRequired,managerActive,managerSlot,entityVisual,visualRenderers,
+  managerLists,managerIds,entityIds,{},{},synthesisHud};
+  p.checks.push_back({cameraFadeCheck.rva,cameraFadeCheck.hex});
+  for(const auto& c:synthesisChecks)p.checks.push_back({c.rva,c.hex});
+  for(const auto& c:loadingChecks)p.checks.push_back({c.rva,c.hex});
+  for(const auto& c:handoffChecks)p.checks.push_back({c.rva,c.hex});
+  for(const auto& c:bindChecks)p.checks.push_back({c.rva,c.hex});
+  return p;}();
+ const Profile* selected=id==cn.buildId?&cn:(id==globalProfile().buildId?&globalProfile():nullptr);
+ if(!selected)return false;
+ const auto& p=*selected;
+ buildId=p.buildId;pendingRequired=p.pending;managerActive=p.managerActive;managerSlot=p.managerSlot;entityVisual=p.entityVisual;visualRenderers=p.visualRenderers;
+ synthesisHud=p.synthesisHud;managerLists=p.managerLists;managerIds=p.managerIds;entityIds=p.entityIds;
+ auto& t=table();t.clear();for(const auto& r:p.rvas)t.push_back({uintptr_t(r.first),r.second});
  std::sort(t.begin(),t.end());
- for(auto& c:handoffChecks){for(auto& x:g.checks)if(x.first==c.rva)c.hex=x.second;}
- for(auto& c:bindChecks){for(auto& x:g.checks)if(x.first==c.rva)c.hex=x.second;}
+ auto apply=[&](CodeCheck& c){for(const auto& x:p.checks)if(x.first==c.rva){c.hex=x.second;return;}};
+ apply(cameraFadeCheck);
+ for(auto& c:synthesisChecks)apply(c);
+ for(auto& c:loadingChecks)apply(c);
+ for(auto& c:handoffChecks)apply(c);
+ for(auto& c:bindChecks)apply(c);
  return true;}
 }

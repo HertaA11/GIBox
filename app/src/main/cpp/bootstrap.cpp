@@ -170,7 +170,7 @@ extern "C" JNIEXPORT void JNICALL Java_com_gibox_tool_NativeBridge_start(JNIEnv*
    auto address=image.base+ms::abi::at(h.offset);if(DobbyHook(reinterpret_cast<void*>(address),reinterpret_cast<dobby_dummy_func_t>(h.replacement),reinterpret_cast<dobby_dummy_func_t*>(h.original))!=0||!*h.original){installed=false;bootLog(pkg,"loading-image-hook-error","加载图片界面事件挂钩失败");}
   }
   if(!codeMatches(image.base,ms::abi::loadingChecks[4])||DobbyHook(reinterpret_cast<void*>(image.base+ms::abi::at(ms::abi::loadingRender)),reinterpret_cast<dobby_dummy_func_t>(onLoadingRender),reinterpret_cast<dobby_dummy_func_t*>(&loadingRenderOriginal))!=0||!loadingRenderOriginal){installed=false;bootLog(pkg,"loading-image-hook-error","加载界面渲染事件挂钩失败");}
-  if(installed)bootLog(pkg,"loading-image-hook","国服加载界面事件已安装");}
+  if(installed)bootLog(pkg,"loading-image-hook","加载界面事件已安装");}
  // Replacement at the hand-off; without it the scan still replaces, just not before activation.
  {std::string bad;for(auto& c:ms::abi::handoffChecks)if(!codeMatches(image.base,c)){char b[24];std::snprintf(b,sizeof(b),"0x%llx ",static_cast<unsigned long long>(ms::abi::at(c.rva)));bad+=b;}
   if(!bad.empty())bootLog(pkg,"spawn-hook-disabled","代码不符："+bad);

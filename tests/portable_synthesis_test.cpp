@@ -86,7 +86,7 @@ uint32_t open(Ptr page,Ptr argument,Ptr callback,Ptr actor,Ptr interaction,Ptr m
  if(failed)throw std::runtime_error("fake-open-error");
  return !rejected;
 }
-Ptr resolve(abi::Offset o){switch(o){
+Ptr resolve(abi::Offset o){assert(abi::at(o)<abi::notFound);switch(o){
 #define F(a,b) case abi::a:return reinterpret_cast<Ptr>(&b)
  F(synthesisOpen,open);F(newString,newString);F(pin,pin);F(unpin,unpin);
  F(uiGoTransform,identity);F(uiComponentTransform,identity);F(gameObject,identity);F(getParent,getParent);
@@ -100,12 +100,16 @@ Ptr resolve(abi::Offset o){switch(o){
  default:assert(false);return 0;}}
 }
 
-int main(){
+int main(int argc,char** argv){
+ assert(argc==1||(argc==2&&std::string(argv[1])=="--global"));
+ const bool global=argc==2;
+ if(global)assert(abi::select(abi::globalProfile().buildId));
+ const uintptr_t hudField=global?0x238:0x4f0; // Independently verified BFIFKIIDFKN layouts, not copied from the selected profile.
  auto controller=make(),top=make(),source=make(make()),eventType=make();
  textureClass=make();textureType=make();store(textureType,textureClass);
  auto originalIcon=make(source);obj(originalIcon).label="Icon";
  gameEvent=make();store(gameEvent,eventType);store(source+abi::buttonClickEvent,gameEvent);
- store(controller+abi::synthesisHud,actualHud(top,source));
+ store(controller+hudField,actualHud(top,source));
  Engine engine(0);engine.resolver=resolve;std::string message;
  PortableSynthesis synthesis(engine,Texture{2,2,Bytes(16,42)},[&](const std::string& log,const std::string& value){assert(log=="synthesis");message=value;});
  synthesis.frame(controller,1000);
@@ -127,7 +131,7 @@ int main(){
 
  auto first=clones.back(),firstEvent=customEvent,nextTop=make();
  assert(synthesis.click(firstEvent)); // An old HUD click must not open over a new HUD.
- store(controller+abi::synthesisHud,actualHud(nextTop,source));synthesis.frame(controller,4700);
+ store(controller+hudField,actualHud(nextTop,source));synthesis.frame(controller,4700);
  assert(clones.size()==2&&!active(first,0)&&obj(clones.back()).parent==nextTop);
  assert(!synthesis.click(firstEvent)&&opens==3&&handles.size()==4);
  assert(!load<Ptr>(sprite+0x10)&&!load<Ptr>(texture+0x10));
