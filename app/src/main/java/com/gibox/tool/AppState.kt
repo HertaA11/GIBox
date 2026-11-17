@@ -24,11 +24,13 @@ private const val LOGGER = "importer"
 /** Pages; the app keeps a back stack of them (system back pops it). */
 sealed interface Screen {
     data object Home : Screen
+    data object Mods : Screen
+    data object Accessibility : Screen
+    data object About : Screen
+    data object FeatureSearch : Screen
     data object Settings : Screen
     data object Log : Screen
     data object Manual : Screen
-    /** Debug and test tools (strategies, test rounds, experiments, bone export, the old manual conversion). */
-    data object Debug : Screen
     /** The mods of one character (id 0: mods without a chosen character). */
     data class Character(val id: Int) : Screen
     data class Detail(val name: String) : Screen
@@ -242,12 +244,23 @@ class AppState(private val activity: Activity) {
         val scope = LspService.scope
         val candidates = (if (scope == null) installed else installed.filter { it in scope }).ifEmpty { installed }
         games = if (scope != null && candidates.size > 1) candidates else emptyList()
+        readPrivate("game.txt").takeIf { it in installed }?.let { return it }
         if (candidates.size == 1) return candidates[0]
-        readPrivate("game.txt").takeIf { it in candidates }?.let { return it }
         val marks = candidates.associateWith { File(Control.shared(it), "injected.txt") }.filterValues { it.isFile }
         return marks.maxByOrNull { it.value.lastModified() }?.key ?: candidates[0]
     }
     /** The home card's switch, when both games are ticked in LSPosed. */
+    fun clientChoices(): List<String> = Control.GAMES.filter { packageInfo(it) != null }.ifEmpty { listOf(game) }
+    fun chooseClient(pkg: String) {
+        if (pkg !in clientChoices() || pkg == game) return
+        writePrivate("game.txt", pkg)
+        useGame(pkg)
+        refresh()
+    }
+    fun viewSource() {
+        try { activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/Yuanqi314/GIBox"))) }
+        catch (e: Throwable) { fail("打开源代码", e, null) }
+    }
     fun chooseGame(pkg: String) {
         if (pkg !in games || pkg == game) return
         writePrivate("game.txt", pkg)

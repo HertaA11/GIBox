@@ -2,8 +2,6 @@ package com.gibox.tool
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.material3.ListItemDefaults
-import androidx.compose.material3.SegmentedListItem
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -25,24 +23,16 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.PrimaryScrollableTabRow
-import androidx.compose.material3.Tab
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LargeFlexibleTopAppBar
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -61,7 +51,7 @@ import androidx.compose.ui.unit.dp
  * refresh, and a card of the mods by character (searchable by name or ID).
  */
 @Composable
-fun HomeScreen(state: AppState, pickZip: () -> Unit) {
+fun ModManagementScreen(state: AppState, pickZip: () -> Unit) {
     var searching by rememberSaveable { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
     SearchSwitch(searching) { open, field, entered ->
@@ -72,9 +62,9 @@ fun HomeScreen(state: AppState, pickZip: () -> Unit) {
             SearchPage(query, { query = it }, "搜索分类、角色名或 ID", onClose = { searching = false; query = "" }, field = field, entered = entered) {
                 if (q.isNotEmpty() && found.isEmpty()) item { EmptyNote("没有找到“$q”") }
                 itemsIndexed(found, key = { _, g -> g.id }) { index, g ->
-                    SegmentedListItem(
+                    OneUiRow(
                         onClick = { state.open(Screen.Character(g.id)) },
-                        shapes = ListItemDefaults.segmentedShapes(index, found.size),
+                        shapes = OneUiList.segmentedShapes(index, found.size),
                         trailingContent = {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text("${g.mods.size} 个", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -92,13 +82,14 @@ fun HomeScreen(state: AppState, pickZip: () -> Unit) {
 @Composable
 private fun HomeMain(state: AppState, pickZip: () -> Unit, searchField: Modifier, onSearch: () -> Unit) {
     val scroll = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
-    Scaffold(
+    OneUiScaffold(
         modifier = Modifier.nestedScroll(scroll.nestedScrollConnection),
         topBar = {
-            LargeFlexibleTopAppBar(
+            OneUiLargeTopBar(
                 colors = pageBarColors(),
-                title = { Text("GIBox") },
-                subtitle = { Text("原神模型导入器") },
+                title = { Text("模组管理") },
+                navigationIcon = { BackButton { state.back() } },
+                subtitle = { Text("角色、场景与加载图片") },
                 actions = {
                     IconButton(onClick = { state.open(Screen.Log) }) { Icon(Icons.AutoMirrored.Filled.List, contentDescription = "日志") }
                     IconButton(onClick = { state.open(Screen.Settings) }) { Icon(Icons.Filled.Settings, contentDescription = "设置") }
@@ -123,29 +114,25 @@ private fun HomeMain(state: AppState, pickZip: () -> Unit, searchField: Modifier
 @Composable
 private fun ModuleCard(state: AppState) {
     val active = state.moduleActive
-    val warn = !active
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.extraLarge,
         colors = CardDefaults.cardColors(
-            containerColor = if (warn) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.primaryContainer,
-            contentColor = if (warn) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onPrimaryContainer,
+            containerColor = MaterialTheme.colorScheme.surface,
+            contentColor = MaterialTheme.colorScheme.onSurface,
         ),
     ) {
         Column(Modifier.padding(horizontal = 24.dp, vertical = 22.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(if (active) Icons.Filled.CheckCircle else Icons.Filled.Warning, contentDescription = null, modifier = Modifier.size(32.dp))
+                OneIcon(if (active) OneGlyph.Check else OneGlyph.Info, badge=true)
                 Spacer(Modifier.width(16.dp))
                 Column {
                     Text(if (active) "模块已激活" else "模块未激活", style = MaterialTheme.typography.headlineSmall)
                     Text("模块版本 " + state.appVersion, style = MaterialTheme.typography.bodyMedium)
                 }
             }
-            if (!active) Text("在 LSPosed 里启用 GIBox，作用域勾选原神（官服或 B 服），然后重新打开 GIBox、彻底重启游戏。", style = MaterialTheme.typography.bodyMedium)
-            // Both games ticked in LSPosed: which one the app manages.
-            if (state.games.size > 1) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                for (pkg in state.games) FilterChip(selected = state.game == pkg, onClick = { state.chooseGame(pkg) }, label = { Text(serverName(pkg)) })
-            }
+            if (!active) Text("在 LSPosed 里启用 GIBox，作用域勾选所用的原神客户端（国服、B服或国际服），然后重新打开 GIBox、彻底重启游戏。", style = MaterialTheme.typography.bodyMedium)
+
         }
     }
 }
@@ -167,16 +154,16 @@ private fun ManageCard(state: AppState, pickZip: () -> Unit) {
                         Text("全局模型替换", style = MaterialTheme.typography.titleMedium)
                         Text(if (state.enabled) "已开启 · 游戏里替换已启用的 MOD" else "已关闭 · 游戏里显示原模型", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    Switch(checked = state.enabled, onCheckedChange = { state.setReplacement(it) })
+                    OneUiSwitch(checked = state.enabled, onCheckedChange = { state.setReplacement(it) })
                 }
             }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Button(onClick = { if (state.storage) pickZip() else state.needStorage() }, modifier = Modifier.weight(1.6f).heightIn(min = 52.dp)) {
+                OneUiButton(onClick = { if (state.storage) pickZip() else state.needStorage() }, modifier = Modifier.weight(1.6f).heightIn(min = 52.dp)) {
                     Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(ButtonDefaults.IconSize))
                     Spacer(Modifier.size(ButtonDefaults.IconSpacing))
                     Text("导入 MOD", maxLines = 1, softWrap = false)
                 }
-                OutlinedButton(onClick = { state.refresh() }, modifier = Modifier.weight(1f).heightIn(min = 52.dp)) {
+                OneUiOutlineButton(onClick = { state.refresh() }, modifier = Modifier.weight(1f).heightIn(min = 52.dp)) {
                     Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(ButtonDefaults.IconSize))
                     Spacer(Modifier.size(ButtonDefaults.IconSpacing))
                     Text("刷新", maxLines = 1, softWrap = false)
@@ -198,10 +185,10 @@ private fun ModsCard(state: AppState, searchField: Modifier, onSearch: () -> Uni
     HomeCard {
         Column(Modifier.padding(vertical = 8.dp)) {
             Row(Modifier.padding(start = 24.dp, end = 12.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                PrimaryScrollableTabRow(selectedTabIndex = category, edgePadding = 0.dp, modifier = Modifier.weight(1f), containerColor = MaterialTheme.colorScheme.surfaceContainerLowest, divider = {}) {
-                    Tab(selected = category == 0, onClick = { category = 0 }, text = { Text("角色 MOD", maxLines = 1, softWrap = false) })
-                    Tab(selected = category == 1, onClick = { category = 1 }, text = { Text("场景 MOD", maxLines = 1, softWrap = false) })
-                    Tab(selected = category == 2, onClick = { category = 2 }, text = { Text("加载图片", maxLines = 1, softWrap = false) })
+                OneUiTabs(selectedTabIndex = category, edgePadding = 0.dp, modifier = Modifier.weight(1f), containerColor = MaterialTheme.colorScheme.surfaceContainerLowest, divider = {}) {
+                    OneUiTab(selected = category == 0, onClick = { category = 0 }, text = { Text("角色 MOD", maxLines = 1, softWrap = false) })
+                    OneUiTab(selected = category == 1, onClick = { category = 1 }, text = { Text("场景 MOD", maxLines = 1, softWrap = false) })
+                    OneUiTab(selected = category == 2, onClick = { category = 2 }, text = { Text("加载图片", maxLines = 1, softWrap = false) })
                 }
                 IconButton(onClick = onSearch, modifier = searchField) { Icon(Icons.Filled.Search, contentDescription = "搜索 MOD") }
             }

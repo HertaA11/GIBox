@@ -12,15 +12,11 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Share
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -38,12 +34,12 @@ import androidx.compose.ui.unit.sp
 fun LogScreen(state: AppState) {
     var reload by remember { mutableIntStateOf(0) }
     var levelsOpen by remember { mutableStateOf(false) }
-    val lines = remember(reload) { state.readLog().trimEnd().split('\n').filter { it.isNotEmpty() } }
+    val lines = remember(reload, state.game) { state.readLog().trimEnd().split('\n').filter { it.isNotEmpty() } }
     val list = rememberLazyListState()
     LaunchedEffect(lines) { if (lines.isNotEmpty()) list.scrollToItem(lines.size - 1) }
-    Scaffold(
+    OneUiScaffold(
         topBar = {
-            TopAppBar(
+            OneUiTopBar(
                 colors = pageBarColors(),
                 title = { Text("运行日志") },
                 subtitle = { Text("${lines.size} 行") },
@@ -56,12 +52,12 @@ fun LogScreen(state: AppState) {
                     IconButton(onClick = { state.shareLog() }) { Icon(Icons.Filled.Share, contentDescription = "分享日志") }
                     Box {
                         IconButton(onClick = { levelsOpen = true }) { Icon(Icons.Filled.MoreVert, contentDescription = "日志等级") }
-                        DropdownMenu(expanded = levelsOpen, onDismissRequest = { levelsOpen = false }) {
+                        OneUiMenu(expanded = levelsOpen, onDismissRequest = { levelsOpen = false }) {
                             DropdownMenuItem(text = { Text("日志等级") }, onClick = {}, enabled = false)
                             Control.LOG_LEVELS.forEachIndexed { index, level ->
                                 DropdownMenuItem(
                                     text = { Text(Control.LOG_LEVEL_LABELS[index]) },
-                                    leadingIcon = { RadioButton(selected = state.logLevel == level, onClick = null) },
+                                    leadingIcon = { OneUiRadio(selected = state.logLevel == level, onClick = null) },
                                     onClick = { levelsOpen = false; state.changeLogLevel(level) },
                                 )
                             }

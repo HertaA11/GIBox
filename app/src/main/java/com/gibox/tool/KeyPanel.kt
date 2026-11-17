@@ -3,18 +3,11 @@ package com.gibox.tool
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.material3.AssistChip
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SegmentedListItem
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.unit.dp
-import com.alorma.compose.settings.ui.expressive.SettingsGroup
-import com.alorma.compose.settings.ui.expressive.SettingsMenuLink
-import com.alorma.compose.settings.ui.expressive.SettingsSwitch
 
 /** A row of the key panel: one key, or activate keys that set the same variables (a MOD's own "1 2 3" keys). */
 private sealed interface KeyRow
@@ -60,11 +53,11 @@ fun KeyPanel(state: AppState, mod: Importer.Mod, keys: List<ModelManifest.Key>, 
     fun stateOf(i: Int, k: ModelManifest.Key) = states?.getOrNull(i)?.takeIf { it.section == k.section }
     val rows = if (logicCore) keyRows(keys) else emptyList()
     val count = rows.size + 1
-    SettingsGroup(title = { SectionTitle("按键切换") }, verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)) {
-        SegmentedListItem(shapes = ListItemDefaults.segmentedShapes(0, count)) {
+    SettingsGroup(title = { SectionTitle("按键切换") }, verticalArrangement = Arrangement.spacedBy(OneUiList.SegmentedGap)) {
+        OneUiRow(shapes = OneUiList.segmentedShapes(0, count)) {
             Text(
                 when {
-                    !logicCore -> "需在调试里打开 3DMigoto 转换"
+                    !logicCore -> "需在设置里打开 3DMigoto 转换"
                     states == null -> "游戏里显示模型时生效"
                     else -> "按 MOD 自带规则切换"
                 } + if (driven && logicCore) "；款式表不起作用" else "",
@@ -72,13 +65,13 @@ fun KeyPanel(state: AppState, mod: Importer.Mod, keys: List<ModelManifest.Key>, 
             )
         }
         rows.forEachIndexed { r, row ->
-            val shapes = ListItemDefaults.segmentedShapes(r + 1, count)
+            val shapes = OneUiList.segmentedShapes(r + 1, count)
             when (row) {
-                is Choice -> SegmentedListItem(shapes = shapes) {
+                is Choice -> OneUiRow(shapes = shapes) {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(row.members.first().second.presets[0].values.keys.sorted().joinToString("、") { it.removePrefix("$") }, style = MaterialTheme.typography.titleSmall)
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            for ((i, k) in row.members) FilterChip(
+                            for ((i, k) in row.members) OneUiChoice(
                                 selected = stateOf(i, k)?.matches == true,
                                 onClick = { state.pressKey(mod, k) },
                                 label = { Text(bindLabel(k).ifEmpty { keyName(k) }) },
@@ -97,19 +90,19 @@ fun KeyPanel(state: AppState, mod: Importer.Mod, keys: List<ModelManifest.Key>, 
                             state = st?.active == true, title = { Text(keyName(k)) }, subtitle = { Text(keyLine(k, "按住")) },
                             shapes = shapes, onCheckedChange = { state.holdKey(mod, k, it) },
                         )
-                        "cycle" -> SegmentedListItem(shapes = shapes) {
+                        "cycle" -> OneUiRow(shapes = shapes) {
                             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Text(keyName(k), style = MaterialTheme.typography.titleSmall)
                                 val line = keyLine(k, if (k.selectable()) "" else "只能逐个切" + if (st != null && st.current >= 0) "，第 ${st.current + 1} 个" else "")
                                 if (line.isNotEmpty()) Text(line, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 if (k.selectable()) FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     k.presets.indices.forEach { i ->
-                                        FilterChip(selected = st?.current == i, onClick = { state.selectKey(mod, k, i) }, label = { Text("${i + 1}") })
+                                        OneUiChoice(selected = st?.current == i, onClick = { state.selectKey(mod, k, i) }, label = { Text("${i + 1}") })
                                     }
                                 }
                                 if (steps || !k.selectable()) FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    if (k.back) AssistChip(onClick = { state.pressKey(mod, k, true) }, label = { Text("上一个") })
-                                    AssistChip(onClick = { state.pressKey(mod, k) }, label = { Text("下一个") })
+                                    if (k.back) OneUiActionChip(onClick = { state.pressKey(mod, k, true) }, label = { Text("上一个") })
+                                    OneUiActionChip(onClick = { state.pressKey(mod, k) }, label = { Text("下一个") })
                                 }
                             }
                         }

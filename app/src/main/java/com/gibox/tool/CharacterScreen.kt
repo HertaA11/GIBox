@@ -12,15 +12,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
-import androidx.compose.material3.LargeFlexibleTopAppBar
-import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SegmentedListItem
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
@@ -79,18 +73,17 @@ private fun CharacterMain(state: AppState, id: Int, searchField: Modifier, onSea
         }
     }
     val scroll = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
-    Scaffold(
+    OneUiScaffold(
         modifier = Modifier.nestedScroll(scroll.nestedScrollConnection),
         topBar = {
-            LargeFlexibleTopAppBar(
+            OneUiLargeTopBar(
                 colors = pageBarColors(),
                 title = {
                     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text(title, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                         if (id in 10000000..10001999) Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            FilledTonalIconButton(
+                            OneUiTonalIconButton(
                                 onClick = { state.confirmBoneRefresh(id) },
-                                shapes = IconButtonDefaults.shapes(),
                                 enabled = !pending && state.busy == null,
                                 modifier = Modifier.size(56.dp),
                             ) {
@@ -110,7 +103,7 @@ private fun CharacterMain(state: AppState, id: Int, searchField: Modifier, onSea
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = padding.calculateTopPadding() + 8.dp, bottom = padding.calculateBottomPadding() + 24.dp),
-            verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap),
+            verticalArrangement = Arrangement.spacedBy(OneUiList.SegmentedGap),
         ) {
             if (id in 10000000..10001999) item {
                 TextButton(onClick = { state.exportCharacterBones(id) }, enabled = state.busy == null) { Text("导出骨骼（可补充内置表）") }
@@ -130,9 +123,9 @@ private fun CharacterMain(state: AppState, id: Int, searchField: Modifier, onSea
 internal fun ModRow(state: AppState, m: Importer.Mod, index: Int, count: Int) {
     val on = m.converted && state.selected(m.name)
     val label = state.label(m.name)
-    SegmentedListItem(
+    OneUiRow(
         onClick = { state.open(Screen.Detail(m.name)) },
-        shapes = ListItemDefaults.segmentedShapes(index, count),
+        shapes = OneUiList.segmentedShapes(index, count),
         supportingContent = {
             val parts = mutableListOf(if (!m.converted) "未转换" else if (on) "已开启" else "未开启")
             // The outfit the mod is for (a character with skins): one list per character, the outfit on each row.
@@ -146,7 +139,7 @@ internal fun ModRow(state: AppState, m: Importer.Mod, index: Int, count: Int) {
             )
         },
         trailingContent = {
-            Switch(checked = on, onCheckedChange = { state.setSelected(m, it) }, enabled = m.converted)
+            OneUiSwitch(checked = on, onCheckedChange = { state.setSelected(m, it) }, enabled = m.converted)
         },
     ) {
         Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis)

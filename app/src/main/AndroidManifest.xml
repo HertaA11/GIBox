@@ -15,6 +15,7 @@
         <intent><action android:name="android.intent.action.VIEW"/><data android:mimeType="resource/folder"/></intent>
     </queries>
     <application android:label="GIBox" android:theme="@style/Theme.GIBox" android:allowBackup="false">
+        <meta-data android:name="theming-meta" android:value="meta_998_sesl_app" />
         <provider android:name=".DirectoryProvider" android:authorities="com.gibox.tool.documents"
             android:exported="true" android:grantUriPermissions="true" android:permission="android.permission.MANAGE_DOCUMENTS">
             <intent-filter><action android:name="android.content.action.DOCUMENTS_PROVIDER"/></intent-filter>

@@ -23,20 +23,12 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
-import androidx.compose.material3.Button
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RadioButton
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SegmentedListItem
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -67,9 +59,9 @@ fun schemeLabel(rel: String, all: List<String>): String {
 @Composable
 fun PickScreen(state: AppState, pick: Screen.Pick) {
     // Off the main thread: the guess reads the hash tables (~10 MB) and the INI (1.0.4: on the main thread they stalled the page).
-    val guess by produceState(initialValue = Characters.Guess(), pick) { value = withContext(Dispatchers.IO) { state.guess(pick) } }
+    val guess by produceState(initialValue = Characters.Guess(), pick, state.game) { value = withContext(Dispatchers.IO) { state.guess(pick) } }
     // Off the main thread: the first call reads the skeleton table made from the game's files (17 MB).
-    val recorded by produceState(initialValue = emptySet<Int>(), pick) { value = withContext(Dispatchers.IO) { state.recorded() } }
+    val recorded by produceState(initialValue = emptySet<Int>(), pick, state.game) { value = withContext(Dispatchers.IO) { state.recorded() } }
     var query by remember(pick) { mutableStateOf("") }
     var chosen by remember(pick) { mutableIntStateOf(0) }
     val list = remember(guess, query) { Characters.ordered(guess, query) }
@@ -82,7 +74,7 @@ fun PickScreen(state: AppState, pick: Screen.Pick) {
     var outfit by remember(pick) { mutableStateOf("") }
     var outfitHint by remember(pick) { mutableStateOf("") }
     var outfitsRecorded by remember(pick) { mutableStateOf(emptySet<String>()) }
-    LaunchedEffect(pick, chosen) {
+    LaunchedEffect(pick, chosen, state.game) {
         if (outfits.isEmpty()) { outfit = ""; outfitHint = ""; outfitsRecorded = emptySet(); return@LaunchedEffect }
         val (suggested, recordedNow) = withContext(Dispatchers.IO) { state.suggestedOutfit(pick, chosen) to state.recordedOutfits(chosen) }
         outfit = suggested; outfitsRecorded = recordedNow
@@ -93,9 +85,9 @@ fun PickScreen(state: AppState, pick: Screen.Pick) {
         value = withContext(Dispatchers.IO) { state.boneImportHint(chosen, outfit) }
     }
 
-    Scaffold(
+    OneUiScaffold(
         topBar = {
-            TopAppBar(
+            OneUiTopBar(
                 colors = pageBarColors(),
                 title = { Text("选择分类或角色") },
                 subtitle = { Text(pick.modName) },
@@ -117,10 +109,10 @@ fun PickScreen(state: AppState, pick: Screen.Pick) {
                         )
                     }
                     val height = ButtonDefaults.MediumContainerHeight
-                    Button(
+                    OneUiButton(
                         onClick = { selected?.let { state.confirm(pick, it, if (schemes.size > 1) scheme else null, chosenOutfit?.prefab) } },
                         enabled = selected != null && !needScheme && (outfits.isEmpty() || chosenOutfit != null),
-                        shapes = ButtonDefaults.shapesFor(height),
+
                         modifier = Modifier.heightIn(min = height),
                         contentPadding = ButtonDefaults.contentPaddingFor(height),
                     ) {
@@ -145,10 +137,10 @@ fun PickScreen(state: AppState, pick: Screen.Pick) {
                     modifier = Modifier.fillMaxWidth().heightIn(max = 168.dp).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 4.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    for (s in schemes) FilterChip(selected = s == scheme, onClick = { scheme = s }, label = { Text(schemeLabel(s, schemes)) })
+                    for (s in schemes) OneUiChoice(selected = s == scheme, onClick = { scheme = s }, label = { Text(schemeLabel(s, schemes)) })
                 }
             }
-            OutlinedTextField(
+            OneUiTextField(
                 value = query,
                 onValueChange = { query = it },
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
@@ -168,17 +160,17 @@ fun PickScreen(state: AppState, pick: Screen.Pick) {
             LazyColumn(
                 modifier = Modifier.weight(1f),
                 contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = padding.calculateBottomPadding() + 16.dp),
-                verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap),
+                verticalArrangement = Arrangement.spacedBy(OneUiList.SegmentedGap),
             ) {
                 if (list.isEmpty()) item { EmptyNote("没有匹配的角色") }
                 itemsIndexed(list, key = { _, a -> a.id }) { index, a ->
                     val recommended = guess.recommends(a.id)
-                    Column(verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)) {
-                    SegmentedListItem(
+                    Column(verticalArrangement = Arrangement.spacedBy(OneUiList.SegmentedGap)) {
+                    OneUiRow(
                         selected = a.id == chosen,
                         onClick = { chosen = a.id },
-                        shapes = ListItemDefaults.segmentedShapes(index, list.size),
-                        leadingContent = { RadioButton(selected = a.id == chosen, onClick = null) },
+                        shapes = OneUiList.segmentedShapes(index, list.size),
+                        leadingContent = { OneUiRadio(selected = a.id == chosen, onClick = null) },
                         supportingContent = {
                             Text(
                                 if (Characters.isLoading(a.id)) "加载背景图片，无需骨骼"
@@ -197,12 +189,12 @@ fun PickScreen(state: AppState, pick: Screen.Pick) {
                     if (a.id == chosen && outfits.isNotEmpty()) {
                         if (outfitHint.isNotEmpty()) Text(outfitHint, modifier = Modifier.padding(start = 24.dp, top = 4.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                         outfits.forEachIndexed { i, o ->
-                            SegmentedListItem(
+                            OneUiRow(
                                 selected = o.prefab == outfit,
                                 onClick = { outfit = o.prefab },
-                                shapes = ListItemDefaults.segmentedShapes(i, outfits.size),
+                                shapes = OneUiList.segmentedShapes(i, outfits.size),
                                 modifier = Modifier.padding(start = 24.dp),
-                                leadingContent = { RadioButton(selected = o.prefab == outfit, onClick = null) },
+                                leadingContent = { OneUiRadio(selected = o.prefab == outfit, onClick = null) },
                                 supportingContent = {
                                     Text(
                                         (if (o.original()) "" else "${o.en} · ") + if (outfitsRecorded.contains(o.prefab)) "已记录骨骼" else "未记录骨骼：在大世界穿上，或在衣装页预览后自动采集",

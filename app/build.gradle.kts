@@ -63,13 +63,33 @@ android {
     }
 }
 
+// SESL uses the androidx package names. Keep the upstream copies out of every variant.
+configurations.configureEach {
+    listOf(
+        "androidx.core" to "core", "androidx.core" to "core-ktx",
+        "androidx.appcompat" to "appcompat",
+        "androidx.customview" to "customview",
+        "androidx.coordinatorlayout" to "coordinatorlayout",
+        "androidx.drawerlayout" to "drawerlayout",
+        "androidx.fragment" to "fragment", "androidx.fragment" to "fragment-ktx",
+        "androidx.preference" to "preference",
+        "androidx.recyclerview" to "recyclerview",
+        "androidx.slidingpanelayout" to "slidingpanelayout",
+        "androidx.swiperefreshlayout" to "swiperefreshlayout",
+        "androidx.viewpager" to "viewpager", "androidx.viewpager2" to "viewpager2",
+        "com.google.android.material" to "material",
+    ).forEach { (group, module) -> exclude(group = group, module = module) }
+}
+
 dependencies {
     compileOnly("de.robv.android.xposed:api:82")
     // Modern Xposed API (ModernEntry, META-INF/xposed) and its service (the LSPosed scope in the app). Apache-2.0.
     compileOnly("io.github.libxposed:api:102.0.0")
     implementation("io.github.libxposed:service:102.0.0")
+    // One UI 8 includes the matching SESL View libraries, including Preference/AppCompat.
+    implementation("io.github.tribalfs:oneui-design:0.9.20+oneui8")
+    implementation("sesl.androidx.preference:preference:1.2.1+1.0.0-sesl8+rev1")
     implementation("androidx.activity:activity-compose:1.13.0")
     implementation("androidx.compose.material3:material3:1.5.0-beta01")
     implementation("androidx.compose.material:material-icons-core:1.7.8")
-    implementation("com.github.alorma.compose-settings:ui-tiles-expressive:3.3.0")
 }

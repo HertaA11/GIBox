@@ -1,0 +1,5 @@
+<resources>
+    <color name="preference_divider">#E3E3E6</color>
+    <dimen name="preference_group_gap">20dp</dimen>
+    <dimen name="preference_page_margin">12dp</dimen>
+</resources>
