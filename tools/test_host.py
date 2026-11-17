@@ -33,7 +33,7 @@ if (root/'tests/runtime_test.cpp').exists():
     run([out/'runtime_test'])
 # A module targeting Xposed API 102 cannot load de.robv.android.xposed classes: whatever the modern entry reaches
 # (ModernEntry -> Loader -> Control, NativeBridge) must not refer to them, or loading it fails (0.7.66 / 0.7.67).
-for name in ['ModernEntry','Loader','Control','NativeBridge','ModuleStatus']:
+for name in ['ModernEntry','Loader','Control','NativeBridge','ModuleStatus','SharedMods']:
     code=''.join(l for l in (root/'app/src/main/java/com/gibox/tool'/(name+'.java')).read_text(encoding='utf-8').splitlines(True) if not l.lstrip().startswith(('*','/*','//')))
     assert 'de.robv' not in code and 'Entry.' not in code.replace('ModernEntry',''), name+' refers to the legacy Xposed API or to Entry'
 print('Modern entry classes: PASS (no legacy Xposed API reachable)')
@@ -50,6 +50,7 @@ run([java,'com.sun.tools.javac.Main','--release','8','-cp',stubclasses,'-d',clas
 run([java,'-cp',classes,'com.gibox.tool.ConverterTest',out/'core_test'])
 run([java,'-cp',classes,'com.gibox.tool.DocumentPathsTest'])
 run([java,'-cp',os.pathsep.join([str(classes),str(stubclasses)]),'com.gibox.tool.DeviceHashesTest'])
+run([java,'-cp',os.pathsep.join([str(classes),str(stubclasses)]),'com.gibox.tool.SharedModsTest'])
 run([java,'-cp',os.pathsep.join([str(classes),str(stubclasses)]),'com.gibox.tool.GliderModTest'])
 patterns=out/'gimi-patterns'
 if patterns.exists():shutil.rmtree(patterns)

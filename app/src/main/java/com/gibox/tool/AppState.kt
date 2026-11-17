@@ -95,8 +95,7 @@ class AppState(private val activity: Activity) {
         private set
     val stack = mutableStateListOf<Screen>(Screen.Home)
 
-    /** Imported mods: GIBox's private storage, one copy for every game. Models, skeletons, control/status and the log:
-     *  each game's media folder (a mod is converted for every game it is used in). */
+    /** One imported source and converted payload, distributed to each game's readable directory; live records stay local. */
     val modsRoot: File get() = Control.mods(activity.filesDir)
     val modelsRoot: File get() = Control.models(game)
     val boneRoot: File get() = Control.bones(game)
@@ -105,6 +104,7 @@ class AppState(private val activity: Activity) {
 
     /** The game the PC hash database was installed for this run (installPcHashes, called from refresh). */
     private var pcHashesFor = ""
+    @Volatile private var sharedModels: SharedMods? = null
 
     init {
         AppLog.debug(game, "app", "app-start 版本 $appVersion")
@@ -137,28 +137,13 @@ class AppState(private val activity: Activity) {
         }
         File(activity.filesDir, "mods").let { if (it.list()?.isEmpty() == true) it.delete() }
     }
-    /** The other installed games GIBox has run in (its media folder exists): a conversion is made for them too. */
-    private fun otherGames(): List<String> = Control.GAMES.filter { it != game && packageInfo(it) != null && Control.shared(it).isDirectory }
-    /**
-     * The same mod converted for the other games, each with its own bone library and models folder; a new model there
-     * is switched on unless another mod of that character already is. A failure there only shows in the summary.
-     */
-    private fun convertOthers(source: File, id: Int): List<String> = otherGames().map { pkg ->
-        val log = StringBuilder()
-        try {
-            val r = Importer.convert(source, id, Control.models(pkg), Control.bones(pkg), decoder, log)
-            AppLog.debug(pkg, "converter", "conversion-log\n" + log.toString().trim())
-            val model = r.model.name
-            AppLog.info(pkg, LOGGER, "converted $model：${r.summary.replace('\n', ' ')}（随${serverName(game)}的转换一并生成）")
-            val taken = Importer.list(modsRoot, Control.models(pkg)).any { it.name != model && it.id == r.id && it.converted && Control.selected(pkg, it.name) }
-            if (!taken && !Control.selected(pkg, model)) { Control.enable(pkg, model); AppLog.info(pkg, LOGGER, "mod-enable $model") }
-            "${serverName(pkg)}：已转换" + if (taken) "（该角色已有开启的 MOD，此 MOD 未开启）" else ""
-        } catch (e: Throwable) {
-            AppLog.debug(pkg, "converter", "conversion-log\n" + log.toString().trim())
-            AppLog.warning(pkg, LOGGER, "convert-error ${source.name}：${e.message ?: e}")
-            AppLog.warning(game, LOGGER, "convert-other-error ${serverName(pkg)}：${e.message ?: e}")
-            "${serverName(pkg)}：转换失败（${e.message ?: e}）"
-        }
+    private fun configureShared(): SharedMods {
+        val packages = Control.GAMES.filter { packageInfo(it) != null || Control.shared(it).isDirectory }.ifEmpty { listOf(game) }
+        return Control.configureShared(activity.filesDir, packages, game).also { sharedModels = it }
+    }
+    private fun convertShared(job: () -> Importer.Result): Pair<Importer.Result, List<String>> {
+        val shared = sharedModels ?: configureShared()
+        return shared.convert { val result = job(); Pair(result, shared.publish(result.model)) }
     }
 
     // ---------------------------------------------------------------- navigation
@@ -177,6 +162,7 @@ class AppState(private val activity: Activity) {
     fun refresh() {
         storage = hasStorage()
         detectGame().let { if (it != game) useGame(it) }
+        if (storage) runCatching { configureShared() }.onFailure { AppLog.warning(game, LOGGER, "shared-mods-error ${it.message}") }
         // The legacy entry marks GIBox's own process; a framework on the modern API instead hands over its service.
         moduleActive = ModuleStatus.active || LspService.scope != null
         frameworkApi = ModuleStatus.api
@@ -199,11 +185,15 @@ class AppState(private val activity: Activity) {
         val pkg = game; pcHashesFor = pkg
         Thread {
             runCatching {
+                val shared = sharedModels ?: configureShared()
+                val targets = Control.GAMES.filter { packageInfo(it) != null || Control.shared(it).isDirectory }.ifEmpty { listOf(pkg) }
                 for ((file, what) in listOf("pc-hashes.json" to "PC hash 数据库", "device-hashes.json" to "手机 hash 表", OfflineSkeletons.FILE to "离线骨骼表")) {
                     val bytes = activity.assets.open(file).use { it.readBytes() }
-                    if (Control.installShared(pkg, file, bytes)) AppLog.info(pkg, LOGGER, "shared-installed $what（${bytes.size / 1024} KB）")
+                    for (target in targets) if (Control.installShared(target, file, bytes)) AppLog.info(target, LOGGER, "shared-installed $what（${bytes.size / 1024} KB）")
                 }
-                Control.installShared(pkg, "skeleton-policy.json", OfflineSkeletons.capturePolicy(Control.shared(pkg)))
+                for (target in targets) Control.installShared(target, "skeleton-policy.json", OfflineSkeletons.capturePolicy(Control.shared(target)))
+                shared.prepare(pkg)
+                activity.runOnUiThread { refresh() }
             }.onFailure { pcHashesFor = ""; AppLog.warning(pkg, LOGGER, "shared-error hash 数据安装失败：${it.message}") }
         }.apply { name = "gibox-install-tables"; isDaemon = true }.start()
     }
@@ -301,14 +291,26 @@ class AppState(private val activity: Activity) {
     fun setVariable(mod: Importer.Mod, variable: String, value: Int) = save("保存") { Control.setVariable(game, mod.name, variable, value) }
     /** A [Key] of the mod's INI logic, pressed in the game by the logic core (experiments.logicCore). */
     fun pressKey(mod: Importer.Mod, key: ModelManifest.Key, back: Boolean = false) = save("按键") {
-        Control.pressKey(game, mod.name, key.file, key.section, back)
+        if (key.selectable()) {
+            val manifest = ModelManifest.read(mod.model)
+            val presets = key.presets.indices.map { presetValues(key, it) }
+            val matches = presets.indices.filter { i -> presets[i].isNotEmpty() && presets[i].all { (name, value) -> Control.variable(game, mod.name, name, manifest.defaults[name] ?: 0) == value } }
+            val current = matches.singleOrNull() ?: status.keys[mod.name]?.firstOrNull { it.section == key.section }?.current?.takeIf { it >= 0 } ?: 0
+            val next = (current + (if (back) -1 else 1) + presets.size) % presets.size
+            Control.keyInputWithVariables(game, mod.name, key.file, key.section, false, next, null, presets[next])
+        } else Control.pressKey(game, mod.name, key.file, key.section, back)
         AppLog.info(game, LOGGER, "key-press ${mod.name} ${key.section}" + if (back) "（上一个）" else "")
     }
     /** A cycle key's preset chosen directly (0-based), activated in the game as if stepped to. */
     fun selectKey(mod: Importer.Mod, key: ModelManifest.Key, index: Int) = save("按键") {
-        Control.keyInput(game, mod.name, key.file, key.section, false, index, null)
+        Control.keyInputWithVariables(game, mod.name, key.file, key.section, false, index, null, presetValues(key, index))
         AppLog.info(game, LOGGER, "key-select ${mod.name} ${key.section}：第 ${index + 1} 个")
     }
+    private fun presetValues(key: ModelManifest.Key, index: Int): Map<String, Int> =
+        key.presets[index].values.mapNotNull { (name, text) ->
+            val value = text.toDoubleOrNull()
+            if (value != null && value.isFinite() && value >= Int.MIN_VALUE && value <= Int.MAX_VALUE && value == value.toInt().toDouble() && name.startsWith("$")) name to value.toInt() else null
+        }.toMap()
     /** A hold key held (down) or released (up). */
     fun holdKey(mod: Importer.Mod, key: ModelManifest.Key, down: Boolean) = save("按键") {
         Control.keyInput(game, mod.name, key.file, key.section, false, -1, if (down) "down" else "up")
@@ -420,7 +422,7 @@ class AppState(private val activity: Activity) {
     /** A change to the game's files (control.json, the log): without file access, the reminder instead. */
     private fun save(what: String, needsStorage: Boolean = true, change: () -> Unit) {
         if (needsStorage && !hasStorage()) { needStorage(); return }
-        try { change() } catch (e: Throwable) { fail(what, e, null) }
+        try { if (needsStorage) configureShared(); change() } catch (e: Throwable) { fail(what, e, null) }
         refresh()
     }
 
@@ -499,9 +501,10 @@ class AppState(private val activity: Activity) {
     }
     private fun convertJob(name: String, job: (StringBuilder) -> Importer.Result) {
         work("转换", "正在转换 $name…\n大的 MOD 可能要一分钟。", { log ->
-            val r = try { job(log).also { AppLog.debug(game, "converter", "conversion-log\n" + log.toString().trim()) } }
-            catch (e: Throwable) { AppLog.debug(game, "converter", "conversion-log\n" + log.toString().trim()); throw e }
-            Pair(r, convertOthers(File(modsRoot, name), r.id))
+            convertShared {
+                try { job(log).also { AppLog.debug(game, "converter", "conversion-log\n" + log.toString().trim()) } }
+                catch (e: Throwable) { AppLog.debug(game, "converter", "conversion-log\n" + log.toString().trim()); throw e }
+            }
         }) { (r, others) ->
             val model = r.model.name
             AppLog.info(game, LOGGER, "converted $model：${r.summary.replace('\n', ' ')}")
@@ -532,9 +535,11 @@ class AppState(private val activity: Activity) {
                         val name = label(mod.name)
                         activity.runOnUiThread { busy = Busy("重新转换", "${i + 1} / ${list.size}：$name") }
                         val log = StringBuilder()
-                        try { Importer.convert(mod.source, mod.id, modelsRoot, boneRoot, decoder, log); AppLog.debug(game, "converter", "conversion-log\n" + log.toString().trim()) }
-                        catch (e: Throwable) { AppLog.debug(game, "converter", "conversion-log\n" + log.toString().trim()); AppLog.warning(game, LOGGER, "reconvert-error ${mod.name}：$e"); failed.add("$name：${e.message ?: e}"); return@forEachIndexed }
-                        for (note in convertOthers(mod.source, mod.id)) if (note.contains("失败")) failed.add("$name（$note）")
+                        try {
+                            val (_, notes) = convertShared { Importer.convert(mod.source, mod.id, modelsRoot, boneRoot, decoder, log) }
+                            AppLog.debug(game, "converter", "conversion-log\n" + log.toString().trim())
+                            for (note in notes) if (note.contains("失败")) failed.add("$name（$note）")
+                        } catch (e: Throwable) { AppLog.debug(game, "converter", "conversion-log\n" + log.toString().trim()); AppLog.warning(game, LOGGER, "reconvert-error ${mod.name}：$e"); failed.add("$name：${e.message ?: e}") }
                     }
                     failed
                 }) { failed ->
@@ -590,14 +595,19 @@ class AppState(private val activity: Activity) {
             title = "删除 ${label(mod.name)}", text = "删除 Mods 里的这份 MOD 和转换好的模型（各服务器的都删）？导入时选的原文件不受影响。",
             confirm = "删除", dismiss = "取消", destructive = true,
             onConfirm = {
-                try {
-                    Control.disable(game, mod.name); Importer.delete(mod, modelsRoot); Labels.set(labelsFile, mod.name, null); AppLog.info(game, LOGGER, "mod-delete ${mod.name}")
-                    // The shared Mods copy is gone: the other games' models of it go too.
-                    for (pkg in otherGames()) runCatching { Control.disable(pkg, mod.name); Importer.deleteModel(mod.name, Control.models(pkg)); AppLog.info(pkg, LOGGER, "mod-delete ${mod.name}（在${serverName(game)}删除）") }
+                work("删除", "正在删除 ${label(mod.name)}…", { _ ->
+                    val shared = sharedModels ?: configureShared()
+                    shared.convert {
+                        Control.disable(game, mod.name)
+                        shared.delete(mod.name)
+                        Importer.delete(mod, modelsRoot)
+                        Labels.set(labelsFile, mod.name, null)
+                        AppLog.info(game, LOGGER, "mod-delete ${mod.name}")
+                    }
+                }) {
+                    if (stack.lastOrNull() == Screen.Detail(mod.name)) closeTop()
+                    refresh()
                 }
-                catch (e: Throwable) { fail("删除", e, null) }
-                if (stack.lastOrNull() == Screen.Detail(mod.name)) closeTop()
-                refresh()
             },
         )
     }
@@ -606,10 +616,16 @@ class AppState(private val activity: Activity) {
     fun manualConvert(src: String, bones: String, id: Int, name: String, mapping: String, variants: Boolean) {
         val dest = File(modelsRoot, name)
         if (dest.exists()) { prompt = Prompt("错误", "输出目录已经存在，请换一个模型名：$dest"); return }
-        work("手动转换", "正在转换…", { log -> ModelConverter.convert(File(src), File(bones), dest, id, mapping, variants, decoder, log) }) { out ->
+        work("手动转换", "正在转换…", { log ->
+            val shared = sharedModels ?: configureShared()
+            shared.convert {
+                val out = ModelConverter.convert(File(src), File(bones), dest, id, mapping, variants, decoder, log)
+                Pair(out, out.flatMap { shared.publish(it) })
+            }
+        }) { (out, failures) ->
             AppLog.info(game, "converter", "manual-convert-done $out")
             refresh()
-            prompt = Prompt("转换结束", out.joinToString("\n"))
+            prompt = Prompt("转换结束", (out.map { it.toString() } + failures).joinToString("\n"))
         }
     }
 

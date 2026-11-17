@@ -11,6 +11,15 @@ import org.json.JSONObject;
 
 public final class Control {
     private Control() {}
+    private static volatile SharedMods common;
+    private static String commonKey="";
+    /** Called only by the App; injected game processes retain their local control/status paths. */
+    public static synchronized SharedMods configureShared(File files, java.util.List<String> packages, String preferred) throws Exception {
+        String key=files.getCanonicalPath()+packages.toString();
+        if(common==null||!commonKey.equals(key)){java.util.Map<String,File> roots=new java.util.LinkedHashMap<>();for(String pkg:packages)if(supported(pkg))roots.put(pkg,shared(pkg));SharedMods next=new SharedMods(files,roots);next.initialize(preferred);common=next;commonKey=key;}else common.initialize(preferred);
+        return common;
+    }
+
     public static boolean supported(String pkg) { return "com.miHoYo.Yuanshen".equals(pkg) || "com.miHoYo.ys.bilibili".equals(pkg) || "com.miHoYo.GenshinImpact".equals(pkg); }
     /**
      * Everything the game reads or writes: the game's own media folder, since the game process cannot open GIBox's
@@ -20,17 +29,18 @@ public final class Control {
     public static File models(String pkg) { return new File(shared(pkg), "models"); }
     public static File bones(String pkg) { return new File(shared(pkg), "skeletons"); }
     /** The Mods folder: imported PC mods, only ever read by the app, in GIBox's private storage. One copy for every
-     *  game (filesDir/library, 0.7.101); each game gets its own converted model in its media folder. */
+     *  game (filesDir/library, 0.7.101); one conversion is distributed to each game media folder. */
     public static File mods(File filesDir) { return new File(filesDir, "library"); }
     /** Before 0.7.101: one Mods folder per game (filesDir/mods/<pkg>), merged into mods() at the app's start. */
     public static File legacyMods(File filesDir, String pkg) { return new File(new File(filesDir, "mods"), pkg); }
     /** The games GIBox supports, official first. */
     public static final String[] GAMES = {"com.miHoYo.Yuanshen", "com.miHoYo.ys.bilibili", "com.miHoYo.GenshinImpact"};
     public static JSONObject load(String pkg) {
-        try { return new JSONObject(new String(Files.readAllBytes(new File(shared(pkg), "control.json").toPath()), StandardCharsets.UTF_8)); }
+        try { return new JSONObject(common!=null?common.loadControl(pkg):new String(Files.readAllBytes(new File(shared(pkg), "control.json").toPath()), StandardCharsets.UTF_8)); }
         catch (Exception e) { JSONObject j = new JSONObject(); try { j.put("enabled", false); j.put("selected", new JSONArray()); j.put("exportBones", 0); j.put("logLevel", "info"); } catch (Exception ignored) {} return j; }
     }
     public static synchronized void save(String pkg, JSONObject j) throws Exception {
+        if(common!=null){common.saveControl(pkg,j.toString());return;}
         File dir = shared(pkg); if (!dir.isDirectory() && !dir.mkdirs()) throw new IllegalStateException("无法创建控制目录：" + dir);
         File tmp = new File(dir, "control.json.tmp");
         try (FileOutputStream out = new FileOutputStream(tmp)) { out.write(j.toString().getBytes(StandardCharsets.UTF_8)); out.getFD().sync(); }
@@ -157,12 +167,17 @@ public final class Control {
     /** One key input: a press (back: a cycle's back =), "select" a cycle's preset by position (activated as stepping to it
      *  would: its condition, transition and run list), or "hold" "down" / "up" for a hold key. */
     public static synchronized void keyInput(String pkg, String model, int file, String section, boolean back, int select, String hold) throws Exception {
+        keyInputWithVariables(pkg,model,file,section,back,select,hold,java.util.Collections.emptyMap());
+    }
+    public static synchronized void keyInputWithVariables(String pkg, String model, int file, String section, boolean back, int select, String hold, java.util.Map<String,Integer> values) throws Exception {
         JSONObject j = load(pkg); long seq = j.optLong("keySeq", 0) + 1; j.put("keySeq", seq);
         JSONObject all = j.optJSONObject("keys"); if (all == null) all = new JSONObject();
         JSONArray old = all.optJSONArray(model), keep = new JSONArray(); if (old != null) for (int i = Math.max(0, old.length() - 15); i < old.length(); i++) { JSONObject x = old.optJSONObject(i); if (x != null) keep.put(x); }
         JSONObject p = new JSONObject(); p.put("seq", seq); p.put("file", file); p.put("section", section); if (back) p.put("back", true);
         if (select >= 0) p.put("select", select); if (hold != null) p.put("hold", hold); keep.put(p);
-        all.put(model, keep); j.put("keys", all); save(pkg, j);
+        all.put(model, keep); j.put("keys", all);
+        if(!values.isEmpty()){JSONObject vars=j.optJSONObject("variables");if(vars==null)vars=new JSONObject();JSONObject mine=vars.optJSONObject(model);if(mine==null)mine=new JSONObject();for(java.util.Map.Entry<String,Integer> entry:values.entrySet())mine.put(entry.getKey(),entry.getValue());vars.put(model,mine);j.put("variables",vars);}
+        save(pkg, j);
     }
     public static int variable(String pkg, String model, String var, int fallback) {
         JSONObject all = load(pkg).optJSONObject("variables"); JSONObject m = all == null ? null : all.optJSONObject(model); return m == null ? fallback : m.optInt(var, fallback);

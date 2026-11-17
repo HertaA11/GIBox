@@ -60,12 +60,13 @@ struct KeyPress {long long seq=0;size_t file=0;std::string section;bool back=fal
 // auto (0.7.60): the game's own per-renderer instance is written in place (its effects keep running on it); a loaded asset
 // or a material another renderer shows is copied first, and the game's instance made from that copy is followed in place.
 struct TexModControl {std::string strategy="auto",lod="full";bool capture=false;vkcap::Mode hash=vkcap::Mode::Off;long long testRequest=0;std::vector<std::string> testStrategies{"auto","direct","clone"};int observeMs=4000;};
-struct ControlState {std::string loadingFit="original";cameraFade::Mode cameraFadeMode=cameraFade::Mode::Original;TexModControl tex;Experiments exp;bool enabled=false,lodPin=true,hideUid=false,npcModels=false,synthesisButton=false;int logLevel=int(Level::Info);std::vector<std::string> selected;long long exportBones=0,refreshBones=0,renderMark=0;unsigned refreshBonesCharacter=0;std::map<std::string,std::map<std::string,int>> variables;std::map<std::string,std::vector<KeyPress>> keys;};
+struct ControlState {std::string loadingFit="original";cameraFade::Mode cameraFadeMode=cameraFade::Mode::Original;TexModControl tex;Experiments exp;bool sharedChoices=false,enabled=false,lodPin=true,hideUid=false,npcModels=false,synthesisButton=false;int logLevel=int(Level::Info);std::vector<std::string> selected;long long exportBones=0,refreshBones=0,renderMark=0;unsigned refreshBonesCharacter=0;std::map<std::string,std::map<std::string,int>> variables;std::map<std::string,std::vector<KeyPress>> keys;};
 ControlState parseControl(const std::string& raw){
  Json c=JsonParser(raw).parse();require(c.type==Json::Object,"control.json 不是对象");ControlState s;
  const auto& a=c.at("selected");require(a.type==Json::Array&&a.array.size()<=128,"selected 列表无效");
  for(auto& v:a.array){require(v.type==Json::String&&!v.string.empty()&&v.string.find('/')==v.string.npos&&v.string!="."&&v.string!="..","selected 名称无效");s.selected.push_back(v.string);}
  auto integerOf=[](const Json& j){if(j.type==Json::Null)return 0LL;require(j.type==Json::Number&&std::floor(j.number)==j.number&&std::abs(j.number)<=9007199254740991.,"control.json 计数值无效");return static_cast<long long>(j.number);};
+ s.sharedChoices=c.at("sharedModControl").type==Json::Bool&&c.at("sharedModControl").boolean;
  s.enabled=c.at("enabled").type==Json::Bool&&c.at("enabled").boolean;s.exportBones=integerOf(c.at("exportBones"));
  s.lodPin=c.at("lodPin").type!=Json::Bool||c.at("lodPin").boolean;   // default on (0.7.103)
  if(c.at("cameraFade").type==Json::String)s.cameraFadeMode=cameraFade::fromName(c.at("cameraFade").string);
@@ -2135,6 +2136,11 @@ struct Runtime::Impl {
    auto seen=L.pushed.find(var.first);if(seen!=L.pushed.end()&&seen->second==value)continue;
    if(!L.driver->set(var.first,value)){ok=false;missing=var.first;continue;}L.pushed[var.first]=value;}
   return ok;}
+ // Explicit shared inputs are pushed once per App change, including cycle variables outside the draw table.
+ bool pushSharedChoice(Set& s){if(!ctl.sharedChoices){return false;}auto& L=s.logic;bool changed=false;
+  for(auto& value:appChoice(s)){auto old=L.pushed.find(value.first);if(old!=L.pushed.end()&&old->second==value.second){continue;}
+   if(L.driver->set(value.first,value.second)){L.pushed[value.first]=value.second;changed=true;}}
+  return changed;}
  void stopLogic(Set& s,const std::string& state,const std::string& why){auto& L=s.logic;if(L.driver){try{if(L.driver->persistChanged()||L.persistDue)savePersist(s);}catch(const std::exception& ex){log("logic-persist-error",s.name+"："+ex.what());}}
   L.driver.reset();L.pushed.clear();L.want.clear();L.persistDue=false;
   if(animated(s)){s.animation.loop.showFrom(s.animation.applied);s.animation.loop.clock=false;}log(state,s.name+"："+why+"；此后由 "+fallback(s)+" 控制（当前 "+shownText(s)+"）");}
@@ -2174,6 +2180,7 @@ struct Runtime::Impl {
   if(!s.logicSpec.unsupported.empty()){L.failed=true;log("logic-unavailable",s.name+"："+s.logicSpec.unsupported+"；由 "+fallback(s)+" 控制");return;}
   try{auto saved=loadPersist(s);L.driver=std::make_unique<LogicDriver>(s.logicSpec,saved);auto& d=*L.driver;
    if(!saved.empty())log("logic-persist",s.name+"：已恢复保存的值 "+std::to_string(d.restoredCount())+"/"+std::to_string(saved.size())+" 个（本 INI 的持久变量）");
+   if(pushSharedChoice(s)){d.reselect();}
    auto scan=d.scan();std::string scanText=scan.finiteStates?"有限，状态 "+std::to_string(scan.states)+" 个":"非有限";
    // A driven outfit model (the converter: its Present program follows the game) is not finite by design: its
    // program picks among the converted outfits by the clock and the keys, and the App's table is not its input.
@@ -2181,7 +2188,7 @@ struct Runtime::Impl {
     scanText="由 MOD 自身程序驱动（时钟、按键）：逻辑核心运行期间不推送 App 的款式表";}
    else if(!animated(s)){std::string why;if(!scan.finiteStates){for(auto& r:scan.reasons)why+=(why.empty()?"":"; ")+r;L.driver.reset();L.failed=true;log("logic-unavailable",s.name+"：无法证明款式逻辑是有限的（"+why.substr(0,600)+"），保持 App 选择的款式");return;}
     // A restored persist value stands over the App's table at the start; the App's next change of it goes in.
-    for(auto& var:s.variants.vars)if(d.restoredVar(var.first)){auto c=appChoice(s).find(var.first);L.pushed[var.first]=c!=appChoice(s).end()?c->second:s.variants.defaults.at(var.first);}
+    for(auto& var:s.variants.vars)if(!ctl.sharedChoices&&d.restoredVar(var.first)){auto c=appChoice(s).find(var.first);L.pushed[var.first]=c!=appChoice(s).end()?c->second:s.variants.defaults.at(var.first);}
     std::string missing;if(!pushChoice(s,missing)){L.driver.reset();L.failed=true;log("logic-error",s.name+"：款式变量 "+missing+" 不在 INI 逻辑中，保持 App 选择的款式");return;}d.reselect();}
    if(d.frame()<0){std::string miss=d.miss;L.driver.reset();L.failed=true;log("logic-error",s.name+"：启动时绘制段选中的内容与预先转换的"+(animated(s)?"帧":"款式")+"都不符，保持 "+fallback(s)+"。"+miss);return;}
    size_t notes=0;if(!d.unknown.empty()){std::string list;for(auto& u:d.unknown)list+=(list.empty()?"":", ")+u;log("logic-note",s.name+"：转换器未列出的资源（绑定它们的规则匹配不到任何内容）："+list.substr(0,600));}
@@ -2192,7 +2199,7 @@ struct Runtime::Impl {
  // One engine frame of a set's logic: the App's outfit values, the Presents since the last frame, the misses.
  // Returns the choice to show, or -1 for no change.
  int logicStep(Set& s,uint32_t frame,uint64_t now){auto& L=s.logic;auto& d=*L.driver;
-  bool changed=false;
+  bool changed=pushSharedChoice(s);
   if(!animated(s)&&!s.logicSpec.driven){std::string missing;size_t before=L.pushed.size();auto old=L.pushed;if(!pushChoice(s,missing))throw std::runtime_error("款式变量 "+missing+" 不在 INI 逻辑中");
    if(old!=L.pushed||before!=L.pushed.size())changed|=d.reselect();}
   changed|=d.tick(frame,double(now)/1000.0);changed|=L.fresh;L.fresh=false;
@@ -3101,6 +3108,7 @@ struct Runtime::Impl {
    boneCandidate.clear();boneBadList.clear();boneBadStreak=0;exportWait.clear();boneFullSearchAt=0;libraryWait.erase(id);log("bone-refresh-request",std::to_string(id)+"：请求 "+std::to_string(c->refreshBones));
   }
   if(loadingReady){if(!loadingReady->error.empty())log("loading-image-error",loadingReady->name+"："+loadingReady->error);loading.receive(std::move(loadingReady));}
+  if(c&&c->sharedChoices!=ctl.sharedChoices){for(auto& set:sets)if(set->logic.driver){stopLogic(*set,"logic-control","款式控制方式已改变");}}
   if(c&&c->npcModels!=ctl.npcModels){skipped.clear();bindingRejected.clear();texQuickNo.clear();texWaitUntil.clear();npcTextureAt=0;discoverAt=0;}
   if(c){bool diagnosticOnly=c->enabled==ctl.enabled&&c->selected==ctl.selected&&c->variables==ctl.variables&&c->exportBones==ctl.exportBones&&c->refreshBones==ctl.refreshBones&&c->refreshBonesCharacter==ctl.refreshBonesCharacter&&(c->renderMark!=ctl.renderMark||c->logLevel!=ctl.logLevel||c->keys!=ctl.keys);
    if(!(c->exp==ctl.exp))log("experiments",c->exp.text());

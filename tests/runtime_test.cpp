@@ -1218,6 +1218,10 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
   // Again on: the saved $look = 1 stands over the App's 0.
   auto before=log().size();control(true);run(12);auto again=log().substr(before);
   assert(again.find("logic-persist Keys：已恢复保存的值 1/1 个")!=std::string::npos&&again.find("初始 款式 $look=1")!=std::string::npos&&again.find("variant Keys：$look=1")!=std::string::npos);
+  // Shared App choices take precedence over client-specific saved variants, including a running mode switch.
+  {auto sharedControl=text(sharedK+"/control.json");auto end=sharedControl.rfind('}');sharedControl.insert(end,",\"sharedModControl\":true");
+   write(sharedK+"/control.json",sharedControl);before=log().size();run(12);again=log().substr(before);
+   assert(again.find("初始 款式 $look=0")!=std::string::npos&&again.find("variant Keys：$look=0")!=std::string::npos);}
   // Saved for another INI under this model name: not restored.
   control(false);run(6);{std::string t=text(persisted);t.replace(t.find("Mods\\\\Keys"),10,"Mods\\\\Else");write(persisted,t);}
   before=log().size();control(true);run(12);again=log().substr(before);
@@ -1258,6 +1262,10 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
   press("KeyQ",false);run(3);auto at=log().size();assert(log().find("variant Driven：$look=2")!=std::string::npos);
   run(8);assert(log().substr(at).find("variant Driven：$look=0")!=std::string::npos);   // 3 s later: the selection again
   press("KeyQ",true);run(2);assert(log().find("logic-key Driven：KeyQ 上一项：不是这个模型可接受该操作的按键，未按下")!=std::string::npos);
+  // Shared cycle input is not necessarily a draw variable; let Present consume transient inputs instead of clamping them.
+  write(sharedD+"/control.json","{\"enabled\":true,\"sharedModControl\":true,\"logLevel\":\"debug\",\"selected\":[\"Driven\"],\"variables\":{\"Driven\":{\"$sel\":1,\"$press\":1}},\"experiments\":{\"logicCore\":true}}");
+  at=log().size();run(3);assert(log().substr(at).find("variant Driven：$look=2")!=std::string::npos);at=log().size();run(8);
+  assert(log().substr(at).find("variant Driven：$look=1")!=std::string::npos);
   driven.shutdown();assert(meshOf(w)==full);}
  // Missing indexed targets stop before either playback backend. Report LOD and required palette together,
  // keep another character's active mod from masking the wait, and still reject an undersized full mesh.
