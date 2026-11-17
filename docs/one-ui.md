@@ -22,3 +22,5 @@ gpr.key=具有read:packages权限的token
 也支持环境变量 `SESL_MAVEN_USER` / `SESL_MAVEN_TOKEN`，或 `GITHUB_ACTOR` / `GITHUB_TOKEN`（token 也可用 `GH_TOKEN`）。不要将凭据放进仓库。CI 优先使用同名 `SESL_MAVEN_USER` / `SESL_MAVEN_TOKEN` 仓库 Secrets，否则使用执行工作流的账号及工作流 token；若该 token 无法读取上游的跨仓库包，需要设置上述 Secrets。
 
 按照上游要求排除了被 SESL 替换的官方 AndroidX / Material View 模块，避免重复类；Compose 自身的库继续保留。仅通过主机测试不能证明 SESL UI 可以编译或在设备正常显示，仍需在依赖可用的环境运行 `gradle :app:assembleDebug` 并实机检查。
+
+SESL 8 的 `picker-app`、`picker-color` 和 `picker-basic` 共用 `androidx.picker` 资源命名空间。[AGP 9 默认要求依赖库命名空间唯一](https://developer.android.com/build/releases/agp-9-0-0-release-notes#behavior-changes)，因此项目使用 `android.uniquePackageNames=false` 保留此前的合并行为。这一配置只放宽命名空间校验，不替换 Manifest 节点，也不关闭重复类检查；待上游拆分命名空间后可移除。

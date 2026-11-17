@@ -27,11 +27,11 @@ class OneUiPreferencesFragment : PreferenceFragmentCompat() {
     private var renderedGame: String? = null
     private var toolbarLayout: ToolbarLayout? = null
     private var toolbarPage: Screen? = null
-    private var query = ""
+    private var searchQuery = ""
     private var group = ""
 
     override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
-        query = savedInstanceState?.getString("query").orEmpty()
+        searchQuery = savedInstanceState?.getString("query").orEmpty()
         preferenceScreen = preferenceManager.createPreferenceScreen(requireContext())
     }
 
@@ -57,7 +57,7 @@ class OneUiPreferencesFragment : PreferenceFragmentCompat() {
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
-        outState.putString("query", query)
+        outState.putString("query", searchQuery)
         super.onSaveInstanceState(outState)
     }
 
@@ -111,11 +111,11 @@ class OneUiPreferencesFragment : PreferenceFragmentCompat() {
             val search = SearchView(requireContext()).apply {
                 queryHint = "搜索功能"
                 isIconified = false
-                setQuery(query, false)
+                setQuery(searchQuery, false)
                 setOnQueryTextListener(object : SearchView.OnQueryTextListener {
                     override fun onQueryTextSubmit(text: String?): Boolean { clearFocus(); return true }
                     override fun onQueryTextChange(text: String?): Boolean {
-                        query = text.orEmpty()
+                        searchQuery = text.orEmpty()
                         rebuild()
                         listView.scrollToPosition(0)
                         return true
@@ -266,10 +266,10 @@ class OneUiPreferencesFragment : PreferenceFragmentCompat() {
 
     private fun search() {
         startGroup("results")
-        val found = features.filter { query.isNotBlank() && (it.title + it.words).contains(query.trim(), true) }
+        val found = features.filter { searchQuery.isNotBlank() && (it.title + it.words).contains(searchQuery.trim(), true) }
         if (found.isEmpty()) {
-            action("empty", if (query.isBlank()) "搜索功能" else "没有找到相关功能", OneGlyph.Search,
-                if (query.isBlank()) "MOD、辅助功能、设置或关于" else null)
+            action("empty", if (searchQuery.isBlank()) "搜索功能" else "没有找到相关功能", OneGlyph.Search,
+                if (searchQuery.isBlank()) "MOD、辅助功能、设置或关于" else null)
         } else found.forEachIndexed { i, feature ->
             action("result_$i", feature.title, feature.icon) { state.back(); state.open(feature.page) }
         }
