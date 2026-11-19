@@ -75,6 +75,6 @@ internal fun AboutWordmark() {
                 canvas.restore()
             }
         })
-        Text(text = "GIBox", kind = CouiTextKind.TopBar, color = ink)
+        Text(text = "GIBox", kind = CouiTextKind.HomeTitle, color = ink)
     }
 }
