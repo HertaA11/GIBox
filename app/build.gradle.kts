@@ -60,6 +60,12 @@ android {
             isMinifyEnabled = false
             if (keystoreFile != null) signingConfig = signingConfigs.getByName("release")
         }
+        // An installable release-mode build for testing the libraries' ART profiles without release keys.
+        create("profiled") {
+            initWith(getByName("release"))
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += "release"
+        }
     }
 }
 
