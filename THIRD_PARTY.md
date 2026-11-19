@@ -15,7 +15,7 @@
 | libxposed API / Service | `io.github.libxposed:api:102.0.0`（compileOnly）、`io.github.libxposed:service:102.0.0` · https://github.com/libxposed | 新接口入口 `ModernEntry`（`META-INF/xposed`）和 App 里读取 LSPosed 作用域的服务。Apache-2.0。由 Gradle 下载。 |
 | Jetpack Compose / Activity | `androidx.activity:activity-compose:1.13.0` 及 COUI-Kit 的 Compose 依赖（Google Maven） | Compose 页面宿主与基础布局。Apache-2.0。由 Gradle 下载。 |
 | COUI-Kit | https://github.com/ItosEO/COUI-Kit · `io.github.itoseo:coui:0.0.1-alpha11`、`io.github.itoseo:coui-icons:0.0.1-alpha11`（Maven Central） | App 控件及图标库。库自己的代码为 MPL-2.0，所含第三方内容见[上游 NOTICE](https://github.com/ItosEO/COUI-Kit/blob/main/NOTICE)。由 Gradle 下载。 |
-| suqi8/coui | https://github.com/suqi8/coui · commit `e4e915ca67ea0f2689c746822dcc5fda1f84e817` | 运行日志使用 `Refresh`、`Delete`、`Share` 的 Regular 矢量路径，转换为 Android drawable。激活卡片的勾选采用 df5883f 分支快照中的 Basic.Check。Apache-2.0，许可证见 `third_party/suqi8-coui-LICENSE`。 |
+| suqi8/coui | https://github.com/suqi8/coui · commit `e4e915ca67ea0f2689c746822dcc5fda1f84e817` | 运行日志使用 `Refresh`、`Delete`、`Share` 的 Regular 矢量路径，转换为 Android drawable。激活卡片的勾选采用 df5883f 分支快照中的 Basic.Check，底栏「关于」使用同一快照的 Regular.Info。Apache-2.0，许可证见 `third_party/suqi8-coui-LICENSE`。 |
 | Kotlin | Kotlin 2.4.20 与 Compose 编译器插件 | App 界面用 Kotlin 写；转换器、导入、游戏端仍是 Java / C++。 |
 | Android SDK / NDK / Gradle / AGP | 工程与 README 中的指定版本 | 标准构建工具与系统 API，不包含在源码 ZIP 中。 |
 

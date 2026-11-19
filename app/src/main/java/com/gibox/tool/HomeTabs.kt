@@ -45,6 +45,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -88,8 +90,8 @@ internal fun HomeTabs(state: AppState) {
     val items = listOf(
         CouiNavigationItem("模组管理", CouiIcons.Filled.Gamepad),
         CouiNavigationItem("辅助功能", CouiIcons.Filled.Accessibility),
-        CouiNavigationItem("设置", CouiIcons.Filled.Setting),
-        CouiNavigationItem("关于", CouiIcons.Filled.SettingDetail),
+        CouiNavigationItem("设置", CouiIcons.Filled.SettingDetail),
+        CouiNavigationItem("关于", ImageVector.vectorResource(R.drawable.gibox_info)),
     )
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     BackHandler(selected != 0) { select(0) }
