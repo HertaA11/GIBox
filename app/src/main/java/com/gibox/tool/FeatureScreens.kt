@@ -1,11 +1,5 @@
 package com.gibox.tool
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
@@ -17,19 +11,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.compositeOver
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.dp
 import com.itos.coui.layout.CouiPageDefaults
 import com.itos.coui.layout.Divider
 import com.itos.coui.layout.Footer
 import com.itos.coui.layout.Group
-import com.itos.coui.text.CouiTextKind
-import com.itos.coui.text.Text
 import com.itos.coui.theme.CouiTheme
 
 @Composable
@@ -74,10 +61,16 @@ private fun ModuleActivation(state: AppState) {
     }
     val title = if (active) "模块已激活" else "模块未激活"
     val summary = "模块版本 ${state.appVersion} · $framework"
+    val scopeSummary = scope?.joinToString("、") { pkg ->
+        when (pkg) {
+            "com.miHoYo.Yuanshen", "com.miHoYo.ys.bilibili", "com.miHoYo.GenshinImpact" -> serverName(pkg)
+            else -> pkg
+        }
+    }?.ifEmpty { "未选择应用" } ?: "暂未获取"
     val card = CouiPageDefaults.themeColors()
     val surface = if (active) colors.accent.copy(alpha = .14f).compositeOver(card.card) else card.card
     Group(colors = card.copy(card = surface)) {
-        ActionRow(title, summary, glyph = if (active) Glyph.Check else Glyph.Inactive, showNext = true) {
+        ActionRow(title, "$summary\n作用域 · $scopeSummary", glyph = if (active) Glyph.Check else Glyph.Inactive, showNext = true) {
             val details = buildList {
                 add(summary)
                 if (scope != null) add("作用域 · " + scope.joinToString("、").ifEmpty { "（空）" })
@@ -209,26 +202,14 @@ internal fun SettingsScreen(state: AppState, target: String?) {
 
 @Composable
 internal fun AboutScreen(state: AppState) {
-    val colors = CouiTheme.colorScheme
-    val banner = remember(colors) {
-        Brush.linearGradient(listOf(colors.accent.copy(alpha = .24f), colors.card))
-    }
     PreferencePage("关于 GIBox", state::back) {
-        Column(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp).heightIn(min = 212.dp)
-                .clip(CouiPageDefaults.shape).background(colors.card).background(banner).padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically),
-        ) {
-            GlyphImage(Glyph.Parcel, size = 48.dp)
-            Text(text = "GIBox", kind = CouiTextKind.TopBar, textAlign = TextAlign.Center)
-            Text(text = "版本 ${state.appVersion}", kind = CouiTextKind.ItemValue,
-                color = colors.onSurfaceVariant, textAlign = TextAlign.Center)
-        }
+        AboutWordmark()
         Group {
-            ActionRow("开发者", "Yuanqi314", Glyph.Person)
+            ActionRow("版本", state.appVersion)
             Divider()
-            ActionRow("开源许可证", "GNU General Public License v3.0", Glyph.License)
+            ActionRow("开发者", "Yuanqi314")
+            Divider()
+            ActionRow("开源许可证", "GNU General Public License v3.0")
         }
         Group {
             ActionRow("查看源代码", click = state::viewSource)

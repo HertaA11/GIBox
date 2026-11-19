@@ -108,7 +108,7 @@ import com.itos.coui.topappbar.rememberCouiTopAppBarSearchState
 
 internal enum class Glyph {
     Parcel, Accessibility, Grid, Wrench, Info, Folder, Person, Share, Refresh,
-    Search, Back, Next, Add, Check, Inactive, Edit, Delete, Log, Level, License,
+    Search, Back, Next, Add, Check, Inactive, Edit, Delete, Log, Level,
 }
 
 @Composable
@@ -135,7 +135,6 @@ internal fun GlyphImage(
         Glyph.Delete -> CouiIcons.Outlined.Close
         Glyph.Log -> CouiIcons.Outlined.ListFilter
         Glyph.Level -> CouiIcons.Outlined.SliderCustom
-        Glyph.License -> CouiIcons.Filled.Certificate
     }
     val tint = monochrome || when (glyph) {
         Glyph.Search, Glyph.Back, Glyph.Next, Glyph.Add, Glyph.Edit, Glyph.Delete, Glyph.Log, Glyph.Level -> true
