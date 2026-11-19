@@ -6,7 +6,7 @@ plugins {
 
 android {
     namespace = "com.gibox.tool"
-    // Compose 1.13 / Material 3 1.5 need compileSdk 37.1.
+    // COUI-Kit and Compose use the current Android SDK.
     compileSdk {
         version = release(37) { minorApiLevel = 1 }
     }
@@ -14,10 +14,10 @@ android {
 
     defaultConfig {
         applicationId = "com.gibox.tool"
-        minSdk = 26
+        minSdk = 31
         targetSdk = 34
-        versionCode = 150
-        versionName = "1.0.18"
+        versionCode = 151
+        versionName = "1.0.19"
         ndk { abiFilters += "arm64-v8a" }
         externalNativeBuild {
             cmake {
@@ -60,25 +60,13 @@ android {
             isMinifyEnabled = false
             if (keystoreFile != null) signingConfig = signingConfigs.getByName("release")
         }
+        // An installable release-mode build for testing the libraries' ART profiles without release keys.
+        create("profiled") {
+            initWith(getByName("release"))
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += "release"
+        }
     }
-}
-
-// SESL uses the androidx package names. Keep the upstream copies out of every variant.
-configurations.configureEach {
-    listOf(
-        "androidx.core" to "core", "androidx.core" to "core-ktx",
-        "androidx.appcompat" to "appcompat",
-        "androidx.customview" to "customview",
-        "androidx.coordinatorlayout" to "coordinatorlayout",
-        "androidx.drawerlayout" to "drawerlayout",
-        "androidx.fragment" to "fragment", "androidx.fragment" to "fragment-ktx",
-        "androidx.preference" to "preference",
-        "androidx.recyclerview" to "recyclerview",
-        "androidx.slidingpanelayout" to "slidingpanelayout",
-        "androidx.swiperefreshlayout" to "swiperefreshlayout",
-        "androidx.viewpager" to "viewpager", "androidx.viewpager2" to "viewpager2",
-        "com.google.android.material" to "material",
-    ).forEach { (group, module) -> exclude(group = group, module = module) }
 }
 
 dependencies {
@@ -86,10 +74,8 @@ dependencies {
     // Modern Xposed API (ModernEntry, META-INF/xposed) and its service (the LSPosed scope in the app). Apache-2.0.
     compileOnly("io.github.libxposed:api:102.0.0")
     implementation("io.github.libxposed:service:102.0.0")
-    // One UI 8 includes the matching SESL View libraries, including Preference/AppCompat.
-    implementation("io.github.tribalfs:oneui-design:0.9.20+oneui8")
-    implementation("sesl.androidx.preference:preference:1.2.1+1.0.0-sesl8+rev1")
+    val couiVersion = "0.0.1-alpha11"
+    implementation("io.github.itoseo:coui:$couiVersion")
+    implementation("io.github.itoseo:coui-icons:$couiVersion")
     implementation("androidx.activity:activity-compose:1.13.0")
-    implementation("androidx.compose.material3:material3:1.5.0-beta01")
-    implementation("androidx.compose.material:material-icons-core:1.7.8")
 }

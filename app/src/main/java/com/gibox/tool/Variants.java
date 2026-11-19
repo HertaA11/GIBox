@@ -6,6 +6,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import org.json.JSONObject;
 
 /** The switchable variables of a converted model (model.json "variants"), their values, and the values they start with. */
 public final class Variants {
@@ -16,25 +17,36 @@ public final class Variants {
     public final List<List<Integer>> gateAllow = new ArrayList<>();
     /** Empty when the model has no variants or its model.json cannot be read. */
     public static Variants read(File model) {
-        Variants s = new Variants();
-        try {
-            ModelManifest m = ModelManifest.read(model);
-            s.values.putAll(m.vars);
-            s.defaults.putAll(m.defaults);
-            s.gateVars.addAll(m.replaceVars);
-            s.gateAllow.addAll(m.replaceAllow);
-        } catch (Exception e) { s.values.clear(); s.defaults.clear(); s.gateVars.clear(); s.gateAllow.clear(); }
-        return s;
+        try { return fromManifest(ModelManifest.read(model)); }
+        catch (Exception e) { return new Variants(); }
+    }
+    static Variants fromManifest(ModelManifest manifest) {
+        Variants variants = new Variants();
+        variants.values.putAll(manifest.vars);
+        variants.defaults.putAll(manifest.defaults);
+        variants.gateVars.addAll(manifest.replaceVars);
+        variants.gateAllow.addAll(manifest.replaceAllow);
+        return variants;
     }
     /** The value in effect: the one chosen in control.json, else the default combination's, else the first. */
     public int current(String pkg, String model, String var) {
         return Control.variable(pkg, model, var, fallback(var));
     }
-    private int fallback(String var) {
+    int fallback(String var) {
         List<Integer> v = values.get(var); return defaults.containsKey(var) ? defaults.get(var) : v == null || v.isEmpty() ? 0 : v.get(0);
     }
     public Map<String, Integer> current(String pkg, String model) {
-        Map<String, Integer> out = new LinkedHashMap<>(); for (String v : values.keySet()) out.put(v, current(pkg, model, v)); return out;
+        return choices(Control.load(pkg), model);
+    }
+    Map<String, Integer> choices(JSONObject control, String model) {
+        JSONObject variables = control.optJSONObject("variables");
+        JSONObject choices = variables == null ? null : variables.optJSONObject(model);
+        Map<String, Integer> out = new LinkedHashMap<>();
+        for (String v : values.keySet()) {
+            int fallbackValue = fallback(v);
+            out.put(v, choices == null ? fallbackValue : choices.optInt(v, fallbackValue));
+        }
+        return out;
     }
 
     // ---------------------------------------------------------------- 显示替换

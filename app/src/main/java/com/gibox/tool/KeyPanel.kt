@@ -1,13 +1,12 @@
 package com.gibox.tool
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.unit.dp
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.structuralEqualityPolicy
+import androidx.compose.runtime.remember
+import com.itos.coui.layout.Divider
+import com.itos.coui.layout.Group
 
 /** A row of the key panel: one key, or activate keys that set the same variables (a MOD's own "1 2 3" keys). */
 private sealed interface KeyRow
@@ -46,71 +45,50 @@ private fun keyLine(k: ModelManifest.Key, what: String) = listOfNotNull(bindLabe
  * - toggle and hold: switches.
  * Which preset / choice / switch is on comes from the game (status.json "keys", 3DMigoto's smart cycle resync).
  */
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-fun KeyPanel(state: AppState, mod: Importer.Mod, keys: List<ModelManifest.Key>, driven: Boolean, logicCore: Boolean, steps: Boolean) {
-    val states = state.status.keys[mod.name]
-    fun stateOf(i: Int, k: ModelManifest.Key) = states?.getOrNull(i)?.takeIf { it.section == k.section }
-    val rows = if (logicCore) keyRows(keys) else emptyList()
-    val count = rows.size + 1
-    SettingsGroup(title = { SectionTitle("按键切换") }, verticalArrangement = Arrangement.spacedBy(OneUiList.SegmentedGap)) {
-        OneUiRow(shapes = OneUiList.segmentedShapes(0, count)) {
-            Text(
-                when {
-                    !logicCore -> "需在设置里打开 3DMigoto 转换"
-                    states == null -> "游戏里显示模型时生效"
-                    else -> "按 MOD 自带规则切换"
-                } + if (driven && logicCore) "；款式表不起作用" else "",
-                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        rows.forEachIndexed { r, row ->
-            val shapes = OneUiList.segmentedShapes(r + 1, count)
+internal fun KeyPanel(state: AppState, mod: Importer.Mod, manifest: ModelManifest, steps: Boolean) {
+    val keys = manifest.keys
+    val states by remember(state, mod.name) {
+        derivedStateOf(structuralEqualityPolicy()) { state.status.keys[mod.name] }
+    }
+    fun keyState(index: Int, key: ModelManifest.Key) = states?.getOrNull(index)?.takeIf { it.section == key.section }
+    val rows = remember(keys) { keyRows(keys) }
+    Group(title = "按键切换") {
+        ActionRow(when {
+            states == null -> "游戏里显示模型时生效"
+            else -> "按 MOD 自带规则切换"
+        } + if (manifest.driven) "；款式表不起作用" else "")
+        rows.forEach { row ->
+            Divider()
             when (row) {
-                is Choice -> OneUiRow(shapes = shapes) {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(row.members.first().second.presets[0].values.keys.sorted().joinToString("、") { it.removePrefix("$") }, style = MaterialTheme.typography.titleSmall)
-                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            for ((i, k) in row.members) OneUiChoice(
-                                selected = stateOf(i, k)?.matches == true,
-                                onClick = { state.pressKey(mod, k) },
-                                label = { Text(bindLabel(k).ifEmpty { keyName(k) }) },
-                            )
-                        }
+                is Choice -> {
+                    val title = row.members.first().second.presets[0].values.keys.sorted().joinToString("、") { it.removePrefix("$") }
+                    val selected = row.members.firstOrNull { (i, key) -> keyState(i, key)?.matches == true }?.first
+                    ChoiceRow(title, selected, row.members.map { (i, key) -> i to bindLabel(key).ifEmpty { keyName(key) } }) { i ->
+                        state.pressKey(mod, row.members.first { it.first == i }.second, manifest.defaults)
                     }
                 }
                 is Single -> {
-                    val k = row.key; val st = stateOf(row.index, k)
-                    when (k.type) {
-                        "toggle" -> SettingsSwitch(
-                            state = st?.active == true, title = { Text(keyName(k)) }, subtitle = { Text(keyLine(k, "开关")) },
-                            shapes = shapes, onCheckedChange = { state.pressKey(mod, k) },
-                        )
-                        "hold" -> SettingsSwitch(
-                            state = st?.active == true, title = { Text(keyName(k)) }, subtitle = { Text(keyLine(k, "按住")) },
-                            shapes = shapes, onCheckedChange = { state.holdKey(mod, k, it) },
-                        )
-                        "cycle" -> OneUiRow(shapes = shapes) {
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text(keyName(k), style = MaterialTheme.typography.titleSmall)
-                                val line = keyLine(k, if (k.selectable()) "" else "只能逐个切" + if (st != null && st.current >= 0) "，第 ${st.current + 1} 个" else "")
-                                if (line.isNotEmpty()) Text(line, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                if (k.selectable()) FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    k.presets.indices.forEach { i ->
-                                        OneUiChoice(selected = st?.current == i, onClick = { state.selectKey(mod, k, i) }, label = { Text("${i + 1}") })
-                                    }
-                                }
-                                if (steps || !k.selectable()) FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    if (k.back) OneUiActionChip(onClick = { state.pressKey(mod, k, true) }, label = { Text("上一个") })
-                                    OneUiActionChip(onClick = { state.pressKey(mod, k) }, label = { Text("下一个") })
-                                }
+                    val key = row.key
+                    val snapshot = keyState(row.index, key)
+                    when (key.type) {
+                        "toggle" -> ToggleRow(keyName(key), snapshot?.active == true, keyLine(key, "开关")) { state.pressKey(mod, key, manifest.defaults) }
+                        "hold" -> ToggleRow(keyName(key), snapshot?.active == true, keyLine(key, "按住")) { state.holdKey(mod, key, it) }
+                        "cycle" -> {
+                            if (key.selectable()) NumberedChips(
+                                keyName(key), key.presets.indices.toList(), snapshot?.current,
+                                summary = keyLine(key, "").ifEmpty { null }, label = { "${it + 1}" },
+                            ) { state.selectKey(mod, key, it) }
+                            else ActionRow(keyName(key), keyLine(key, "只能逐个切" +
+                                if (snapshot != null && snapshot.current >= 0) "，第 ${snapshot.current + 1} 个" else ""))
+                            if (steps || !key.selectable()) {
+                                if (key.back) ActionRow("上一个") { state.pressKey(mod, key, manifest.defaults, back = true) }
+                                ActionRow("下一个") { state.pressKey(mod, key, manifest.defaults) }
                             }
                         }
-                        else -> SettingsMenuLink(
-                            title = { Text(keyName(k)) },
-                            subtitle = keyLine(k, if (st?.matches == true) "已生效" else "").takeIf { it.isNotEmpty() }?.let { s -> { Text(s) } },
-                            shapes = shapes, onClick = { state.pressKey(mod, k) },
-                        )
+                        else -> ActionRow(keyName(key), keyLine(key, if (snapshot?.matches == true) "已生效" else "").ifEmpty { null }) {
+                            state.pressKey(mod, key, manifest.defaults)
+                        }
                     }
                 }
             }

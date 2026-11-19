@@ -2,7 +2,7 @@
 
 这些是通用开源依赖，来自官方源码或构建仓库。
 
-包含 3DMigoto 衍生代码以后，GIBox 组合版本按 GPLv3 发布（见 `LICENSE`、`COPYING`）；下表各依赖的许可证都与 GPLv3 兼容，发布时需随附完整对应源码和构建脚本。
+包含 3DMigoto 衍生代码以后，GIBox 组合版本按 GPLv3 发布（见 `LICENSE`、`COPYING`）；发布时需随附完整对应源码和构建脚本，并保留第三方内容各自的许可和来源声明。
 
 | 依赖 | 来源与固定版本 | 用途 / 交付形式 |
 |---|---|---|
@@ -13,8 +13,9 @@
 | bcdec | https://github.com/iOrange/bcdec · commit `80859ed3b7afb1c527a2a99d70c61457bea72d0c` · v0.985 | BC 压缩块解码；完整单头文件包含在 `third_party/bcdec/bcdec.h`，许可证在文件末尾（MIT / Unlicense 可选）。DDS 容器和 JNI 是本工程编写。 |
 | Xposed API | `de.robv.android.xposed:api:82` · https://api.xposed.info/ | 仅 compileOnly；正式运行由 LSPosed 提供。 |
 | libxposed API / Service | `io.github.libxposed:api:102.0.0`（compileOnly）、`io.github.libxposed:service:102.0.0` · https://github.com/libxposed | 新接口入口 `ModernEntry`（`META-INF/xposed`）和 App 里读取 LSPosed 作用域的服务。Apache-2.0。由 Gradle 下载。 |
-| Jetpack Compose / Material 3 / Activity | `androidx.compose.material3:material3:1.5.0-beta01`、`androidx.activity:activity-compose:1.13.0`、`androidx.compose.material:material-icons-core:1.7.8`（Google Maven） | App 界面（Material 3 Expressive）。Apache-2.0。由 Gradle 下载，不在源码 ZIP 中。 |
-| Compose-Settings | https://github.com/alorma/Compose-Settings · `com.github.alorma.compose-settings:ui-tiles-expressive:3.3.0`（Maven Central） | 设置页和 MOD 详情页的设置行（SettingsGroup / SettingsSwitch / SettingsRadioButton / SettingsMenuLink）。MIT。由 Gradle 下载。 |
+| Jetpack Compose / Activity | `androidx.activity:activity-compose:1.13.0` 及 COUI-Kit 的 Compose 依赖（Google Maven） | Compose 页面宿主与基础布局。Apache-2.0。由 Gradle 下载。 |
+| COUI-Kit | https://github.com/ItosEO/COUI-Kit · `io.github.itoseo:coui:0.0.1-alpha11`、`io.github.itoseo:coui-icons:0.0.1-alpha11`（Maven Central） | App 控件及图标库。库自己的代码为 MPL-2.0，所含第三方内容见[上游 NOTICE](https://github.com/ItosEO/COUI-Kit/blob/main/NOTICE)。由 Gradle 下载。 |
+| suqi8/coui | https://github.com/suqi8/coui · commit `e4e915ca67ea0f2689c746822dcc5fda1f84e817` | 运行日志使用 `Refresh`、`Delete`、`Share` 的 Regular 矢量路径，转换为 Android drawable。Apache-2.0，许可证见 `third_party/suqi8-coui-LICENSE`。 |
 | Kotlin | Kotlin 2.4.20 与 Compose 编译器插件 | App 界面用 Kotlin 写；转换器、导入、游戏端仍是 Java / C++。 |
 | Android SDK / NDK / Gradle / AGP | 工程与 README 中的指定版本 | 标准构建工具与系统 API，不包含在源码 ZIP 中。 |
 

@@ -24,7 +24,7 @@ Ptr rectTransform(Ptr p,Ptr){return p;}Rect bounds(Ptr,Ptr){return viewport;}
 void setWrap(Ptr,int value,Ptr){wrap=value;}void setFilter(Ptr,int value,Ptr){filter=value;}
 Ptr createSprite(Ptr texture,Rect r,Pivot p,Ptr){assert(texture&&r.w>0&&r.h>0&&p.x==.5f&&p.y==.5f);lastCrop=r;return object();}
 void destroy(Ptr p,Ptr){destroyed++;store<Ptr>(p+0x10,0);}
-Ptr resolve(abi::Offset o){switch(o){
+Ptr resolve(abi::Offset o){assert(abi::at(o)<abi::notFound);switch(o){
 #define F(a,b) case abi::a:return reinterpret_cast<Ptr>(&b)
  F(findObjectsOfType,find);F(imageSetOverride,setOverride);F(graphicRect,rectTransform);F(rectBounds,bounds);F(textureWrap,setWrap);F(textureFilter,setFilter);
  F(gameObject,go);F(imageSprite,sprite);F(imageSetSprite,setSprite);F(imageType,type);F(imageSetType,setType);F(imageAspect,aspect);F(imageSetAspect,setAspect);F(graphicColor,color);F(graphicSetColor,setColor);
@@ -32,7 +32,10 @@ Ptr resolve(abi::Offset o){switch(o){
 #undef F
  default:assert(false);return 0;}}
 }
-int main(){std::string pattern=std::string(std::getenv("TMPDIR")?std::getenv("TMPDIR"):"/tmp")+"/gibox-loading-XXXXXX";assert(mkdtemp(&pattern[0]));auto root=pattern+"/models";std::filesystem::create_directories(root+"/Screens/images");
+int main(int argc,char** argv){
+ assert(argc==1||(argc==2&&std::string(argv[1])=="--global"));
+ if(argc==2)assert(abi::select(abi::globalProfile().buildId));
+ std::string pattern=std::string(std::getenv("TMPDIR")?std::getenv("TMPDIR"):"/tmp")+"/gibox-loading-XXXXXX";assert(mkdtemp(&pattern[0]));auto root=pattern+"/models";std::filesystem::create_directories(root+"/Screens/images");
  std::string manifest=R"J({"format":"gibox-loading-images","version":1,"hideUi":true,"images":[{"file":"images/0.rgba","width":2,"height":2},{"file":"images/1.rgba","width":2,"height":2}]})J";
  write(root+"/Screens/loading.json",manifest);Bytes data(16,127);write(root+"/Screens/images/0.rgba",data.data(),data.size());write(root+"/Screens/images/1.rgba",data.data(),data.size());LoadingReader reader;
  auto prepared=reader.update(root,{"Screens"},true,{},0);assert(prepared&&prepared->error.empty()&&prepared->hide&&prepared->image.pixels==data);assert(!reader.update(root,{"Screens"},true,{},0));

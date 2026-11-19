@@ -3167,7 +3167,7 @@ struct Runtime::Impl {
    {std::vector<Set*> lost;for(auto& s:sets)if(s->lost){bool used=false;for(auto& a:attachments)used=used||a.second->set==s.get();if(!used)lost.push_back(s.get());}for(Set* s:lost)releaseSet(s);}
    for(auto* m:wanted){
     bool rigid=false;for(const auto& t:m->sceneTargets)rigid=rigid||t.target.bones==0;
-    if(rigid&&(abi::at(abi::filterMesh)>=abi::notFound||abi::at(abi::filterSetMesh)>=abi::notFound)){errors.push_back(m->name+"：静态武器暂未适配当前客户端，目前仅支持国服 7.2");continue;}
+    if(rigid&&(abi::at(abi::filterMesh)>=abi::notFound||abi::at(abi::filterSetMesh)>=abi::notFound)){errors.push_back(m->name+"：当前客户端尚未适配静态武器替换");continue;}
     if(!findSet(m->path,m->generation)&&!liveSet(*m)&&shadowed(*m,wanted))continue;
     auto f=failed.find(m->path);if(f!=failed.end()&&f->second.first==m->generation){errors.push_back(m->name+"："+f->second.second);continue;}
     {auto lod=lodTarget(*m);if(!lod.empty()){errors.push_back(m->name+"：转换时骨骼库记录的是低精度模型 "+lod+"，骨骼不匹配；请在 App 中重新转换此 MOD");continue;}}
@@ -3194,7 +3194,7 @@ struct Runtime::Impl {
    for(auto& kv:attachments){auto& n=kv.second->set->name;if(std::find(active.begin(),active.end(),n)==active.end())active.push_back(n);}
    for(auto& kv:texLive)if(kv.second&&!kv.second->slots.empty()&&std::find(active.begin(),active.end(),kv.second->mod)==active.end())active.push_back(kv.second->mod);
    if(loading.active()&&std::find(active.begin(),active.end(),loading.name())==active.end())active.push_back(loading.name());
-   if(wanted.empty()&&active.empty()&&loading.ready()&&texStatus.empty()){if(abi::at(abi::loadingStart)>=abi::notFound)errors.push_back("加载图片暂仅支持国服 7.2");else if(!loading.error().empty())errors.push_back(loading.name()+"："+loading.error());else waiting="加载图片已就绪，等待加载界面";}
+   if(wanted.empty()&&active.empty()&&loading.ready()&&texStatus.empty()){if(abi::at(abi::loadingStart)>=abi::notFound)errors.push_back("当前客户端尚未适配加载图片");else if(!loading.error().empty())errors.push_back(loading.name()+"："+loading.error());else waiting="加载图片已就绪，等待加载界面";}
    // Texture-only mods (no mesh model): their own state ("等待映射", "只诊断", written slots) is the status line.
    if(wanted.empty()&&!texStatus.empty()&&waiting.empty()&&building.empty()&&errors.empty()&&!restoring){status(texApplied?"active":"waiting",texStatus,active,errors);inTick=false;animationTick(now);return;}
    if(restoring)status("waiting","正在恢复已停用 MOD 的原模型；暂时失败的渲染器会单独重试",active,errors);

@@ -1,147 +1,81 @@
 package com.gibox.tool
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButtonDefaults
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
+import com.itos.coui.layout.Divider
+import com.itos.coui.layout.Footer
+import com.itos.coui.layout.Group
+import com.itos.coui.scroll.rememberCouiOverscrollEffect
+import com.itos.coui.switch.Switch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 
-/**
- * The mods of one character: a search box (it opens the search page), then each mod to switch on or off here, or tap
- * for its details. Mods of all its outfits are listed together, each row naming its outfit (原皮 or the skin).
- */
 @Composable
-fun CharacterScreen(state: AppState, id: Int) {
-    var searching by rememberSaveable(id) { mutableStateOf(false) }
+internal fun CharacterScreen(state: AppState, id: Int, active: Boolean) {
     var query by rememberSaveable(id) { mutableStateOf("") }
-    SearchSwitch(searching) { open, field, entered ->
-        if (!open) CharacterMain(state, id, field) { searching = true }
-        else {
-            val q = query.trim()
-            val found = if (q.isEmpty()) emptyList() else state.group(id)?.mods.orEmpty().filter { state.label(it.name).contains(q, ignoreCase = true) || it.name.contains(q, ignoreCase = true) }
-            SearchPage(query, { query = it }, "搜索这个角色的 MOD", onClose = { searching = false; query = "" }, field = field, entered = entered) {
-                if (q.isNotEmpty() && found.isEmpty()) item { EmptyNote("没有找到“$q”") }
-                itemsIndexed(found, key = { _, m -> m.name }) { index, m -> ModRow(state, m, index, found.size) }
-            }
+    val group = state.group(id)
+    val title = group?.title ?: if (id == 0) "未选择角色" else Characters.nameOf(id)
+    val filter = query.trim()
+    val mods = remember(group, filter) {
+        group?.mods.orEmpty().filter {
+            filter.isEmpty() || state.label(it.name).contains(filter, true) || it.name.contains(filter, true)
         }
     }
-}
-
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
-@Composable
-private fun CharacterMain(state: AppState, id: Int, searchField: Modifier, onSearch: () -> Unit) {
-    val group = state.group(id)
-    val mods = group?.mods.orEmpty()
-    val title = group?.title ?: if (id == 0) "未选择角色" else Characters.nameOf(id)
-    val pending = state.refreshingBones(id)
     val pkg = state.game
-    LaunchedEffect(pkg, id) {
+    if (active) LaunchedEffect(pkg, id) {
         while (isActive) {
-            val snapshot = withContext(Dispatchers.IO) { Control.status(pkg) }
-            state.acceptStatus(pkg, snapshot)
+            state.acceptStatus(pkg, withContext(Dispatchers.IO) { Control.status(pkg) })
             delay(500)
         }
     }
-    val scroll = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
-    OneUiScaffold(
-        modifier = Modifier.nestedScroll(scroll.nestedScrollConnection),
-        topBar = {
-            OneUiLargeTopBar(
-                colors = pageBarColors(),
-                title = {
-                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text(title, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        if (id in 10000000..10001999) Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            OneUiTonalIconButton(
-                                onClick = { state.confirmBoneRefresh(id) },
-                                enabled = !pending && state.busy == null,
-                                modifier = Modifier.size(56.dp),
-                            ) {
-                                if (pending) CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
-                                else Icon(Icons.Filled.Refresh, contentDescription = "重新采集$title 的骨骼")
-                            }
-                            Text(if (pending) "等待采集" else "重采骨骼", style = MaterialTheme.typography.labelSmall)
-                        }
-                    }
-                },
-                subtitle = { Text("${mods.size} 个 MOD" + if (id != 0) " · $id" else "") },
-                navigationIcon = { BackButton { state.back() } },
-                scrollBehavior = scroll,
-            )
-        },
-    ) { padding ->
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = padding.calculateTopPadding() + 8.dp, bottom = padding.calculateBottomPadding() + 24.dp),
-            verticalArrangement = Arrangement.spacedBy(OneUiList.SegmentedGap),
-        ) {
-            if (id in 10000000..10001999) item {
-                TextButton(onClick = { state.exportCharacterBones(id) }, enabled = state.busy == null) { Text("导出骨骼（可补充内置表）") }
+    Page(title, state::back, topContent = {
+        if (!group?.mods.isNullOrEmpty()) SearchControl(query, { query = it }, "搜索这个角色的 MOD")
+    }) { padding ->
+        LazyColumn(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding),
+            overscrollEffect = rememberCouiOverscrollEffect()) {
+            if (id in 10000000..10001999 && query.isBlank()) item {
+                Group {
+                    val pending = state.refreshingBones(id)
+                    ActionRow(if (pending) "等待采集" else "重新采集骨骼", state.boneRefreshMessage(id), Glyph.Refresh,
+                        enabled = !pending && state.busy == null) { state.confirmBoneRefresh(id) }
+                    Divider()
+                    ActionRow("导出骨骼（可补充内置表）", glyph = Glyph.Share, enabled = state.busy == null) { state.exportCharacterBones(id) }
+                }
             }
-            state.boneRefreshMessage(id)?.let { message ->
-                item(key = -id.toLong()) { Text(message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            if (mods.isEmpty()) item {
+                Footer(text = when {
+                    !state.libraryReady -> "正在读取模组…"
+                    filter.isEmpty() -> "这个角色下没有 MOD 了"
+                    else -> "没有找到“$filter”"
+                })
             }
-            if (mods.isNotEmpty()) item(key = Long.MIN_VALUE) { SearchBox("搜索这个角色的 MOD", onSearch, Modifier.padding(bottom = 8.dp).then(searchField)) }
-            if (mods.isEmpty()) item { EmptyNote("这个角色下没有 MOD 了") }
-            itemsIndexed(mods, key = { _, m -> m.name }) { index, m -> ModRow(state, m, index, mods.size) }
+            items(mods, key = { it.name }) { mod -> Group { ModRow(state, mod) } }
         }
     }
 }
 
-/** One mod: its name, its state, the switch; tap for its details. */
 @Composable
-internal fun ModRow(state: AppState, m: Importer.Mod, index: Int, count: Int) {
-    val on = m.converted && state.selected(m.name)
-    val label = state.label(m.name)
-    OneUiRow(
-        onClick = { state.open(Screen.Detail(m.name)) },
-        shapes = OneUiList.segmentedShapes(index, count),
-        supportingContent = {
-            val parts = mutableListOf(if (!m.converted) "未转换" else if (on) "已开启" else "未开启")
-            // The outfit the mod is for (a character with skins): one list per character, the outfit on each row.
-            if (m.outfit.isNotEmpty()) parts.add(0, state.outfitLabel(m.outfit))
-            if (m.outdated) parts.add("需重新转换")
-            Text(
-                parts.joinToString(" · "),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                color = if (m.outdated) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        },
-        trailingContent = {
-            OneUiSwitch(checked = on, onCheckedChange = { state.setSelected(m, it) }, enabled = m.converted)
-        },
-    ) {
-        Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis)
-    }
+internal fun ModRow(state: AppState, mod: Importer.Mod) {
+    val on = mod.converted && state.selected(mod.name)
+    val summary = buildList {
+        if (mod.outfit.isNotEmpty()) add(state.outfitLabel(mod.outfit))
+        add(if (!mod.converted) "未转换" else if (on) "已开启" else "未开启")
+        if (mod.outdated) add("需重新转换")
+    }.joinToString(" · ")
+    ActionRow(state.label(mod.name), summary, trailing = {
+        Switch(checked = on, onCheckedChange = { state.setSelected(mod, it) }, enabled = mod.converted)
+    }) { state.open(Screen.Detail(mod.name)) }
 }

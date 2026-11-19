@@ -1,34 +1,12 @@
 package com.gibox.tool
 
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Clear
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -36,11 +14,17 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.semantics.Role
+import com.itos.coui.effect.couiButtonFeedback
+import com.itos.coui.layout.Divider
+import com.itos.coui.layout.Footer
+import com.itos.coui.layout.Group
+import com.itos.coui.radiobutton.RadioButton
+import com.itos.coui.scroll.rememberCouiOverscrollEffect
+import com.itos.coui.theme.CouiTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -58,17 +42,24 @@ fun schemeLabel(rel: String, all: List<String>): String {
  */
 @Composable
 fun PickScreen(state: AppState, pick: Screen.Pick) {
-    // Off the main thread: the guess reads the hash tables (~10 MB) and the INI (1.0.4: on the main thread they stalled the page).
-    val guess by produceState(initialValue = Characters.Guess(), pick, state.game) { value = withContext(Dispatchers.IO) { state.guess(pick) } }
+    val guess = remember(pick) {
+        Characters.Guess().apply { recommended.addAll(pick.recommendedIds.mapNotNull(Characters::byId)) }
+    }
     // Off the main thread: the first call reads the skeleton table made from the game's files (17 MB).
     val recorded by produceState(initialValue = emptySet<Int>(), pick, state.game) { value = withContext(Dispatchers.IO) { state.recorded() } }
-    var query by remember(pick) { mutableStateOf("") }
-    var chosen by remember(pick) { mutableIntStateOf(0) }
+    var query by rememberSaveable(pick) { mutableStateOf("") }
+    var chosen by rememberSaveable(pick) { mutableIntStateOf(0) }
     val list = remember(guess, query) { Characters.ordered(guess, query) }
     val selected = Characters.byId(chosen)
     val dir = pick.pending ?: pick.source
-    val schemes = remember(pick) { state.schemes(dir) }
-    var scheme by remember(pick) { mutableStateOf(state.scheme(dir).takeIf { it in schemes }) }
+    val ini by produceState<Pair<List<Pair<String, String>>, String?>?>(null, dir) {
+        value = withContext(Dispatchers.IO) {
+            val choices = state.schemes(dir)
+            choices.map { it to schemeLabel(it, choices) } to state.scheme(dir).takeIf { it in choices }
+        }
+    }
+    val schemes = ini?.first.orEmpty()
+    var scheme by remember(pick, ini) { mutableStateOf(ini?.second) }
     val needScheme = schemes.size > 1 && scheme == null
     val outfits = remember(chosen) { state.outfits(chosen) }
     var outfit by remember(pick) { mutableStateOf("") }
@@ -85,125 +76,55 @@ fun PickScreen(state: AppState, pick: Screen.Pick) {
         value = withContext(Dispatchers.IO) { state.boneImportHint(chosen, outfit) }
     }
 
-    OneUiScaffold(
-        topBar = {
-            OneUiTopBar(
-                colors = pageBarColors(),
-                title = { Text("选择分类或角色") },
-                subtitle = { Text(pick.modName) },
-                navigationIcon = { BackButton { state.back() } },
-            )
-        },
-        bottomBar = {
-            Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().navigationBarsPadding().imePadding().padding(horizontal = 20.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        Text(if (selected == null) "还没有选择" else "已选：${selected.name}" + (chosenOutfit?.let { " · ${it.name}" } ?: ""), style = MaterialTheme.typography.titleMedium)
-                        Text(
-                            if (needScheme) "先在上面选一套 INI 方案" else if (selected == null) "点一个角色，再点确定" else "${selected.id} · $boneHint",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    val height = ButtonDefaults.MediumContainerHeight
-                    OneUiButton(
-                        onClick = { selected?.let { state.confirm(pick, it, if (schemes.size > 1) scheme else null, chosenOutfit?.prefab) } },
-                        enabled = selected != null && !needScheme && (outfits.isEmpty() || chosenOutfit != null),
-
-                        modifier = Modifier.heightIn(min = height),
-                        contentPadding = ButtonDefaults.contentPaddingFor(height),
-                    ) {
-                        Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(ButtonDefaults.iconSizeFor(height)))
-                        Spacer(Modifier.size(ButtonDefaults.iconSpacingFor(height)))
-                        Text("确定", style = ButtonDefaults.textStyleFor(height))
+    Page("选择分类或角色", state::back, topContent = {
+        SearchControl(query, { query = it }, "ID 或名称，如 10000107、茜特菈莉、citlali")
+    }, bottom = {
+        BottomAction(if (selected == null) "确定" else "确定 · ${selected.name}" +
+            (chosenOutfit?.let { " · ${it.name}" } ?: ""),
+            enabled = state.libraryReady && selected != null && ini != null && !needScheme && (outfits.isEmpty() || chosenOutfit != null)) {
+            selected?.let { state.confirm(pick, it, if (schemes.size > 1) scheme else null, chosenOutfit?.prefab) }
+        }
+    }) { padding ->
+        LazyColumn(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding),
+            overscrollEffect = rememberCouiOverscrollEffect()) {
+            item {
+                Group {
+                    ActionRow(pick.modName, when {
+                        ini == null -> "正在读取 INI 方案…"
+                        needScheme -> "先选择一套 INI 方案"
+                        selected == null -> "点一个角色，再点确定"
+                        else -> "${selected.id} · $boneHint"
+                    }, Glyph.Parcel)
+                    if (schemes.size > 1) {
+                        Divider()
+                        ChoiceRow("INI 方案", scheme, schemes,
+                            "有 ${schemes.size} 套方案，之后也可更换", Glyph.Wrench) { scheme = it }
                     }
                 }
             }
-        },
-    ) { padding ->
-        Column(Modifier.fillMaxSize().padding(top = padding.calculateTopPadding())) {
-            if (schemes.size > 1) {
-                Text(
-                    "有 ${schemes.size} 套 INI 方案，选一套转换（之后可更换）",
-                    modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 8.dp),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = if (scheme == null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                // Many schemes must not push the character list off the screen: the chips scroll in a bounded area.
-                FlowRow(
-                    modifier = Modifier.fillMaxWidth().heightIn(max = 168.dp).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    for (s in schemes) OneUiChoice(selected = s == scheme, onClick = { scheme = s }, label = { Text(schemeLabel(s, schemes)) })
-                }
+            item {
+                val names = guess.recommended.joinToString("、") { it.name }
+                Footer(text = if (names.isEmpty()) "没认出角色，请按 ID 或名称查找" else "根据 MOD 名称和 hash 推荐：$names")
             }
-            OneUiTextField(
-                value = query,
-                onValueChange = { query = it },
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                singleLine = true,
-                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
-                trailingIcon = if (query.isEmpty()) null else { { IconButton(onClick = { query = "" }) { Icon(Icons.Filled.Clear, contentDescription = "清空") } } },
-                placeholder = { Text("ID 或名称，如 10000107、茜特菈莉、citlali") },
-                shape = MaterialTheme.shapes.extraLarge,
-            )
-            val names = guess.recommended.joinToString("、") { it.name }
-            Text(
-                if (guess.recommended.isEmpty()) "没认出角色，请按 ID 或名称查找" else "根据 MOD 名称和 hash 推荐：$names",
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
-                style = MaterialTheme.typography.bodyMedium,
-                color = if (guess.recommended.isEmpty()) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary,
-            )
-            LazyColumn(
-                modifier = Modifier.weight(1f),
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = padding.calculateBottomPadding() + 16.dp),
-                verticalArrangement = Arrangement.spacedBy(OneUiList.SegmentedGap),
-            ) {
-                if (list.isEmpty()) item { EmptyNote("没有匹配的角色") }
-                itemsIndexed(list, key = { _, a -> a.id }) { index, a ->
-                    val recommended = guess.recommends(a.id)
-                    Column(verticalArrangement = Arrangement.spacedBy(OneUiList.SegmentedGap)) {
-                    OneUiRow(
-                        selected = a.id == chosen,
-                        onClick = { chosen = a.id },
-                        shapes = OneUiList.segmentedShapes(index, list.size),
-                        leadingContent = { OneUiRadio(selected = a.id == chosen, onClick = null) },
-                        supportingContent = {
-                            Text(
-                                if (Characters.isLoading(a.id)) "加载背景图片，无需骨骼"
-                                else if (Characters.isScene(a.id)) "NPC、怪物、武器、风之翼" + (if (a.id == pick.current) " · 当前" else "")
-                                else "${a.id}" + (if (recorded.contains(a.id)) " · 已记录骨骼" else "") + (if (a.id == pick.current) " · 当前" else ""),
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        },
-                        trailingContent = if (recommended) { { Icon(Icons.Filled.Star, contentDescription = "推荐", tint = MaterialTheme.colorScheme.primary) } } else null,
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(a.name, modifier = Modifier.weight(1f), fontWeight = if (recommended) FontWeight.Bold else null)
-                        }
-                    }
-                    // The outfits of the chosen character: the mod is converted for one of them (its bones are that outfit's).
-                    if (a.id == chosen && outfits.isNotEmpty()) {
-                        if (outfitHint.isNotEmpty()) Text(outfitHint, modifier = Modifier.padding(start = 24.dp, top = 4.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
-                        outfits.forEachIndexed { i, o ->
-                            OneUiRow(
-                                selected = o.prefab == outfit,
-                                onClick = { outfit = o.prefab },
-                                shapes = OneUiList.segmentedShapes(i, outfits.size),
-                                modifier = Modifier.padding(start = 24.dp),
-                                leadingContent = { OneUiRadio(selected = o.prefab == outfit, onClick = null) },
-                                supportingContent = {
-                                    Text(
-                                        (if (o.original()) "" else "${o.en} · ") + if (outfitsRecorded.contains(o.prefab)) "已记录骨骼" else "未记录骨骼：在大世界穿上，或在衣装页预览后自动采集",
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                },
-                            ) { Text(o.name) }
-                        }
-                    }
+            if (list.isEmpty()) item { Footer(text = "没有匹配的角色") }
+            items(list, key = { it.id }) { avatar ->
+                val recommended = guess.recommends(avatar.id)
+                val checked = chosen == avatar.id
+                val interaction = remember { MutableInteractionSource() }
+                Group {
+                    ActionRow(avatar.name + if (recommended) "（推荐）" else "", when {
+                        Characters.isLoading(avatar.id) -> "加载背景图片，无需骨骼"
+                        Characters.isScene(avatar.id) -> "NPC、怪物、武器、风之翼" + if (avatar.id == pick.current) " · 当前" else ""
+                        else -> "${avatar.id}" + (if (recorded.contains(avatar.id)) " · 已记录骨骼" else "") +
+                            (if (avatar.id == pick.current) " · 当前" else "")
+                    }, modifier = Modifier.couiButtonFeedback(CouiTheme.isDark, interaction, true, list = true)
+                        .selectable(checked, interaction, null, role = Role.RadioButton) { chosen = avatar.id },
+                        trailing = { RadioButton(selected = checked) })
+                    if (avatar.id == chosen && outfits.isNotEmpty()) {
+                        Divider()
+                        ChoiceRow("衣装", outfit, outfits.map { row ->
+                            row.prefab to (row.name + if (outfitsRecorded.contains(row.prefab)) " · 已记录骨骼" else " · 未记录骨骼")
+                        }, outfitHint.ifBlank { "未记录的衣装可在游戏衣装页预览后自动采集骨骼" }) { outfit = it }
                     }
                 }
             }

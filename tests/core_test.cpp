@@ -320,7 +320,8 @@ int main(int argc,char**argv){
  {auto uid=[](const std::u16string& s){return uid::looksLikeUid(s.data(),int32_t(s.size()));};
   assert(uid(u"UID:123456789")&&uid(u"uid : 1234")&&uid(u"UID\uff1a800000001")&&uid(u"UID:")&&uid(u"Lv.60 UID: 1234567"));
   assert(!uid(u"GUID:12345678")&&!uid(u"UID:123")&&!uid(u"UID 12345678")&&!uid(u"AUID:1234")&&!uid(u"UID:x1234")&&!uid(u"UI")&&!uid(u"Fluid:12345"));}
- {assert(!abi::select("0000")&&abi::at(abi::getMesh)==0x8f4217c&&abi::managerSlot==0x9070);
+ {const std::string cnLoading=abi::loadingChecks[0].hex;
+  assert(!abi::select("0000")&&abi::at(abi::getMesh)==0x8f4217c&&abi::managerSlot==0x9070);
   assert(abi::select("32f920af1fd831959a440d294fa996a09657afb8")&&std::string(abi::buildId).substr(0,8)=="32f920af");
   assert(abi::at(abi::getMesh)==0x903ef50&&abi::at(abi::manager)==0x157d53a0&&abi::at(abi::nativeAlloc)==0x517af94&&abi::at(abi::receive)==0x9798c6c);
   // The allocator instance, not the storage pointer most calls read: CN's 0x15d92120 and the manager both 0x34200 lower.
@@ -328,6 +329,17 @@ int main(int argc,char**argv){
   assert(abi::at(abi::componentByName)==0x97a7e00&&abi::at(abi::lodPause)==0x1369a604&&abi::at(abi::lodResume)==0x1369a60c&&abi::at(abi::lodSelfPaused)==0x1369a610&&abi::at(abi::lodCurrent)==0x1369a564);
   assert(abi::at(abi::nativeAllocator)==0x15d5df20&&0x15d92120-abi::at(abi::nativeAllocator)==0x158095a0-abi::at(abi::manager));
   assert(abi::managerSlot==0x90e0&&abi::entityVisual==0xc8&&abi::visualRenderers==0x68&&abi::managerLists.size()==12&&abi::entityIds.front()==0x368);
-  assert(*abi::pendingRequired==0&&abi::at(abi::typeObject)==0x43b1bbc&&abi::at(abi::lodBind)-abi::at(abi::meshBones)==0xb3530&&std::string(abi::handoffChecks[2].hex)=="fe4fbfa968ff0590e50304aae403032a");}
+  assert(*abi::pendingRequired==0&&abi::at(abi::typeObject)==0x43b1bbc&&abi::at(abi::lodBind)-abi::at(abi::meshBones)==0xb3530&&std::string(abi::handoffChecks[2].hex)=="fe4fbfa968ff0590e50304aae403032a");
+  // Each newly enabled feature has usable entries; hook checks and the shuffled HUD reference follow the profile.
+  for(auto offset:{abi::filterMesh,abi::filterSetMesh,abi::meshInit,abi::loadingStart,abi::loadingDestroy,abi::loadingRender,
+      abi::cameraFadeSet,abi::synthesisHudFrame,abi::synthesisClick,abi::synthesisOpen})assert(abi::at(offset)<abi::notFound);
+  auto verify=[&](const abi::CodeCheck& c){bool seen=false;for(const auto& expected:abi::globalProfile().checks)if(expected.first==c.rva){assert(std::string(c.hex)==expected.second);seen=true;}assert(seen);};
+  verify(abi::cameraFadeCheck);for(const auto& c:abi::loadingChecks)verify(c);for(const auto& c:abi::synthesisChecks)verify(c);
+  assert(abi::synthesisHud==0x238&&cnLoading!=abi::loadingChecks[0].hex);
+  assert(!abi::select("unknown-build")&&abi::synthesisHud==0x238&&abi::at(abi::loadingStart)<abi::notFound);
+  assert(abi::select("6d85e3141bcd6b508f3e853bab508cc407278eac"));
+  assert(abi::table().empty()&&abi::synthesisHud==0x4f0&&abi::entityVisual==0x320&&abi::managerSlot==0x9070);
+  assert(abi::at(abi::filterMesh)==uintptr_t(abi::filterMesh)&&std::string(abi::loadingChecks[0].hex)==cnLoading);}
+
  std::cout<<"Native core: PASS (global client build table selected by Build ID; GIBox model format: manifest, model.bin views, CRC-32, value/range/reference checks, variants, on-demand textures, learned.json, skeleton.json; bones, JSON, ELF notes, DDS, targets)\n";
 }
