@@ -14,6 +14,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -26,6 +27,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.runtime.Composable
@@ -53,6 +55,7 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -128,32 +131,46 @@ internal fun HomeTabs(state: AppState) {
 private fun HomeNavigationBar(items: List<CouiNavigationItem>, selected: Int, select: (Int) -> Unit) {
     val ink = if (CouiTheme.isDark) Color.White else Color.Black
     BoxWithConstraints(Modifier.fillMaxWidth(), contentAlignment = Alignment.BottomCenter) {
+        val sideMargins = 32.dp
+        val capsulePadding = 24.dp
+        val gap = 8.dp
+        val accessorySpace = 136.dp
+        // The demo fits three tabs between two accessories. Match its button spacing
+        // at this window width, reserving enough space for our four-character labels.
+        val demoTab = ((maxWidth - sideMargins - accessorySpace - capsulePadding - gap * 2) / 3)
+            .coerceIn(48.dp, 70.dp)
+        val tabCount = items.size
+        val chrome = capsulePadding + gap * (tabCount - 1)
+        val available = (maxWidth - sideMargins).coerceAtLeast(0.dp)
+        val longestLabel = items.maxOf { it.title.length }
+        val density = LocalDensity.current
         if (Build.VERSION.SDK_INT >= 34) {
-            // COUI-Kit alpha11 caps each tab at 70 dp, with 16 dp outer margins,
-            // 12 dp inner margins and 8 dp gaps. All four labels use full-width CJK glyphs.
-            val gaps = 8.dp * (items.size - 1)
-            val tabWidth = ((maxWidth - 32.dp - 24.dp - gaps) / items.size).coerceAtMost(70.dp)
-            val labelWidth = with(LocalDensity.current) { 10.sp.toDp() } * items.maxOf { it.title.length }
-            if (tabWidth >= labelWidth + 2.dp) {
+            val labelWidth = with(density) { 10.sp.toDp() } * longestLabel + 2.dp
+            val tabWidth = maxOf(demoTab, labelWidth)
+            val capsuleWidth = (chrome + tabWidth * tabCount).coerceAtMost(available)
+            if (tabWidth <= 70.dp && (capsuleWidth - chrome) / tabCount >= maxOf(48.dp, labelWidth)) {
                 val renderer = remember { runCatching { CouiFloatingRenderer() }.getOrNull() }
                 if (renderer != null) {
-                    // The library reserves 68 dp per hidden accessory. Center that extra
-                    // space outside our bounds so the visible capsule fills the available width.
-                    NavigationBar(modifier = Modifier.requiredWidth(maxWidth + 136.dp),
+                    // alpha11 subtracts the outer margins and both accessory slots internally.
+                    NavigationBar(modifier = Modifier.requiredWidth(capsuleWidth + sideMargins + accessorySpace),
                         renderer = renderer, items = items, selectedIndex = selected,
                         selectedColor = ink, unselectedColor = ink.copy(alpha = .68f), onSelection = select)
                     return@BoxWithConstraints
                 }
             }
         }
-        PlainHomeNavigationBar(items, selected, select, ink)
+        val plainLabelWidth = with(density) { 12.sp.toDp() } * longestLabel + 2.dp
+        val plainWidth = (chrome + maxOf(demoTab, plainLabelWidth) * tabCount).coerceAtMost(maxWidth)
+        PlainHomeNavigationBar(items, selected, select, ink, Modifier.width(plainWidth), gap)
     }
 }
 
 @Composable
-private fun PlainHomeNavigationBar(items: List<CouiNavigationItem>, selected: Int, select: (Int) -> Unit, ink: Color) {
-    Row(Modifier.fillMaxWidth().background(CouiTheme.colorScheme.card).navigationBarsPadding()
-        .heightIn(min = 64.dp).selectableGroup(), verticalAlignment = Alignment.CenterVertically) {
+private fun PlainHomeNavigationBar(items: List<CouiNavigationItem>, selected: Int, select: (Int) -> Unit,
+    ink: Color, modifier: Modifier, gap: Dp) {
+    Row(modifier.navigationBarsPadding().clip(CouiCapsuleShape).background(CouiTheme.colorScheme.card)
+        .padding(horizontal = 12.dp).heightIn(min = 64.dp).selectableGroup(),
+        horizontalArrangement = Arrangement.spacedBy(gap), verticalAlignment = Alignment.CenterVertically) {
         items.forEachIndexed { index, item ->
             val source = remember { MutableInteractionSource() }
             val color = if (index == selected) ink else ink.copy(alpha = .68f)
