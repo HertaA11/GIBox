@@ -79,13 +79,15 @@ public final class Control {
     public static boolean enabled(String pkg) { return load(pkg).optBoolean("enabled", false); }
     public static boolean synthesisButton(String pkg) { return load(pkg).optBoolean("synthesisButton", false); }
     public static synchronized void setSynthesisButton(String pkg, boolean on) throws Exception { JSONObject j = load(pkg); j.put("synthesisButton", on); save(pkg, j); }
-    public static String cameraFade(String pkg){String v=load(pkg).optString("cameraFade","original");return v.equals("disabled")||v.equals("look_up")?"disabled":"original";}
+    public static String cameraFade(String pkg){return cameraFade(load(pkg));}
+    static String cameraFade(JSONObject control){String v=control.optString("cameraFade","original");return v.equals("disabled")||v.equals("look_up")?"disabled":"original";}
     public static synchronized void setCameraFade(String pkg,String value)throws Exception{if(!"original".equals(value)&&!"disabled".equals(value))throw new IllegalArgumentException("角色渐隐模式无效");JSONObject j=load(pkg);j.put("cameraFade",value);save(pkg,j);}
     public static boolean hideUid(String pkg) { return load(pkg).optBoolean("hideUid", false); }
     public static synchronized void setHideUid(String pkg, boolean on) throws Exception { JSONObject j = load(pkg); j.put("hideUid", on); save(pkg, j); }
     public static final String[] LOADING_FITS={"original","cover","stretch"};
     public static final String[] LOADING_FIT_LABELS={"保持原图","铺满全屏","强制拉伸"};
-    public static String loadingFit(String pkg){String v=load(pkg).optString("loadingFit","original");for(String s:LOADING_FITS)if(s.equals(v))return v;return "original";}
+    public static String loadingFit(String pkg){return loadingFit(load(pkg));}
+    static String loadingFit(JSONObject control){String v=control.optString("loadingFit","original");for(String s:LOADING_FITS)if(s.equals(v))return v;return "original";}
     public static synchronized void setLoadingFit(String pkg,String value)throws Exception{boolean valid=false;for(String s:LOADING_FITS)valid|=s.equals(value);if(!valid)throw new IllegalArgumentException("加载图片比例无效");JSONObject j=load(pkg);j.put("loadingFit",value);save(pkg,j);}
     public static boolean npcModels(String pkg) { return load(pkg).optBoolean("npcModels", false); }
     public static synchronized void setNpcModels(String pkg, boolean on) throws Exception { JSONObject j=load(pkg); j.put("npcModels", on); save(pkg,j); }
@@ -133,8 +135,9 @@ public final class Control {
      *  the mods' rules, like XXMI in normal play) / collect (also every shown mesh, characters, NPCs and monsters, into
      *  hash-map.json and hash-report.txt) / full (every hash form, ib-hashes.txt, per-mesh candidates). Without it, the
      *  switches of 1.0.2: "capture" is collect, "ibHash" match. */
-    public static String hashMode(String pkg) {
-        JSONObject x = load(pkg).optJSONObject("textureMods"); if (x == null) return "off";
+    public static String hashMode(String pkg) { return hashMode(load(pkg)); }
+    static String hashMode(JSONObject control) {
+        JSONObject x = control.optJSONObject("textureMods"); if (x == null) return "off";
         String m = x.optString("hashMode", ""); if (m.equals("off") || m.equals("match") || m.equals("collect") || m.equals("full")) return m;
         return x.optBoolean("capture", false) ? "collect" : x.optBoolean("ibHash", false) ? "match" : "off";
     }
@@ -191,7 +194,19 @@ public final class Control {
     }
     /** A key as the logic core has it now: a cycle's preset whose values are in effect (current, -1: none, as 3DMigoto's
      *  smart cycle resyncs), whether an activate / toggle / hold key is on (active) and whether its values are in effect (matches). */
-    public static final class KeyState { public String section = ""; public int current = -1; public boolean active, matches; }
+    public static final class KeyState {
+        public String section = "";
+        public int current = -1;
+        public boolean active, matches;
+
+        @Override public boolean equals(Object other) {
+            if (!(other instanceof KeyState)) return false;
+            KeyState key = (KeyState) other;
+            return current == key.current && active == key.active && matches == key.matches && section.equals(key.section);
+        }
+
+        @Override public int hashCode() { return java.util.Objects.hash(section, current, active, matches); }
+    }
     public static Status status(String pkg) {
         Status st = new Status();
         try {

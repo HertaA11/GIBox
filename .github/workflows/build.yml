@@ -6,10 +6,6 @@ jobs:
     # contents: write only for the release step below (a v* tag publishes a GitHub release with the APK).
     permissions:
       contents: write
-      packages: read
-    env:
-      SESL_MAVEN_USER: ${{ secrets.SESL_MAVEN_USER || github.actor }}
-      SESL_MAVEN_TOKEN: ${{ secrets.SESL_MAVEN_TOKEN || github.token }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4

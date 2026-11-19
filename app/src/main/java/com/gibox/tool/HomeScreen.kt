@@ -1,210 +1,106 @@
 package com.gibox.tool
 
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
+import android.os.Build
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.automirrored.filled.List
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.itos.coui.layout.Divider
+import com.itos.coui.layout.Footer
+import com.itos.coui.layout.Group
+import com.itos.coui.scroll.rememberCouiOverscrollEffect
+import com.itos.coui.segmentbutton.SegmentedControl
+import com.itos.coui.text.CouiTextKind
+import com.itos.coui.text.Text
+import com.itos.coui.theme.CouiTheme
 
-/**
- * Home: top bar (日志 / 设置), the module card (state and version), a card with the replacement switch, import and
- * refresh, and a card of the mods by character (searchable by name or ID).
- */
+private val categories = listOf("角色 MOD", "场景 MOD", "加载图片")
+
 @Composable
-fun ModManagementScreen(state: AppState, pickZip: () -> Unit) {
+internal fun ModManagementScreen(state: AppState, pickZip: () -> Unit) {
+    var category by rememberSaveable { mutableIntStateOf(0) }
     var searching by rememberSaveable { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
-    SearchSwitch(searching) { open, field, entered ->
-        if (!open) HomeMain(state, pickZip, field) { searching = true }
-        else {
-            val q = query.trim()
-            val found = if (q.isEmpty()) emptyList() else state.groups().filter { it.title.contains(q, ignoreCase = true) || it.id.toString().contains(q) }
-            SearchPage(query, { query = it }, "搜索分类、角色名或 ID", onClose = { searching = false; query = "" }, field = field, entered = entered) {
-                if (q.isNotEmpty() && found.isEmpty()) item { EmptyNote("没有找到“$q”") }
-                itemsIndexed(found, key = { _, g -> g.id }) { index, g ->
-                    OneUiRow(
-                        onClick = { state.open(Screen.Character(g.id)) },
-                        shapes = OneUiList.segmentedShapes(index, found.size),
-                        trailingContent = {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("${g.mods.size} 个", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                        },
-                    ) { Text(g.title, maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                }
+    val listState = rememberLazyListState()
+    val searchList = rememberLazyListState()
+    val selectCategory: (Int) -> Unit = {
+        if (category != it) {
+            listState.requestScrollToItem(0)
+            category = it
+        }
+    }
+    val groups = state.groups()
+    val filter = query.trim()
+    val results = remember(groups, searching, filter, category) {
+        groups.filter { group ->
+            if (searching) filter.isNotEmpty() && (group.title.contains(filter, true) || group.id.toString().contains(filter))
+            else category == when {
+                Characters.isLoading(group.id) -> 2
+                Characters.isScene(group.id) -> 1
+                else -> 0
             }
         }
     }
-}
-
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
-@Composable
-private fun HomeMain(state: AppState, pickZip: () -> Unit, searchField: Modifier, onSearch: () -> Unit) {
-    val scroll = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
-    OneUiScaffold(
-        modifier = Modifier.nestedScroll(scroll.nestedScrollConnection),
-        topBar = {
-            OneUiLargeTopBar(
-                colors = pageBarColors(),
-                title = { Text("模组管理") },
-                navigationIcon = { BackButton { state.back() } },
-                subtitle = { Text("角色、场景与加载图片") },
-                actions = {
-                    IconButton(onClick = { state.open(Screen.Log) }) { Icon(Icons.AutoMirrored.Filled.List, contentDescription = "日志") }
-                    IconButton(onClick = { state.open(Screen.Settings) }) { Icon(Icons.Filled.Settings, contentDescription = "设置") }
-                },
-                scrollBehavior = scroll,
-            )
-        },
-    ) { padding ->
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = padding.calculateTopPadding() + 8.dp, bottom = padding.calculateBottomPadding() + 24.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+    val flatMods = remember(results) { results.flatMap { it.mods } }
+    Page("模组管理", toolbar = {
+        SearchToolbar("模组管理", "搜索分类、角色名或 ID", query, { query = it }, searching, {
+            searching = it
+            if (!it) query = ""
+        }, back = state::back)
+    }) { padding ->
+        LazyColumn(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).padding(bottom = 8.dp),
+            state = if (searching) searchList else listState,
+            overscrollEffect = rememberCouiOverscrollEffect(),
         ) {
-            item { ModuleCard(state) }
-            item { ManageCard(state, pickZip) }
-            item { ModsCard(state, searchField, onSearch) }
-        }
-    }
-}
-
-/** Whether LSPosed loaded the module, and its version. */
-@Composable
-private fun ModuleCard(state: AppState) {
-    val active = state.moduleActive
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.extraLarge,
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface,
-            contentColor = MaterialTheme.colorScheme.onSurface,
-        ),
-    ) {
-        Column(Modifier.padding(horizontal = 24.dp, vertical = 22.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                OneIcon(if (active) OneGlyph.Check else OneGlyph.Info, badge=true)
-                Spacer(Modifier.width(16.dp))
-                Column {
-                    Text(if (active) "模块已激活" else "模块未激活", style = MaterialTheme.typography.headlineSmall)
-                    Text("模块版本 " + state.appVersion, style = MaterialTheme.typography.bodyMedium)
-                }
-            }
-            if (!active) Text("在 LSPosed 里启用 GIBox，作用域勾选所用的原神客户端（国服、B服或国际服），然后重新打开 GIBox、彻底重启游戏。", style = MaterialTheme.typography.bodyMedium)
-
-        }
-    }
-}
-
-/** A white card on the page background, as the home screen's groups. */
-@Composable
-private fun HomeCard(content: @Composable () -> Unit) {
-    Surface(modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerLowest) { content() }
-}
-
-/** The replacement master switch (on a tinted row of its own), import and refresh. */
-@Composable
-private fun ManageCard(state: AppState, pickZip: () -> Unit) {
-    HomeCard {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Surface(modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                Row(Modifier.padding(horizontal = 20.dp, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("全局模型替换", style = MaterialTheme.typography.titleMedium)
-                        Text(if (state.enabled) "已开启 · 游戏里替换已启用的 MOD" else "已关闭 · 游戏里显示原模型", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (!searching) {
+                item {
+                    Group {
+                        ToggleRow("全局模型替换", state.enabled,
+                            if (state.enabled) "在游戏里替换已启用的 MOD" else "在游戏里显示原模型",
+                            enabled = state.libraryReady, change = state::setReplacement)
+                        Divider()
+                        ActionRow("导入 MOD", enabled = state.libraryReady) { if (state.storage) pickZip() else state.needStorage() }
+                        Divider()
+                        ActionRow("刷新", click = state::refreshInBackground)
                     }
-                    OneUiSwitch(checked = state.enabled, onCheckedChange = { state.setReplacement(it) })
+                }
+                item {
+                    if (Build.VERSION.SDK_INT >= 34) {
+                        SegmentedControl(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                            labels = categories, selectedIndex = category, onSelected = selectCategory)
+                    } else Group {
+                        ChoiceRow("MOD 分类", category, categories.mapIndexed { i, label -> i to label }, change = selectCategory)
+                    }
                 }
             }
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OneUiButton(onClick = { if (state.storage) pickZip() else state.needStorage() }, modifier = Modifier.weight(1.6f).heightIn(min = 52.dp)) {
-                    Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(ButtonDefaults.IconSize))
-                    Spacer(Modifier.size(ButtonDefaults.IconSpacing))
-                    Text("导入 MOD", maxLines = 1, softWrap = false)
-                }
-                OneUiOutlineButton(onClick = { state.refresh() }, modifier = Modifier.weight(1f).heightIn(min = 52.dp)) {
-                    Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(ButtonDefaults.IconSize))
-                    Spacer(Modifier.size(ButtonDefaults.IconSpacing))
-                    Text("刷新", maxLines = 1, softWrap = false)
-                }
+            if (!state.libraryReady) item { Footer(text = "正在读取模组…") }
+            if (state.libraryReady && results.isEmpty() && (!searching || query.isNotBlank())) item {
+                Footer(text = when {
+                    searching && query.isNotBlank() -> "没有找到“${query.trim()}”"
+                    category == 2 -> "还没有加载图片。导入加载背景 MOD 时，选择「加载图片」。"
+                    category == 1 -> "还没有场景 MOD。导入 NPC、怪物、武器或风之翼 MOD 时，选择「场景 MOD」。"
+                    else -> "还没有角色 MOD。点「导入 MOD」，选择 MOD 的 .zip 压缩包。"
+                })
             }
-        }
-    }
-}
-
-/**
- * 角色 MOD: one row per character with its number of mods; the mods themselves are on the character's page. The search
- * button opens the search page (characters by name or ID).
- */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun ModsCard(state: AppState, searchField: Modifier, onSearch: () -> Unit) {
-    var category by rememberSaveable { mutableStateOf(0) }
-    val groups = state.groups().filter { if (Characters.isLoading(it.id)) category == 2 else if (Characters.isScene(it.id)) category == 1 else category == 0 }
-    HomeCard {
-        Column(Modifier.padding(vertical = 8.dp)) {
-            Row(Modifier.padding(start = 24.dp, end = 12.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                OneUiTabs(selectedTabIndex = category, edgePadding = 0.dp, modifier = Modifier.weight(1f), containerColor = MaterialTheme.colorScheme.surfaceContainerLowest, divider = {}) {
-                    OneUiTab(selected = category == 0, onClick = { category = 0 }, text = { Text("角色 MOD", maxLines = 1, softWrap = false) })
-                    OneUiTab(selected = category == 1, onClick = { category = 1 }, text = { Text("场景 MOD", maxLines = 1, softWrap = false) })
-                    OneUiTab(selected = category == 2, onClick = { category = 2 }, text = { Text("加载图片", maxLines = 1, softWrap = false) })
-                }
-                IconButton(onClick = onSearch, modifier = searchField) { Icon(Icons.Filled.Search, contentDescription = "搜索 MOD") }
-            }
-            HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh)
-            if (groups.isEmpty()) EmptyNote(if (category == 2) "还没有加载图片。导入加载背景 MOD 时，选择「加载图片」。" else if (category == 1) "还没有场景 MOD。导入 NPC、怪物、武器或风之翼 MOD 时，选择「场景 MOD」。" else "还没有角色 MOD。点「导入 MOD」，选择 MOD 的 .zip 压缩包。")
-            if (category != 0) {
-                val mods = groups.flatMap { it.mods }
-                mods.forEachIndexed { index, mod -> ModRow(state, mod, index, mods.size) }
-            } else groups.forEach { g ->
-                Row(
-                    Modifier.fillMaxWidth().clickable { state.open(Screen.Character(g.id)) }.padding(start = 24.dp, end = 16.dp, top = 16.dp, bottom = 16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(g.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                    Text("${g.mods.size} 个", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null)
+            if (!searching && category != 0) {
+                items(flatMods, key = { it.name }) { mod -> Group { ModRow(state, mod) } }
+            } else items(results, key = { it.id }) { group ->
+                Group {
+                    ActionRow(group.title, showNext = true, trailing = {
+                        Text(text = "${group.mods.size} 个", kind = CouiTextKind.ItemValue, color = CouiTheme.colorScheme.onSurfaceVariant)
+                    }) { state.open(Screen.Character(group.id)) }
                 }
             }
         }

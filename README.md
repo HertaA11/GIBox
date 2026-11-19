@@ -1,7 +1,7 @@
 # GIBox
 
 ![license](https://img.shields.io/badge/license-GPL--3.0-blue)
-![android](https://img.shields.io/badge/Android-8.0%2B-3DDC84)
+![android](https://img.shields.io/badge/Android-12%2B-3DDC84)
 ![abi](https://img.shields.io/badge/ABI-arm64--v8a-informational)
 ![lsposed](https://img.shields.io/badge/LSPosed-module-orange)
 
@@ -11,9 +11,11 @@ GIBox 是一个 Android 原神上的 xposed 模块
 
 ### 使用方法
 
-1. 主页点击“导入MOD”
-2. 在角色页选择mod对应的角色/物品，搜索框可输入 ID 中文名 英文名以及模型名
-3. 导入后启用即可生效。同一 MOD 只转换一次，国服、B服、国际服共用启停和款式设置；主页的游戏选择用于启动游戏和查看对应日志、运行状态。
+1. 首页进入「模组管理」，选择游戏版本后点击「导入 MOD」。
+2. 选择 MOD 对应的角色或物品。搜索框支持 ID、中文名、英文名和模型名。
+3. 导入后启用即可生效。同一 MOD 只转换一次，国服、B 服和国际服共用启停和款式设置；目录和日志按所选客户端显示。
+
+首页右上角可以搜索功能；目录入口、日志和调试工具都在「设置」。
 
 ### 进展&未来计划
 
@@ -29,4 +31,4 @@ GIBox 是一个 Android 原神上的 xposed 模块
 - [XXMI-Launcher](https://github.com/SpectrumQT/XXMI-Launcher)
 - [GI-Model-Importer（GIMI）](https://github.com/SilentNightSound/GI-Model-Importer)
 - [3DMigoto](https://github.com/bo3b/3Dmigoto)
-- [Dobby](https://github.com/jmpews/Dobby)、[bcdec](https://github.com/iOrange/bcdec)、[Compose-Settings](https://github.com/alorma/Compose-Settings)、[LSPosed](https://github.com/LSPosed/LSPosed)
+- [Dobby](https://github.com/jmpews/Dobby)、[bcdec](https://github.com/iOrange/bcdec)、[COUI-Kit](https://github.com/ItosEO/COUI-Kit)、[LSPosed](https://github.com/LSPosed/LSPosed)

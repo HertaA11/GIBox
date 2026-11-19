@@ -1,95 +1,99 @@
 package com.gibox.tool
 
-import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Share
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import com.itos.coui.dialog.CouiDialogDefaults
+import com.itos.coui.icons.CouiIcons
+import com.itos.coui.layout.Footer
+import com.itos.coui.menu.couiMenuAnchor
+import com.itos.coui.menu.rememberCouiMenuAnchor
+import com.itos.coui.scroll.rememberCouiOverscrollEffect
+import com.itos.coui.text.CouiTextKind
+import com.itos.coui.text.Text
+import com.itos.coui.theme.CouiTheme
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
-/** The shared log (XXMI line format), newest at the bottom. */
+private val logLevels = Control.LOG_LEVELS.zip(Control.LOG_LEVEL_LABELS)
+
 @Composable
-fun LogScreen(state: AppState) {
+internal fun LogScreen(state: AppState) {
+    val file = state.logFile
     var reload by remember { mutableIntStateOf(0) }
-    var levelsOpen by remember { mutableStateOf(false) }
-    val lines = remember(reload, state.game) { state.readLog().trimEnd().split('\n').filter { it.isNotEmpty() } }
+    var levelsExpanded by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val lines by produceState<List<String>?>(null, file, reload) {
+        value = withContext(Dispatchers.IO) {
+            AppLog.tail(file, 128 * 1024).lineSequence().filter(String::isNotBlank).toList()
+        }
+    }
     val list = rememberLazyListState()
-    LaunchedEffect(lines) { if (lines.isNotEmpty()) list.scrollToItem(lines.size - 1) }
-    OneUiScaffold(
-        topBar = {
-            OneUiTopBar(
-                colors = pageBarColors(),
-                title = { Text("运行日志") },
-                subtitle = { Text("${lines.size} 行") },
-                navigationIcon = { BackButton { state.back() } },
-                actions = {
-                    IconButton(onClick = { reload++ }) { Icon(Icons.Filled.Refresh, contentDescription = "刷新") }
-                    IconButton(onClick = {
-                        state.prompt = Prompt("清空日志", "删除 ${AppLog.FILE}（游戏和 GIBox 共用）？", confirm = "清空", dismiss = "取消", destructive = true, onConfirm = { state.clearLog(); reload++ })
-                    }) { Icon(Icons.Filled.Delete, contentDescription = "清空") }
-                    IconButton(onClick = { state.shareLog() }) { Icon(Icons.Filled.Share, contentDescription = "分享日志") }
-                    Box {
-                        IconButton(onClick = { levelsOpen = true }) { Icon(Icons.Filled.MoreVert, contentDescription = "日志等级") }
-                        OneUiMenu(expanded = levelsOpen, onDismissRequest = { levelsOpen = false }) {
-                            DropdownMenuItem(text = { Text("日志等级") }, onClick = {}, enabled = false)
-                            Control.LOG_LEVELS.forEachIndexed { index, level ->
-                                DropdownMenuItem(
-                                    text = { Text(Control.LOG_LEVEL_LABELS[index]) },
-                                    leadingIcon = { OneUiRadio(selected = state.logLevel == level, onClick = null) },
-                                    onClick = { levelsOpen = false; state.changeLogLevel(level) },
-                                )
-                            }
-                        }
-                    }
-                },
-            )
-        },
-    ) { padding ->
+    LaunchedEffect(lines) { lines?.lastIndex?.takeIf { it >= 0 }?.let { list.scrollToItem(it) } }
+
+    Page("运行日志", state::back, actions = {
+        LogToolbarAction(painterResource(R.drawable.gibox_log_refresh), "刷新") { reload++ }
+        LogToolbarAction(painterResource(R.drawable.gibox_log_delete), "删除", color = CouiDialogDefaults.themeColors().destructive) {
+            state.prompt = Prompt("清空日志", "删除 ${AppLog.FILE}（游戏和 GIBox 共用）？",
+                confirm = "清空", dismiss = "取消", destructive = true, onConfirm = {
+                    scope.launch { if (state.clearLog(file)) reload++ }
+                })
+        }
+        LogToolbarAction(painterResource(R.drawable.gibox_log_share), "分享", click = state::shareLog)
+        val anchor = rememberCouiMenuAnchor()
+        Box(Modifier.couiMenuAnchor(anchor)) {
+            LogToolbarAction(rememberVectorPainter(CouiIcons.Outlined.SliderCustom), "级别") {
+                anchor.open { levelsExpanded = true }
+            }
+            ChoiceMenu(levelsExpanded, { levelsExpanded = false }, state.logLevel, logLevels, anchor) { level ->
+                levelsExpanded = false
+                if (level != state.logLevel) state.changeLogLevel(level)
+            }
+        }
+    }, topContent = { Footer(text = "游戏版本：${serverName(state.game)}") }) { padding ->
         SelectionContainer {
-            LazyColumn(
-                state = list,
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = padding.calculateTopPadding() + 4.dp, bottom = padding.calculateBottomPadding() + 16.dp),
-            ) {
-                if (lines.isEmpty()) item { EmptyNote("日志是空的") }
-                items(lines) { line ->
-                    Text(
-                        line,
-                        style = MaterialTheme.typography.bodySmall,
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 11.sp,
-                        lineHeight = 15.sp,
-                        color = when {
-                            " ERROR " in line -> MaterialTheme.colorScheme.error
-                            " WARNING " in line -> MaterialTheme.colorScheme.tertiary
-                            line.startsWith("    ") -> MaterialTheme.colorScheme.onSurfaceVariant
-                            else -> MaterialTheme.colorScheme.onSurface
-                        },
-                    )
+            LazyColumn(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding), state = list,
+                overscrollEffect = rememberCouiOverscrollEffect()) {
+                if (lines?.isEmpty() == true) item { Footer(text = "日志是空的") }
+                items(lines.orEmpty()) { line ->
+                    Text(text = line, kind = CouiTextKind.ItemSummary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                        color = if (" WARNING " in line || " ERROR " in line) CouiTheme.colorScheme.accentOnSurface
+                            else CouiTheme.colorScheme.onSurface)
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun LogToolbarAction(
+    icon: Painter, description: String, color: Color = CouiTheme.colorScheme.onSurface, click: () -> Unit,
+) {
+    ToolbarButton(click) {
+        Image(icon, contentDescription = description, modifier = Modifier.size(24.dp), colorFilter = ColorFilter.tint(color))
     }
 }
