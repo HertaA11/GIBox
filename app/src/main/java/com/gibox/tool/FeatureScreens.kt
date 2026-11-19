@@ -1,5 +1,19 @@
 package com.gibox.tool
 
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
@@ -11,8 +25,18 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.itos.coui.effect.couiButtonFeedback
+import com.itos.coui.text.CouiTextKind
+import com.itos.coui.text.rememberCouiTextStyle
 import com.itos.coui.layout.CouiPageDefaults
 import com.itos.coui.layout.Divider
 import com.itos.coui.layout.Footer
@@ -54,29 +78,60 @@ private fun ModuleActivation(state: AppState) {
     val scope = LspService.scope
     val active = state.moduleActive
     val colors = CouiTheme.colorScheme
-    val framework = when {
-        scope != null -> LspService.framework ?: "LSPosed 服务已连接"
+    val framework = LspService.framework ?: when {
+        scope != null -> "LSPosed 服务已连接"
         state.frameworkApi > 0 -> "LSPosed · 框架 API ${state.frameworkApi}"
         else -> "LSPosed 服务未连接"
     }
     val title = if (active) "模块已激活" else "模块未激活"
-    val summary = "模块版本 ${state.appVersion} · $framework"
-    val scopeSummary = scope?.joinToString("、") { pkg ->
-        when (pkg) {
-            "com.miHoYo.Yuanshen", "com.miHoYo.ys.bilibili", "com.miHoYo.GenshinImpact" -> serverName(pkg)
-            else -> pkg
+    val scopeSummary = when {
+        scope == null -> "作用域暂未获取"
+        scope.isEmpty() -> "0 个作用域"
+        else -> {
+            val clients = scope.filter { it in AppState.SUPPORTED_GAMES }.joinToString("、", transform = ::serverName)
+            "${scope.size} 个作用域" + if (clients.isEmpty()) "" else " · $clients"
         }
-    }?.ifEmpty { "未选择应用" } ?: "暂未获取"
-    val card = CouiPageDefaults.themeColors()
-    val surface = if (active) colors.accent.copy(alpha = .14f).compositeOver(card.card) else card.card
-    Group(colors = card.copy(card = surface)) {
-        ActionRow(title, "$summary\n作用域 · $scopeSummary", glyph = if (active) Glyph.Check else Glyph.Inactive, showNext = true) {
-            val details = buildList {
-                add(summary)
-                if (scope != null) add("作用域 · " + scope.joinToString("、").ifEmpty { "（空）" })
-                if (!active) add("在 LSPosed 中启用 GIBox，勾选所用的原神客户端，然后重启游戏。")
+    }
+    val page = CouiPageDefaults.themeColors()
+    val dark = CouiTheme.isDark
+    val surface = when {
+        !active -> page.card
+        dark -> Color(0xFF1A3825)
+        else -> Color(0xFFDFFAE4)
+    }
+    val ink = when {
+        !active -> colors.onSurface
+        dark -> Color(0xFFC5EED1)
+        else -> Color(0xFF164A29)
+    }
+    val feedback = remember { MutableInteractionSource() }
+    val caption = rememberCouiTextStyle(CouiTextKind.ItemSummary).copy(fontSize = 15.sp, color = ink)
+    Group(colors = page.copy(card = surface)) {
+        Box(Modifier.fillMaxWidth().heightIn(min = 144.dp)
+            .couiButtonFeedback(dark, feedback, list = true)
+            .clickable(feedback, null, role = Role.Button) {
+                val details = buildList {
+                    add("模块版本 ${state.appVersion} · $framework")
+                    add("作用域 · " + (scope?.joinToString("、")?.ifEmpty { "未选择应用" } ?: "暂未获取"))
+                    if (!active) add("在 LSPosed 中启用 GIBox，勾选所用的原神客户端，然后重启游戏。")
+                }
+                state.prompt = Prompt(title, details.joinToString("\n\n"))
+            }) {
+            if (active) {
+                val watermark = ink.copy(alpha = .16f)
+                Image(painterResource(R.drawable.gibox_status_check), null,
+                    Modifier.align(Alignment.BottomEnd).padding(end = 12.dp, bottom = 8.dp)
+                        .size(84.dp).border(4.dp, watermark, CircleShape).padding(17.dp),
+                    colorFilter = ColorFilter.tint(watermark))
             }
-            state.prompt = Prompt(title, details.joinToString("\n\n"))
+            Column(Modifier.fillMaxWidth().padding(20.dp)) {
+                BasicText(title, style = rememberCouiTextStyle(CouiTextKind.ItemTitle)
+                    .copy(color = ink, fontSize = 22.sp, fontWeight = FontWeight.SemiBold))
+                BasicText("模块版本 ${state.appVersion}", style = caption)
+                Spacer(Modifier.height(12.dp))
+                BasicText(framework, style = caption)
+                BasicText(scopeSummary, style = caption)
+            }
         }
     }
 }
@@ -203,10 +258,8 @@ internal fun SettingsScreen(state: AppState, target: String?) {
 @Composable
 internal fun AboutScreen(state: AppState) {
     PreferencePage("关于 GIBox", state::back) {
-        AboutWordmark()
+        AboutWordmark(state.appVersion)
         Group {
-            ActionRow("版本", state.appVersion)
-            Divider()
             ActionRow("开发者", "Yuanqi314")
             Divider()
             ActionRow("开源许可证", "GNU General Public License v3.0")

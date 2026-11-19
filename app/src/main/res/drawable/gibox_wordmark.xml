@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- GIBox lettering drawn on the same cap height, circular bowls and even strokes. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="180dp" android:height="60dp"
+    android:viewportWidth="180" android:viewportHeight="60">
+    <path android:strokeColor="#FFFFFFFF" android:strokeWidth="6.5"
+        android:strokeLineJoin="round"
+        android:pathData="M44,16 A21,21 0,1 0,45 33 H28 M57,9 V51 M73,9 V51 M73,10 H86 C102,10 102,29 86,29 H73 M85,29 C104,29 104,50 86,50 H73 M136,36 A14.5,14.5 0,1 1,107 36 A14.5,14.5 0,1 1,136 36 Z M146,22 L170,51 M170,22 L146,51"/>
+</vector>

@@ -74,6 +74,7 @@ class Prompt(
 /** Everything the pages show and do. File work runs on a background thread; state is changed on the UI thread only. */
 class AppState private constructor(private val context: Context) {
     companion object {
+        val SUPPORTED_GAMES = listOf("com.miHoYo.Yuanshen", "com.miHoYo.ys.bilibili", "com.miHoYo.GenshinImpact")
         private var shared: AppState? = null
 
         // Activity creation and all page navigation run on the main thread.
@@ -376,7 +377,7 @@ class AppState private constructor(private val context: Context) {
      * there), else the official one.
      */
     private fun detectGame(): String {
-        val all = listOf("com.miHoYo.Yuanshen", "com.miHoYo.ys.bilibili", "com.miHoYo.GenshinImpact")
+        val all = SUPPORTED_GAMES
         val found = all.filter { packageInfo(it) != null }
         availableClients = Control.GAMES.filter { it != "com.miHoYo.ys.bilibili" || it in found }
         val installed = found.ifEmpty { all }

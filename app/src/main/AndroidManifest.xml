@@ -14,7 +14,7 @@
         <intent><action android:name="android.intent.action.VIEW"/><data android:mimeType="vnd.android.document/directory"/></intent>
         <intent><action android:name="android.intent.action.VIEW"/><data android:mimeType="resource/folder"/></intent>
     </queries>
-    <application android:label="GIBox" android:icon="@drawable/coui_gamepad_filled" android:theme="@style/Theme.GIBox" android:allowBackup="false">
+    <application android:label="GIBox" android:theme="@style/Theme.GIBox" android:allowBackup="false">
         <provider android:name=".DirectoryProvider" android:authorities="com.gibox.tool.documents"
             android:exported="true" android:grantUriPermissions="true" android:permission="android.permission.MANAGE_DOCUMENTS">
             <intent-filter><action android:name="android.content.action.DOCUMENTS_PROVIDER"/></intent-filter>
