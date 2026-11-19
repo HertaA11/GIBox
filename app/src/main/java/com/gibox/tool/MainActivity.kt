@@ -10,6 +10,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -17,13 +18,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.withResumed
+import com.itos.coui.effect.LocalCouiContourGlowEnabled
 import com.itos.coui.menu.ProvideCouiMenuBackdrop
 import com.itos.coui.theme.CouiTheme
 import kotlinx.coroutines.launch
 
 private const val PAGE = "com.gibox.tool.PAGE"
 private const val TARGET = "com.gibox.tool.TARGET"
-private val zipTypes = arrayOf("application/zip", "application/x-zip-compressed", "application/x-zip")
+internal val zipTypes = arrayOf("application/zip", "application/x-zip-compressed", "application/x-zip")
 
 class MainActivity : PageActivity() {
     // The exported launcher always opens Home, including for externally supplied intents.
@@ -49,36 +51,38 @@ open class PageActivity : ComponentActivity() {
         val screen = page
         val target = if (screen == Screen.Home) null else intent.getStringExtra(TARGET)
         setContent {
-            CouiTheme {
-                val client = when (screen) {
-                    Screen.Settings, Screen.Accessibility, Screen.Log, Screen.Manual,
-                    is Screen.Detail, is Screen.Pick -> state.game
-                    else -> null
-                }
-                ProvideCouiMenuBackdrop(isolateContent = false) { windowSource ->
-                    Box(Modifier.fillMaxSize().then(windowSource)) {
-                        key(client) {
-                            when (screen) {
-                                Screen.Home -> HomeScreen(state)
-                                Screen.FeatureSearch -> FeatureSearchScreen(state, state::openFeature)
-                                Screen.Accessibility -> AccessibilityScreen(state, target)
-                                Screen.Settings -> SettingsScreen(state, target)
-                                Screen.About -> AboutScreen(state)
-                                Screen.Mods -> {
-                                    val zip = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-                                        if (uri != null) state.importFrom(uri)
+            CompositionLocalProvider(LocalCouiContourGlowEnabled provides true) {
+                CouiTheme {
+                    val client = when (screen) {
+                        Screen.Settings, Screen.Accessibility, Screen.Log, Screen.Manual,
+                        is Screen.Detail, is Screen.Pick -> state.game
+                        else -> null
+                    }
+                    ProvideCouiMenuBackdrop(isolateContent = false) { windowSource ->
+                        Box(Modifier.fillMaxSize().then(windowSource)) {
+                            key(client) {
+                                when (screen) {
+                                    Screen.Home -> HomeTabs(state)
+                                    Screen.FeatureSearch -> FeatureSearchScreen(state, state::openFeature)
+                                    Screen.Accessibility -> AccessibilityScreen(state, target)
+                                    Screen.Settings -> SettingsScreen(state, target)
+                                    Screen.About -> AboutScreen(state)
+                                    Screen.Mods -> {
+                                        val zip = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+                                            if (uri != null) state.importFrom(uri)
+                                        }
+                                        ModManagementScreen(state) { zip.launch(zipTypes) }
                                     }
-                                    ModManagementScreen(state) { zip.launch(zipTypes) }
+                                    Screen.Log -> LogScreen(state)
+                                    Screen.Manual -> ManualScreen(state)
+                                    is Screen.Character -> CharacterScreen(state, screen.id, resumed)
+                                    is Screen.Detail -> DetailScreen(state, screen.name, resumed)
+                                    is Screen.Pick -> PickScreen(state, screen)
                                 }
-                                Screen.Log -> LogScreen(state)
-                                Screen.Manual -> ManualScreen(state)
-                                is Screen.Character -> CharacterScreen(state, screen.id, resumed)
-                                is Screen.Detail -> DetailScreen(state, screen.name, resumed)
-                                is Screen.Pick -> PickScreen(state, screen)
                             }
                         }
+                        if (resumed) AppDialogs(state)
                     }
-                    if (resumed) AppDialogs(state)
                 }
             }
         }

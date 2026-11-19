@@ -19,6 +19,8 @@ import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -155,6 +157,7 @@ internal fun Page(
     modifier: Modifier = Modifier,
     content: @Composable (PaddingValues) -> Unit,
 ) {
+    val tabInsets = LocalHomeTabInsets.current
     val ime = if (LocalWindowInfo.current.isWindowFocused) Modifier.imePadding() else Modifier
     Scaffold(
         modifier = modifier.fillMaxSize().then(ime),
@@ -168,7 +171,10 @@ internal fun Page(
                 topContent()
             }
         },
-        bottomBar = { if (bottom != null) Column(Modifier.navigationBarsPadding()) { bottom() } },
+        bottomBar = {
+            if (bottom != null) Column(Modifier.navigationBarsPadding()) { bottom() }
+            else if (tabInsets != null) Spacer(Modifier.height(tabInsets.calculateBottomPadding()))
+        },
         content = content,
     )
 }
@@ -242,7 +248,7 @@ internal fun PreferencePage(
     val density = LocalDensity.current
     Page(title, bottom = bottom, modifier = Modifier.nestedScroll(behavior.nestedScrollConnection), toolbar = {
         LargeTopAppBar(title = { BasicText(title, style = LocalCouiTextStyle.current, maxLines = 1,
-            overflow = TextOverflow.Ellipsis) }, navigationIcon = { ToolbarAction(Glyph.Back, "返回", back) },
+            overflow = TextOverflow.Ellipsis) }, navigationIcon = { if (LocalHomeTabInsets.current == null) ToolbarAction(Glyph.Back, "返回", back) },
             scrollBehavior = behavior)
     }) { padding ->
         val body = remember(behavior, density, padding) { behavior.state.contentPadding(padding, density) }

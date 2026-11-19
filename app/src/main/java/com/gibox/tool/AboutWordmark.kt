@@ -5,6 +5,7 @@ import android.graphics.BitmapShader
 import android.graphics.BlurMaskFilter
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.graphics.Typeface
 import android.graphics.Shader
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -12,38 +13,27 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
-import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.platform.LocalDensity
 import com.itos.coui.shape.CouiShape
+import com.itos.coui.text.CouiTextKind
+import com.itos.coui.text.Text
 import com.itos.coui.theme.CouiTheme
 
 @Composable
-internal fun AboutWordmark(version: String) {
+internal fun AboutWordmark() {
     val ink = CouiTheme.colorScheme.onSurface
-    val context = LocalContext.current
     val phase = rememberInfiniteTransition(label = "About wordmark").animateFloat(
         initialValue = 0f,
         targetValue = 1f,
@@ -59,19 +49,14 @@ internal fun AboutWordmark(version: String) {
             val pitch = 126.dp.roundToPx()
             val row = 48.dp.roundToPx()
             val stamp = Bitmap.createBitmap(pitch, row * 2, Bitmap.Config.ARGB_8888)
-            val mark = requireNotNull(context.getDrawable(R.drawable.gibox_wordmark)).mutate()
-            val height = 29.dp.roundToPx()
-            val left = (pitch - height * 3) / 2
-            val top = (row - height) / 2
-            mark.setBounds(left, top, left + height * 3, top + height)
-            mark.draw(Canvas(stamp))
-
-            val blur = Paint().apply { maskFilter = BlurMaskFilter(1.7.dp.toPx(), BlurMaskFilter.Blur.NORMAL) }
-            val origin = IntArray(2)
-            val mask = stamp.extractAlpha(blur, origin)
-            stamp.eraseColor(android.graphics.Color.TRANSPARENT)
-            Canvas(stamp).drawBitmap(mask, origin[0].toFloat(), origin[1].toFloat(),
-                Paint().apply { color = ink.copy(alpha = .16f).toArgb() })
+            val lettering = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+                textSize = 25.dp.toPx()
+                textAlign = Paint.Align.CENTER
+                color = ink.copy(alpha = .16f).toArgb()
+                maskFilter = BlurMaskFilter(1.7.dp.toPx(), BlurMaskFilter.Blur.NORMAL)
+            }
+            Canvas(stamp).drawText("GIBox", pitch / 2f, (row - lettering.ascent() - lettering.descent()) / 2f, lettering)
             val pattern = Paint(Paint.FILTER_BITMAP_FLAG).apply {
                 shader = BitmapShader(stamp, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT)
             }
@@ -90,12 +75,6 @@ internal fun AboutWordmark(version: String) {
                 canvas.restore()
             }
         })
-        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-            Image(painterResource(R.drawable.gibox_wordmark), "GIBox",
-                Modifier.size(width = 180.dp, height = 60.dp), colorFilter = ColorFilter.tint(ink))
-            BasicText(version, style = TextStyle(color = ink.copy(alpha = .85f),
-                fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Medium,
-                fontSize = with(LocalDensity.current) { 16.dp.toSp() }))
-        }
+        Text(text = "GIBox", kind = CouiTextKind.TopBar, color = ink)
     }
 }

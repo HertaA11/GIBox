@@ -16,7 +16,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -44,37 +43,7 @@ import com.itos.coui.layout.Group
 import com.itos.coui.theme.CouiTheme
 
 @Composable
-internal fun HomeScreen(state: AppState) {
-    var searching by rememberSaveable { mutableStateOf(false) }
-    var query by rememberSaveable { mutableStateOf("") }
-    val homeScroll = rememberScrollState()
-    val setSearching: (Boolean) -> Unit = {
-        searching = it
-        if (!it) query = ""
-    }
-    Page("GIBox", toolbar = {
-        SearchToolbar("GIBox", "搜索功能", query, { query = it }, searching, setSearching,
-            leadingAction = { ToolbarAction(Glyph.Log, "运行日志") { state.open(Screen.Log) } })
-    }) { padding ->
-        if (searching) ColumnPage(padding) {
-            FeatureResults(state, query) {
-                setSearching(false)
-                state.openFeature(it)
-            }
-        } else ColumnPage(padding, homeScroll) {
-            ModuleActivation(state)
-            Group {
-                features.take(4).forEachIndexed { index, feature ->
-                    if (index > 0) Divider(startIndent = CouiPageDefaults.rowPadding)
-                    ActionRow(feature.title, glyph = feature.icon, showNext = true) { state.open(feature.page) }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ModuleActivation(state: AppState) {
+internal fun ModuleActivation(state: AppState) {
     val scope = LspService.scope
     val active = state.moduleActive
     val colors = CouiTheme.colorScheme
@@ -145,7 +114,7 @@ internal fun FeatureSearchScreen(state: AppState, open: (Feature) -> Unit) {
 }
 
 @Composable
-private fun FeatureResults(state: AppState, query: String, open: (Feature) -> Unit) {
+internal fun FeatureResults(state: AppState, query: String, open: (Feature) -> Unit) {
     val results = remember(query) {
         val terms = query.trim().split(Regex("\\s+")).filter(String::isNotEmpty)
         if (terms.isEmpty()) emptyList() else features.filter { feature ->
@@ -258,7 +227,7 @@ internal fun SettingsScreen(state: AppState, target: String?) {
 @Composable
 internal fun AboutScreen(state: AppState) {
     PreferencePage("关于 GIBox", state::back) {
-        AboutWordmark(state.appVersion)
+        AboutWordmark()
         Group {
             ActionRow("开发者", "Yuanqi314")
             Divider()
