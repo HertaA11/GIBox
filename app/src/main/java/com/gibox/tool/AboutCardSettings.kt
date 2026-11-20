@@ -37,7 +37,8 @@ private val imageKeys = cardImages.map { it.first }.toSet()
 
 internal data class AboutCardConfig(
     val foreground: String = WORDMARK,
-    val background: Set<String> = StickerCharacter.entries.flatMap { it.files }.toSet(),
+    val characters: Set<StickerCharacter> = StickerCharacter.entries.toSet(),
+    val transparency: Int = 0,
     val arrangement: StickerArrangement = StickerArrangement.Alternate,
     val diagonal: Boolean = true,
     val direction: StickerDirection = StickerDirection.Alternate,
@@ -52,7 +53,12 @@ internal class AboutCardSettings(private val context: Context) {
     private val defaults = AboutCardConfig()
     var config by mutableStateOf(AboutCardConfig(
         foreground = prefs.getString("foreground", null)?.takeIf { it in imageKeys } ?: defaults.foreground,
-        background = prefs.getStringSet("background", null)?.filter { it != NO_IMAGE && it in imageKeys }?.toSet() ?: defaults.background,
+        characters = prefs.getStringSet("characters", null)?.let { saved ->
+            StickerCharacter.entries.filter { it.name in saved }.toSet()
+        } ?: prefs.getStringSet("background", null)?.let { files ->
+            StickerCharacter.entries.filter { role -> role.files.any { it in files } }.toSet()
+        } ?: defaults.characters,
+        transparency = prefs.getInt("transparency", defaults.transparency).coerceIn(0, 100),
         arrangement = StickerArrangement.entries.find { it.name == prefs.getString("arrangement", null) } ?: defaults.arrangement,
         diagonal = prefs.getBoolean("diagonal", defaults.diagonal),
         direction = StickerDirection.entries.find { it.name == prefs.getString("direction", null) } ?: defaults.direction,
@@ -66,7 +72,8 @@ internal class AboutCardSettings(private val context: Context) {
     fun update(next: AboutCardConfig) {
         if (next == config) return
         config = next
-        prefs.edit().putString("foreground", next.foreground).putStringSet("background", next.background)
+        prefs.edit().putString("foreground", next.foreground).remove("background")
+            .putStringSet("characters", next.characters.map { it.name }.toSet()).putInt("transparency", next.transparency)
             .putString("arrangement", next.arrangement.name).putBoolean("diagonal", next.diagonal)
             .putString("direction", next.direction.name).putInt("speed", next.speed).putInt("blur", next.blur)
             .putInt("stickerSize", next.stickerSize).putInt("titleSize", next.titleSize).apply()

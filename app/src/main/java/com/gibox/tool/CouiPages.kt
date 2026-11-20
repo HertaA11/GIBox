@@ -486,11 +486,11 @@ internal fun EditableRow(title: String, value: String, summary: String? = null, 
 }
 
 @Composable
-private fun dialogMaterial() =
+internal fun dialogMaterial() =
     if (CouiDialogDefaults.isMaterialSupported()) CouiDialogDefaults.material(CouiTheme.isDark) else null
 
 @Composable
-private fun primaryDialogAction(label: String, click: () -> Unit) = CouiDialogAction(
+internal fun primaryDialogAction(label: String, click: () -> Unit) = CouiDialogAction(
     text = label,
     onClick = click,
     style = CouiDialogActionStyle.Primary,

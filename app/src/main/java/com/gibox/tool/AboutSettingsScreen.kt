@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.itos.coui.layout.Divider
 import com.itos.coui.layout.Group
@@ -22,9 +24,8 @@ import com.itos.coui.text.CouiTextKind
 import kotlin.math.roundToInt
 
 @Composable
-internal fun AboutSettingsScreen(state: AppState) {
-    val settings = state.aboutCard
-    Page("关于界面设置", state::back) { padding ->
+internal fun AboutSettingsScreen(settings: AboutCardSettings, back: () -> Unit) {
+    Page("关于界面设置", back) { padding ->
         BoxWithConstraints(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
             val previewHeight = minOf(328.dp, maxHeight * .45f)
             Column {
@@ -39,9 +40,9 @@ internal fun AboutSettingsScreen(state: AppState) {
 private fun AboutCardControls(settings: AboutCardSettings) {
     val config = settings.config
     Group {
-        StickerPickerRow("中央图标选择", settings, multiple = false)
+        CenterStickerPicker(settings)
         Divider()
-        StickerPickerRow("轮播背景", settings, multiple = true)
+        BackgroundCharacterPicker(settings)
         Divider()
         ChoiceRow("轮播样式", config.arrangement, StickerArrangement.entries.map { it to it.label }) {
             settings.update(settings.config.copy(arrangement = it))
@@ -67,9 +68,11 @@ private fun AboutCardControls(settings: AboutCardSettings) {
             })
         }
         Divider()
-        CardSlider("动画速度", config.speed) { settings.update(settings.config.copy(speed = it)) }
+        CardSlider("动画速度", config.speed, 20, ::tenths) { settings.update(settings.config.copy(speed = it)) }
         Divider()
-        CardSlider("背景模糊", config.blur) { settings.update(settings.config.copy(blur = it)) }
+        CardSlider("背景模糊", config.blur, 20, ::tenths) { settings.update(settings.config.copy(blur = it)) }
+        Divider()
+        CardSlider("贴纸透明度", config.transparency, 100, { "$it%" }) { settings.update(settings.config.copy(transparency = it)) }
     }
     Group {
         ChoiceRow("贴纸大小", config.stickerSize, stickerSizes.map { it to "${it} dp" }) {
@@ -82,14 +85,17 @@ private fun AboutCardControls(settings: AboutCardSettings) {
     }
 }
 
+private fun tenths(value: Int) = "${value / 10}.${value % 10}"
+
 @Composable
-private fun CardSlider(title: String, tenths: Int, change: (Int) -> Unit) {
-    ActionRow(title, "${tenths / 10}.${tenths % 10}")
-    Slider(modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp),
-        value = tenths / 10f, valueRange = 0f..2f, onValueChange = { change((it * 10).roundToInt().coerceIn(0, 20)) })
+private fun CardSlider(title: String, value: Int, max: Int, format: (Int) -> String, change: (Int) -> Unit) {
+    ActionRow(title, format(value))
+    Slider(modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp).semantics { contentDescription = title },
+        value = value.toFloat(), valueRange = 0f..max.toFloat(), steps = max - 1,
+        onValueChange = { change(it.roundToInt().coerceIn(0, max)) })
     Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, bottom = 12.dp),
         horizontalArrangement = Arrangement.SpaceBetween) {
-        Text(text = "0.0", kind = CouiTextKind.GroupTitle)
-        Text(text = "2.0", kind = CouiTextKind.GroupTitle)
+        Text(text = format(0), kind = CouiTextKind.GroupTitle)
+        Text(text = format(max), kind = CouiTextKind.GroupTitle)
     }
 }
