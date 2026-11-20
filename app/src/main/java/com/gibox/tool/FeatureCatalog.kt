@@ -6,6 +6,7 @@ internal val features = listOf(
     Feature("辅助功能","Accessibility 隐藏用户UID 角色 MOD 同时替换对应 NPC 随身合成台 取消角色渐隐 加载图片比例",Screen.Accessibility,Glyph.Accessibility),
     Feature("设置","Settings 打开目录 文件夹 hash 模式 匹配 采集 完整诊断 替换方式 动画 3DMigoto 骨骼 手动转换",Screen.Settings,Glyph.Wrench),
     Feature("关于","About Version 版本 开源 许可证 查看源代码 View Source Code GitHub",Screen.About,Glyph.Info),
+    Feature("关于界面设置","贴纸 角色 轮播 方向 字体 模糊 预览",Screen.AboutSettings,Glyph.Info),
     Feature("隐藏用户UID","UID 账号 隐藏",Screen.Accessibility,Glyph.Grid),
     Feature("角色 MOD 同时替换对应 NPC","剧情角色 同步 NPC",Screen.Accessibility,Glyph.Grid),
     Feature("随身合成台","合成 游戏图标",Screen.Accessibility,Glyph.Grid),

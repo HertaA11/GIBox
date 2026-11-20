@@ -40,6 +40,7 @@ sealed interface Screen : Serializable {
     data object Home : Screen
     data object Mods : Screen
     data object Accessibility : Screen
+    data object AboutSettings : Screen
     data object About : Screen
     data object FeatureSearch : Screen
     data object Settings : Screen
@@ -113,6 +114,7 @@ class AppState private constructor(private val context: Context) {
     val frameworkApi: Int get() = ModuleStatus.api
     var logLevel by mutableStateOf("info")
         private set
+    internal val aboutCard by lazy { AboutCardSettings(context) }
     /** This APK's versionName (app/build.gradle.kts), read from the package rather than written in the source. */
     val appVersion: String = packageInfo(context.packageName)?.versionName ?: "?"
     var busy by mutableStateOf<String?>(null)

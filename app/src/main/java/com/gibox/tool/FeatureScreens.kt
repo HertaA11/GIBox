@@ -166,8 +166,10 @@ internal fun AccessibilityScreen(state: AppState, target: String?) {
 @Composable
 internal fun SettingsScreen(state: AppState, target: String?) {
     PreferencePage("设置", state::back) {
+        Group {
+            ActionRow("关于界面设置", showNext = true, click = { state.open(Screen.AboutSettings) })
+        }
         ClientRow(state, showIcon = false)
-        // One flat list: no secondary named categories or nested Settings menus.
         val values = remember(state.game, state.revision) {
             listOf(state.textureMods("strategy", "auto"), state.textureMods("lod", "full"), state.hashMode(), state.experimentInt("animationMode").toString())
         }
@@ -227,7 +229,7 @@ internal fun SettingsScreen(state: AppState, target: String?) {
 @Composable
 internal fun AboutScreen(state: AppState) {
     PreferencePage("关于 GIBox", state::back) {
-        AboutWordmark()
+        AboutWordmark(state.aboutCard)
         Group {
             ActionRow("开发者", "Yuanqi314")
             Divider()

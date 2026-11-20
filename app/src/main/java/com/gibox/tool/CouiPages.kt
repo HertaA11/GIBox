@@ -310,19 +310,32 @@ internal fun <T> ChoiceRow(
     title: String, selected: T?, options: List<Pair<T, String>>, summary: String? = null, glyph: Glyph? = null,
     modifier: Modifier = Modifier, enabled: Boolean = true, change: (T) -> Unit,
 ) {
+    val value = options.firstOrNull { it.first == selected }?.second
+    MenuChoiceRow(title, value, summary, glyph, modifier, enabled && options.isNotEmpty()) { expanded, dismiss, anchor ->
+        ChoiceMenu(expanded, dismiss, selected, options, anchor) {
+            dismiss()
+            change(it)
+        }
+    }
+}
+
+@Composable
+internal fun MenuChoiceRow(
+    title: String, value: String?, summary: String? = null, glyph: Glyph? = null,
+    modifier: Modifier = Modifier, enabled: Boolean = true,
+    menu: @Composable (Boolean, () -> Unit, CouiMenuAnchor) -> Unit,
+) {
     var expanded by remember { mutableStateOf(false) }
     val anchor = rememberCouiMenuAnchor()
     val source = remember { MutableInteractionSource() }
-    val canChoose = enabled && options.isNotEmpty()
-    val value = options.firstOrNull { it.first == selected }?.second
     val dark = CouiTheme.isDark
 
     Box(modifier) {
         ActionRow(
-            title, summary, glyph, enabled = canChoose,
+            title, summary, glyph, enabled = enabled,
             modifier = Modifier.couiMenuAnchor(anchor)
-                .couiButtonFeedback(dark, source, canChoose, list = true, hoverLocked = expanded)
-                .clickable(source, null, canChoose, role = Role.Button) { anchor.open { expanded = true } }
+                .couiButtonFeedback(dark, source, enabled, list = true, hoverLocked = expanded)
+                .clickable(source, null, enabled, role = Role.Button) { anchor.open { expanded = true } }
                 .semantics { stateDescription = if (expanded) "已展开" else "已收起" },
             trailing = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -338,10 +351,7 @@ internal fun <T> ChoiceRow(
                 }
             },
         )
-        ChoiceMenu(expanded && canChoose, { expanded = false }, selected, options, anchor) {
-            expanded = false
-            change(it)
-        }
+        if (hasBeenShown(expanded)) menu(expanded && enabled, { expanded = false }, anchor)
     }
 }
 

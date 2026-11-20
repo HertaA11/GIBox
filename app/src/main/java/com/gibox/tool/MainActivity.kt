@@ -66,6 +66,7 @@ open class PageActivity : ComponentActivity() {
                                     Screen.FeatureSearch -> FeatureSearchScreen(state, state::openFeature)
                                     Screen.Accessibility -> AccessibilityScreen(state, target)
                                     Screen.Settings -> SettingsScreen(state, target)
+                                    Screen.AboutSettings -> AboutSettingsScreen(state)
                                     Screen.About -> AboutScreen(state)
                                     Screen.Mods -> {
                                         val zip = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
