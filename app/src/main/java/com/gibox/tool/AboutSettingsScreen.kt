@@ -10,10 +10,16 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import com.itos.coui.dialog.CouiDialogAction
+import com.itos.coui.dialog.Dialog
 import com.itos.coui.layout.Divider
 import com.itos.coui.layout.Group
 import com.itos.coui.menu.CouiMenuItem
@@ -25,19 +31,30 @@ import kotlin.math.roundToInt
 
 @Composable
 internal fun AboutSettingsScreen(settings: AboutCardSettings, back: () -> Unit) {
+    var showReset by rememberSaveable { mutableStateOf(false) }
     Page("关于界面设置", back) { padding ->
         BoxWithConstraints(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
             val previewHeight = minOf(328.dp, maxHeight * .45f)
             Column {
                 AboutWordmark(settings, previewHeight)
-                ColumnPage(PaddingValues(0.dp)) { AboutCardControls(settings) }
+                ColumnPage(PaddingValues(0.dp)) { AboutCardControls(settings) { showReset = true } }
             }
         }
+    }
+    if (hasBeenShown(showReset)) {
+        val dismiss = { showReset = false }
+        Dialog(visible = showReset, material = dialogMaterial(), title = "是否重置当前设置",
+            message = "demo默认", onDismissRequest = dismiss,
+            dismissAction = CouiDialogAction("取消", dismiss),
+            confirmAction = primaryDialogAction("确定") {
+                settings.reset()
+                dismiss()
+            })
     }
 }
 
 @Composable
-private fun AboutCardControls(settings: AboutCardSettings) {
+private fun AboutCardControls(settings: AboutCardSettings, onReset: () -> Unit) {
     val config = settings.config
     Group(title = "页面选项") {
         ToggleRow("在其他页面时暂停贴纸轮播", config.pauseOnOtherPages) {
@@ -82,6 +99,9 @@ private fun AboutCardControls(settings: AboutCardSettings) {
         CardSlider("贴纸与 GIBox 大小", config.stickerSize, cardSizes.last, { "${it} dp" }, min = cardSizes.first) {
             settings.update(settings.config.copy(stickerSize = it))
         }
+    }
+    Group {
+        ActionRow("重置", click = onReset)
     }
 }
 

@@ -38,7 +38,7 @@ private val imageKeys = cardImages.map { it.first }.toSet()
 
 internal data class AboutCardConfig(
     val foreground: String = WORDMARK,
-    val characters: Set<StickerCharacter> = StickerCharacter.entries.toSet(),
+    val characters: Set<StickerCharacter> = setOf(StickerCharacter.Hutao, StickerCharacter.Furina),
     val transparency: Int = 0,
     val arrangement: StickerArrangement = StickerArrangement.Alternate,
     val diagonal: Boolean = true,
@@ -69,6 +69,8 @@ internal class AboutCardSettings(private val context: Context) {
         pauseOnOtherPages = prefs.getBoolean("pauseOnOtherPages", defaults.pauseOnOtherPages),
     ))
         private set
+
+    fun reset() = update(defaults)
 
     fun update(next: AboutCardConfig) {
         if (next == config) return
