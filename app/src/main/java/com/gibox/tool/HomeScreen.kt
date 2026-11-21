@@ -1,6 +1,7 @@
 package com.gibox.tool
 
 import android.os.Build
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -62,8 +63,8 @@ internal fun ModManagementScreen(state: AppState, openFeature: ((Feature) -> Uni
         }, back = if (home) null else state::back,
             leadingAction = if (home) ({ ToolbarAction(Glyph.Log, "运行日志") { state.open(Screen.Log) } }) else null)
     }) { padding ->
-        LazyColumn(Modifier.fillMaxSize().padding(top = padding.calculateTopPadding()).consumeWindowInsets(padding),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = padding.calculateBottomPadding() + 8.dp),
+        LazyColumn(Modifier.fillMaxSize().consumeWindowInsets(padding),
+            contentPadding = PaddingValues(top = padding.calculateTopPadding(), bottom = padding.calculateBottomPadding() + 8.dp),
             state = if (searching) searchList else listState,
             overscrollEffect = rememberCouiOverscrollEffect(),
         ) {

@@ -219,7 +219,7 @@ internal fun SearchToolbar(
     }
     val motion = rememberCouiTopAppBarSearchState(expanded)
     var focusPending by remember { mutableStateOf(false) }
-    TopAppBarSurface {
+    TopAppBarSurface(gradientColor = CouiTheme.colorScheme.background) {
         Row(Modifier.fillMaxWidth().statusBarsPadding().heightIn(min = 64.dp).padding(horizontal = 16.dp),
             verticalAlignment = Alignment.CenterVertically) {
             if (back != null) TopAppBarSearchAction(state = motion) { ToolbarAction(Glyph.Back, "返回", back) }

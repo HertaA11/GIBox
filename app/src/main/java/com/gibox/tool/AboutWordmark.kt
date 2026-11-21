@@ -59,12 +59,12 @@ internal fun AboutWordmark(settings: AboutCardSettings, height: Dp = 328.dp) {
 internal fun CardStickerBackground(settings: AboutCardSettings, modifier: Modifier) {
     val config = settings.config
     if (config.characters.isEmpty() || config.transparency == 100) return
-    val images by produceState<Map<String, Bitmap>>(emptyMap(), settings) { value = settings.thumbnails() }
-    if (images.isNotEmpty()) StickerRows(config, images, modifier.blur((config.blur * .4f).dp))
+    val atlas = remember(settings) { settings.stickerAtlas }
+    StickerRows(config, atlas, modifier.blur((config.blur * .4f).dp))
 }
 
 @Composable
-private fun StickerRows(config: AboutCardConfig, images: Map<String, Bitmap>, modifier: Modifier) {
+private fun StickerRows(config: AboutCardConfig, atlas: Bitmap, modifier: Modifier) {
     val playlist = remember(config.characters, config.arrangement) {
         StickerPlaylist(config.characters, config.arrangement == StickerArrangement.Together)
     }
@@ -78,7 +78,9 @@ private fun StickerRows(config: AboutCardConfig, images: Map<String, Bitmap>, mo
             if (scale <= 0f) return@collectLatest
             var previous = withFrameNanos { it }
             while (true) withFrameNanos { now ->
-                position.doubleValue = (position.doubleValue + (now - previous) * speed.toDouble() /
+                // Skip the backlog after a stalled frame or when returning from the background.
+                val elapsed = (now - previous).coerceIn(0L, 50_000_000L)
+                position.doubleValue = (position.doubleValue + elapsed * speed.toDouble() /
                     (3_400_000_000.0 * scale)) % period
                 previous = now
             }
@@ -110,10 +112,10 @@ private fun StickerRows(config: AboutCardConfig, images: Map<String, Bitmap>, mo
             canvas.translate(size.width / 2, size.height / 2)
             canvas.rotate(angle)
             fun drawTile(file: String, x: Float, y: Float, opacity: Float) {
-                val bitmap = images.getValue(file)
+                val source = stickerAtlasTiles.getValue(file)
                 rect.set(x - side / 2, y - side / 2, x + side / 2, y + side / 2)
                 paint.alpha = (maxAlpha * opacity).roundToInt()
-                canvas.drawBitmap(bitmap, null, rect, paint)
+                canvas.drawBitmap(atlas, source, rect, paint)
             }
             for (row in -lastRow..lastRow) {
                 val ordinal = row + lastRow

@@ -54,7 +54,7 @@ open class PageActivity : ComponentActivity() {
             CompositionLocalProvider(LocalCouiContourGlowEnabled provides true) {
                 CouiTheme {
                     val client = when (screen) {
-                        Screen.Settings, Screen.Accessibility, Screen.Log, Screen.Manual,
+                        Screen.Settings, Screen.Debug, Screen.Accessibility, Screen.Log, Screen.Manual,
                         is Screen.Detail, is Screen.Pick -> state.game
                         else -> null
                     }
@@ -66,6 +66,7 @@ open class PageActivity : ComponentActivity() {
                                     Screen.FeatureSearch -> FeatureSearchScreen(state, state::openFeature)
                                     Screen.Accessibility -> AccessibilityScreen(state, target)
                                     Screen.Settings -> SettingsScreen(state, target)
+                                    Screen.Debug -> DebugScreen(state, target)
                                     Screen.AboutSettings -> AboutSettingsScreen(state.aboutCard, state::back)
                                     Screen.About -> AboutScreen(state)
                                     Screen.Mods -> {

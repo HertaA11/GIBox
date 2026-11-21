@@ -3,6 +3,7 @@ package com.gibox.tool
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Rect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -77,6 +78,14 @@ internal class AboutCardSettings(private val context: Context) {
             .putInt("stickerSize", next.stickerSize).remove("titleSize").apply()
     }
 
+    // The packed PNG contains the same files as the picker, in character and image order.
+    // Decoding and uploading one small bitmap avoids waiting for every original to be decoded.
+    internal val stickerAtlas by lazy {
+        val bitmap = decode("atlas.png", 1)
+        bitmap.prepareToDraw()
+        bitmap
+    }
+
     private val lock = Mutex()
     private var thumbnails: Map<String, Bitmap>? = null
 
@@ -93,3 +102,11 @@ internal class AboutCardSettings(private val context: Context) {
         requireNotNull(BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = sample }))
     }
 }
+
+private const val atlasTileSize = 192
+private const val atlasColumns = 8
+internal val stickerAtlasTiles = StickerCharacter.entries.flatMap { it.files }.mapIndexed { index, file ->
+    val x = index % atlasColumns * atlasTileSize
+    val y = index / atlasColumns * atlasTileSize
+    file to Rect(x, y, x + atlasTileSize, y + atlasTileSize)
+}.toMap()

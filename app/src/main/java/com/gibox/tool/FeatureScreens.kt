@@ -1,6 +1,5 @@
 package com.gibox.tool
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
@@ -22,8 +21,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -58,19 +55,9 @@ internal fun ModuleActivation(state: AppState) {
     }
     val page = CouiPageDefaults.themeColors()
     val dark = CouiTheme.isDark
-    val surface = when {
-        !active -> page.card
-        dark -> Color(0xFF1A3825)
-        else -> Color(0xFFDFFAE4)
-    }
-    val ink = when {
-        !active -> colors.onSurface
-        dark -> Color(0xFFC5EED1)
-        else -> Color(0xFF164A29)
-    }
     val feedback = remember { MutableInteractionSource() }
-    val caption = rememberCouiTextStyle(CouiTextKind.ItemSummary).copy(fontSize = 15.sp, color = ink)
-    Group(colors = page.copy(card = surface)) {
+    val caption = rememberCouiTextStyle(CouiTextKind.ItemSummary).copy(fontSize = 15.sp, color = colors.onSurface)
+    Group(colors = page) {
         Box(Modifier.fillMaxWidth().heightIn(min = 144.dp)
             .couiButtonFeedback(dark, feedback, list = true)
             .clickable(feedback, null, role = Role.Button) {
@@ -82,14 +69,9 @@ internal fun ModuleActivation(state: AppState) {
                 state.prompt = Prompt(title, details.joinToString("\n\n"))
             }) {
             CardStickerBackground(state.aboutCard, Modifier.matchParentSize())
-            Spacer(Modifier.matchParentSize().background(Brush.horizontalGradient(
-                0f to surface.copy(alpha = .88f),
-                .68f to surface.copy(alpha = .78f),
-                1f to surface.copy(alpha = .35f),
-            )))
             Column(Modifier.fillMaxWidth().padding(20.dp)) {
                 BasicText(title, style = rememberCouiTextStyle(CouiTextKind.ItemTitle)
-                    .copy(color = ink, fontSize = 22.sp, fontWeight = FontWeight.SemiBold))
+                    .copy(color = colors.onSurface, fontSize = 22.sp, fontWeight = FontWeight.SemiBold))
                 BasicText("模块版本 ${state.appVersion}", style = caption)
                 Spacer(Modifier.height(12.dp))
                 BasicText(framework, style = caption)
@@ -162,13 +144,7 @@ internal fun SettingsScreen(state: AppState, target: String?) {
     PreferencePage("设置", state::back) {
         ClientRow(state, showIcon = false)
         val revision = state.revision
-        val strategy = remember(state.game, revision) { state.textureMods("strategy", "auto") }
-        val lod = remember(state.game, revision) { state.textureMods("lod", "full") }
         val hashMode = remember(state.game, revision) { state.hashMode() }
-        val animation = remember(state.game, revision) { state.experimentInt("animationMode").toString() }
-        val lodPin = remember(state.game, revision) { state.lodPin() }
-        val skip3dm = remember(state.game, revision) { state.experiment("skip3dmConversion") }
-        val keySteps = remember(state.game, revision) { state.experiment("keySteps") }
         Group {
             ActionRow("打开 Mods 文件夹", showNext = true,
                 modifier = focusRow("打开 Mods 文件夹", target)) { state.openFolder(state.modsRoot) }
@@ -189,8 +165,23 @@ internal fun SettingsScreen(state: AppState, target: String?) {
         }
         Group {
             ActionRow("关于界面设置", showNext = true, click = { state.open(Screen.AboutSettings) })
+            Divider()
+            ActionRow("调试", showNext = true, click = { state.open(Screen.Debug) })
         }
-        Group(title = "调试") {
+    }
+}
+
+@Composable
+internal fun DebugScreen(state: AppState, target: String?) {
+    PreferencePage("调试", state::back) {
+        val revision = state.revision
+        val strategy = remember(state.game, revision) { state.textureMods("strategy", "auto") }
+        val lod = remember(state.game, revision) { state.textureMods("lod", "full") }
+        val animation = remember(state.game, revision) { state.experimentInt("animationMode").toString() }
+        val lodPin = remember(state.game, revision) { state.lodPin() }
+        val skip3dm = remember(state.game, revision) { state.experiment("skip3dmConversion") }
+        val keySteps = remember(state.game, revision) { state.experiment("keySteps") }
+        Group {
             ChoiceRow("替换方式", strategy, listOf("auto" to "自动（默认）", "diagnose" to "只检查，不替换",
                 "direct" to "直接改游戏材质", "clone" to "复制材质再改"),
                 "其他方式用于对比排查，切换前会先还原", modifier = focusRow("替换方式", target)) { state.setTextureMods("strategy", it) }

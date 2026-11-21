@@ -44,6 +44,7 @@ sealed interface Screen : Serializable {
     data object About : Screen
     data object FeatureSearch : Screen
     data object Settings : Screen
+    data object Debug : Screen
     data object Log : Screen
     data object Manual : Screen
     /** The mods of one character (id 0: mods without a chosen character). */
@@ -157,6 +158,10 @@ class AppState private constructor(private val context: Context) {
     }
 
     init {
+        val card = aboutCard
+        if (card.config.characters.isNotEmpty() && card.config.transparency < 100) {
+            scope.launch(Dispatchers.IO) { card.stickerAtlas }
+        }
         scope.launch {
             snapshotFlow { LspService.scope }.drop(1).collect { if (startedPages > 0) refreshInBackground() }
         }

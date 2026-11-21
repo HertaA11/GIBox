@@ -57,13 +57,13 @@ internal fun LogScreen(state: AppState) {
 
     Page("运行日志", state::back, actions = {
         LogToolbarAction(painterResource(R.drawable.gibox_log_refresh), "刷新") { reload++ }
+        LogToolbarAction(painterResource(R.drawable.gibox_log_share), "分享", click = state::shareLog)
         LogToolbarAction(painterResource(R.drawable.gibox_log_delete), "删除", color = CouiDialogDefaults.themeColors().destructive) {
             state.prompt = Prompt("清空日志", "删除 ${AppLog.FILE}（游戏和 GIBox 共用）？",
                 confirm = "清空", dismiss = "取消", destructive = true, onConfirm = {
                     scope.launch { if (state.clearLog(file)) reload++ }
                 })
         }
-        LogToolbarAction(painterResource(R.drawable.gibox_log_share), "分享", click = state::shareLog)
         val anchor = rememberCouiMenuAnchor()
         Box(Modifier.couiMenuAnchor(anchor)) {
             LogToolbarAction(rememberVectorPainter(CouiIcons.Outlined.SliderCustom), "级别") {

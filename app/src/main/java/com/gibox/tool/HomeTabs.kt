@@ -4,17 +4,13 @@ import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -30,6 +26,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.compositionLocalOf
@@ -47,6 +44,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.platform.LocalDensity
@@ -79,10 +77,13 @@ internal fun HomeTabs(state: AppState) {
     var selected by rememberSaveable { mutableIntStateOf(0) }
     var focusTarget by rememberSaveable { mutableStateOf<String?>(null) }
     val keyboard = LocalSoftwareKeyboardController.current
+    val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
+    var direction by remember { mutableIntStateOf(0) }
     val select: (Int) -> Unit = { index ->
         if (index != selected) {
             keyboard?.hide()
             focusTarget = null
+            direction = if ((index > selected) != rtl) 1 else -1
             selected = index
         }
     }
@@ -96,30 +97,30 @@ internal fun HomeTabs(state: AppState) {
         CouiNavigationItem("设置", CouiIcons.Filled.SettingDetail),
         CouiNavigationItem("关于", ImageVector.vectorResource(R.drawable.gibox_info)),
     )
-    val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
+    val offset = remember(selected) { Animatable(direction.toFloat()) }
+    LaunchedEffect(offset) {
+        if (offset.value != 0f) offset.animateTo(0f, tween(180))
+    }
     BackHandler(selected != 0) { select(0) }
     val ime = if (LocalWindowInfo.current.isWindowFocused) Modifier.imePadding() else Modifier
     Scaffold(modifier = ime, bottomBar = { HomeNavigationBar(items, selected, select) }) { insets ->
         CompositionLocalProvider(LocalHomeTabInsets provides insets) {
-            AnimatedContent(targetState = selected, modifier = Modifier.fillMaxSize().clipToBounds(),
-                transitionSpec = {
-                    val direction = if ((targetState > initialState) != rtl) 1 else -1
-                    (slideInHorizontally(tween(240)) { direction * it / 10 } + fadeIn(tween(210)))
-                        .togetherWith(slideOutHorizontally(tween(210)) { -direction * it / 10 } + fadeOut(tween(150)))
-                }, label = "首页底栏切换") { index ->
-                holder.SaveableStateProvider(index) {
-                    when (destinations[index]) {
-                        Screen.Mods -> ModManagementScreen(state, openFeature = { feature ->
-                            val tab = destinations.indexOf(feature.page)
-                            if (tab >= 0) {
-                                select(tab)
-                                focusTarget = feature.title
-                            } else state.openFeature(feature)
-                        }) { importer.launch(zipTypes) }
-                        Screen.Accessibility -> key(state.game) { AccessibilityScreen(state, focusTarget) }
-                        Screen.Settings -> key(state.game) { SettingsScreen(state, focusTarget) }
-                        Screen.About -> AboutScreen(state)
-                        else -> error("Unknown home tab")
+            Box(Modifier.fillMaxSize().clipToBounds()) {
+                Box(Modifier.fillMaxSize().graphicsLayer { translationX = 14.dp.toPx() * offset.value }) {
+                    holder.SaveableStateProvider(selected) {
+                        when (destinations[selected]) {
+                            Screen.Mods -> ModManagementScreen(state, openFeature = { feature ->
+                                val tab = destinations.indexOf(feature.page)
+                                if (tab >= 0) {
+                                    select(tab)
+                                    focusTarget = feature.title
+                                } else state.openFeature(feature)
+                            }) { importer.launch(zipTypes) }
+                            Screen.Accessibility -> key(state.game) { AccessibilityScreen(state, focusTarget) }
+                            Screen.Settings -> key(state.game) { SettingsScreen(state, focusTarget) }
+                            Screen.About -> AboutScreen(state)
+                            else -> error("Unknown home tab")
+                        }
                     }
                 }
             }
