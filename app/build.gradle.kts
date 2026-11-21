@@ -57,7 +57,8 @@ android {
     }
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             if (keystoreFile != null) signingConfig = signingConfigs.getByName("release")
         }
         // An installable release-mode build for testing the libraries' ART profiles without release keys.
