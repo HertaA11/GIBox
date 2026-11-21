@@ -35,7 +35,7 @@ import kotlin.math.floor
 import kotlin.math.roundToInt
 import kotlin.math.sin
 
-internal val LocalCardStickerMotion = compositionLocalOf { true }
+internal val LocalStickerPageActive = compositionLocalOf { true }
 
 @Composable
 internal fun AboutWordmark(settings: AboutCardSettings, height: Dp = 328.dp) {
@@ -73,7 +73,7 @@ private fun StickerRows(config: AboutCardConfig, atlas: Bitmap, modifier: Modifi
     val period = playlist.period
     val position = remember { mutableDoubleStateOf(0.0) }
     val speed by rememberUpdatedState(config.speed / 10f)
-    val animate = LocalCardStickerMotion.current && config.speed != 0
+    val animate = config.speed != 0 && (!config.pauseOnOtherPages || LocalStickerPageActive.current)
     LaunchedEffect(period, animate) {
         if (!animate) return@LaunchedEffect
         val durationScale = coroutineContext[MotionDurationScale]

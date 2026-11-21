@@ -358,7 +358,7 @@ internal fun MenuChoiceRow(
 // Mount the kit's popup motion and renderer on first use. Keep them composed on close
 // so the component controls its exit and can reverse it if immediately reopened.
 @Composable
-private fun hasBeenShown(visible: Boolean): Boolean {
+internal fun hasBeenShown(visible: Boolean): Boolean {
     var opened by remember { mutableStateOf(false) }
     if (visible && !opened) SideEffect { opened = true }
     return visible || opened
