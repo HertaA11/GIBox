@@ -39,6 +39,11 @@ internal fun AboutSettingsScreen(settings: AboutCardSettings, back: () -> Unit) 
 @Composable
 private fun AboutCardControls(settings: AboutCardSettings) {
     val config = settings.config
+    Group(title = "页面选项") {
+        ToggleRow("在其他页面时暂停贴纸轮播", config.pauseOnOtherPages) {
+            settings.update(settings.config.copy(pauseOnOtherPages = it))
+        }
+    }
     Group {
         CenterStickerPicker(settings)
         Divider()

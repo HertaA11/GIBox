@@ -100,12 +100,13 @@ internal fun HomeTabs(state: AppState) {
     )
     val transition = updateTransition(selected, label = "底栏切换")
     val switching = transition.currentState != selected || transition.isRunning
+    val stickerPageActive = LocalStickerPageActive.current && !switching
     BackHandler(selected != 0) { select(0) }
     val ime = if (LocalWindowInfo.current.isWindowFocused) Modifier.imePadding() else Modifier
     Scaffold(modifier = ime, bottomBar = { HomeNavigationBar(items, selected, select) }) { insets ->
         CompositionLocalProvider(
             LocalHomeTabInsets provides insets,
-            LocalCardStickerMotion provides !switching,
+            LocalStickerPageActive provides stickerPageActive,
         ) {
             transition.AnimatedContent(
                 modifier = Modifier.fillMaxSize().clipToBounds(),

@@ -51,7 +51,10 @@ open class PageActivity : ComponentActivity() {
         val screen = page
         val target = if (screen == Screen.Home) null else intent.getStringExtra(TARGET)
         setContent {
-            CompositionLocalProvider(LocalCouiContourGlowEnabled provides true) {
+            CompositionLocalProvider(
+                LocalCouiContourGlowEnabled provides true,
+                LocalStickerPageActive provides resumed,
+            ) {
                 CouiTheme {
                     val client = when (screen) {
                         Screen.Settings, Screen.Debug, Screen.Accessibility, Screen.Log, Screen.Manual,

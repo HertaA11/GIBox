@@ -46,7 +46,7 @@ internal data class AboutCardConfig(
     val speed: Int = 10,
     val blur: Int = 10,
     val stickerSize: Int = 80,
-
+    val pauseOnOtherPages: Boolean = false,
 )
 
 internal class AboutCardSettings(private val context: Context) {
@@ -66,6 +66,7 @@ internal class AboutCardSettings(private val context: Context) {
         speed = prefs.getInt("speed", defaults.speed).coerceIn(0, 20),
         blur = prefs.getInt("blur", defaults.blur).coerceIn(0, 20),
         stickerSize = prefs.getInt("stickerSize", defaults.stickerSize).coerceIn(cardSizes),
+        pauseOnOtherPages = prefs.getBoolean("pauseOnOtherPages", defaults.pauseOnOtherPages),
     ))
         private set
 
@@ -76,7 +77,8 @@ internal class AboutCardSettings(private val context: Context) {
             .putStringSet("characters", next.characters.map { it.name }.toSet()).putInt("transparency", next.transparency)
             .putString("arrangement", next.arrangement.name).putBoolean("diagonal", next.diagonal)
             .putString("direction", next.direction.name).putInt("speed", next.speed).putInt("blur", next.blur)
-            .putInt("stickerSize", next.stickerSize).remove("titleSize").apply()
+            .putInt("stickerSize", next.stickerSize).remove("titleSize")
+            .putBoolean("pauseOnOtherPages", next.pauseOnOtherPages).apply()
     }
 
     // The packed PNG contains the same files as the picker, in character and image order.
