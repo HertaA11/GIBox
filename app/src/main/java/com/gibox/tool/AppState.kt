@@ -162,6 +162,10 @@ class AppState private constructor(private val context: Context) {
         if (card.config.characters.isNotEmpty() && card.config.transparency < 100) {
             scope.launch(Dispatchers.IO) { card.stickerAtlas }
         }
+        val foreground = card.config.foreground
+        if (foreground != NO_IMAGE && foreground != WORDMARK) {
+            scope.launch(Dispatchers.IO) { card.foreground(foreground) }
+        }
         scope.launch {
             snapshotFlow { LspService.scope }.drop(1).collect { if (startedPages > 0) refreshInBackground() }
         }

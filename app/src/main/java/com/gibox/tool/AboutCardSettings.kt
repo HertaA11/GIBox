@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Rect
+import android.util.LruCache
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -96,7 +97,14 @@ internal class AboutCardSettings(private val context: Context) {
         }
     }
 
-    suspend fun foreground(file: String): Bitmap = withContext(Dispatchers.IO) { decode(file, 1) }
+    private val foregrounds = LruCache<String, Bitmap>(3)
+
+    fun foreground(file: String): Bitmap = synchronized(foregrounds) {
+        foregrounds[file] ?: decode(file, 1).also { bitmap ->
+            bitmap.prepareToDraw()
+            foregrounds.put(file, bitmap)
+        }
+    }
 
     private fun decode(file: String, sample: Int): Bitmap = context.assets.open("about_stickers/$file").use {
         requireNotNull(BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = sample }))

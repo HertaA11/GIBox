@@ -35,6 +35,8 @@ import kotlin.math.floor
 import kotlin.math.roundToInt
 import kotlin.math.sin
 
+internal val LocalCardStickerMotion = compositionLocalOf { true }
+
 @Composable
 internal fun AboutWordmark(settings: AboutCardSettings, height: Dp = 328.dp) {
     val config = settings.config
@@ -45,11 +47,11 @@ internal fun AboutWordmark(settings: AboutCardSettings, height: Dp = 328.dp) {
             WORDMARK -> BasicText("GIBox", style = rememberCouiTextStyle(CouiTextKind.HomeTitle)
                 .copy(color = CouiTheme.colorScheme.onSurface, fontSize = (config.stickerSize / 2f).sp, lineHeight = (config.stickerSize / 2f).sp))
             NO_IMAGE -> Unit
-            else -> key(file) {
-                val full by produceState<Bitmap?>(null, settings, file) { value = settings.foreground(file) }
-                val bitmap = full
-                if (bitmap != null) Image(remember(bitmap) { bitmap.asImageBitmap() },
-                    cardImages.first { it.first == file }.second, Modifier.size(config.stickerSize.dp), alpha = 1f - config.transparency / 100f)
+            else -> {
+                val image = remember(settings, file) { settings.foreground(file).asImageBitmap() }
+                val description = cardImages.first { it.first == file }.second
+                Image(image, description, Modifier.size(config.stickerSize.dp),
+                    alpha = 1f - config.transparency / 100f)
             }
         }
     }
@@ -71,8 +73,9 @@ private fun StickerRows(config: AboutCardConfig, atlas: Bitmap, modifier: Modifi
     val period = playlist.period
     val position = remember { mutableDoubleStateOf(0.0) }
     val speed by rememberUpdatedState(config.speed / 10f)
-    LaunchedEffect(period, config.speed == 0) {
-        if (speed == 0f) return@LaunchedEffect
+    val animate = LocalCardStickerMotion.current && config.speed != 0
+    LaunchedEffect(period, animate) {
+        if (!animate) return@LaunchedEffect
         val durationScale = coroutineContext[MotionDurationScale]
         snapshotFlow { durationScale?.scaleFactor ?: 1f }.collectLatest { scale ->
             if (scale <= 0f) return@collectLatest
