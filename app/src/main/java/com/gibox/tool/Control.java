@@ -149,11 +149,6 @@ public final class Control {
     public static synchronized void setTextureMods(String pkg, String key, Object value) throws Exception {
         JSONObject j = load(pkg); JSONObject x = j.optJSONObject("textureMods"); if (x == null) x = new JSONObject(); x.put(key, value); j.put("textureMods", x); save(pkg, j);
     }
-    public static synchronized long requestTextureTest(String pkg, int observeMs) throws Exception {
-        JSONObject j = load(pkg); JSONObject x = j.optJSONObject("textureMods"); if (x == null) x = new JSONObject();
-        long n = x.optLong("testRequest", 0) + 1; x.put("testRequest", n); JSONArray s = new JSONArray(); s.put("auto"); s.put("direct"); s.put("clone"); x.put("testStrategies", s); x.put("observeMs", observeMs);
-        j.put("textureMods", x); save(pkg, j); return n;
-    }
     /** Variant choice per model, read by the runtime from control.json "variables". */
     public static synchronized void setVariable(String pkg, String model, String var, int value) throws Exception {
         JSONObject j = load(pkg); JSONObject all = j.optJSONObject("variables"); if (all == null) all = new JSONObject();

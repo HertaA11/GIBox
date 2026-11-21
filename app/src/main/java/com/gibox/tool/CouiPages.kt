@@ -19,6 +19,8 @@ import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -155,6 +157,7 @@ internal fun Page(
     modifier: Modifier = Modifier,
     content: @Composable (PaddingValues) -> Unit,
 ) {
+    val tabInsets = LocalHomeTabInsets.current
     val ime = if (LocalWindowInfo.current.isWindowFocused) Modifier.imePadding() else Modifier
     Scaffold(
         modifier = modifier.fillMaxSize().then(ime),
@@ -168,7 +171,10 @@ internal fun Page(
                 topContent()
             }
         },
-        bottomBar = { if (bottom != null) Column(Modifier.navigationBarsPadding()) { bottom() } },
+        bottomBar = {
+            if (bottom != null) Column(Modifier.navigationBarsPadding()) { bottom() }
+            else if (tabInsets != null) Spacer(Modifier.height(tabInsets.calculateBottomPadding()))
+        },
         content = content,
     )
 }
@@ -213,7 +219,7 @@ internal fun SearchToolbar(
     }
     val motion = rememberCouiTopAppBarSearchState(expanded)
     var focusPending by remember { mutableStateOf(false) }
-    TopAppBarSurface {
+    TopAppBarSurface(gradientColor = CouiTheme.colorScheme.background) {
         Row(Modifier.fillMaxWidth().statusBarsPadding().heightIn(min = 64.dp).padding(horizontal = 16.dp),
             verticalAlignment = Alignment.CenterVertically) {
             if (back != null) TopAppBarSearchAction(state = motion) { ToolbarAction(Glyph.Back, "返回", back) }
@@ -242,7 +248,7 @@ internal fun PreferencePage(
     val density = LocalDensity.current
     Page(title, bottom = bottom, modifier = Modifier.nestedScroll(behavior.nestedScrollConnection), toolbar = {
         LargeTopAppBar(title = { BasicText(title, style = LocalCouiTextStyle.current, maxLines = 1,
-            overflow = TextOverflow.Ellipsis) }, navigationIcon = { ToolbarAction(Glyph.Back, "返回", back) },
+            overflow = TextOverflow.Ellipsis) }, navigationIcon = { if (LocalHomeTabInsets.current == null) ToolbarAction(Glyph.Back, "返回", back) },
             scrollBehavior = behavior)
     }) { padding ->
         val body = remember(behavior, density, padding) { behavior.state.contentPadding(padding, density) }
@@ -304,19 +310,32 @@ internal fun <T> ChoiceRow(
     title: String, selected: T?, options: List<Pair<T, String>>, summary: String? = null, glyph: Glyph? = null,
     modifier: Modifier = Modifier, enabled: Boolean = true, change: (T) -> Unit,
 ) {
+    val value = options.firstOrNull { it.first == selected }?.second
+    MenuChoiceRow(title, value, summary, glyph, modifier, enabled && options.isNotEmpty()) { expanded, dismiss, anchor ->
+        ChoiceMenu(expanded, dismiss, selected, options, anchor) {
+            dismiss()
+            change(it)
+        }
+    }
+}
+
+@Composable
+internal fun MenuChoiceRow(
+    title: String, value: String?, summary: String? = null, glyph: Glyph? = null,
+    modifier: Modifier = Modifier, enabled: Boolean = true,
+    menu: @Composable (Boolean, () -> Unit, CouiMenuAnchor) -> Unit,
+) {
     var expanded by remember { mutableStateOf(false) }
     val anchor = rememberCouiMenuAnchor()
     val source = remember { MutableInteractionSource() }
-    val canChoose = enabled && options.isNotEmpty()
-    val value = options.firstOrNull { it.first == selected }?.second
     val dark = CouiTheme.isDark
 
     Box(modifier) {
         ActionRow(
-            title, summary, glyph, enabled = canChoose,
+            title, summary, glyph, enabled = enabled,
             modifier = Modifier.couiMenuAnchor(anchor)
-                .couiButtonFeedback(dark, source, canChoose, list = true, hoverLocked = expanded)
-                .clickable(source, null, canChoose, role = Role.Button) { anchor.open { expanded = true } }
+                .couiButtonFeedback(dark, source, enabled, list = true, hoverLocked = expanded)
+                .clickable(source, null, enabled, role = Role.Button) { anchor.open { expanded = true } }
                 .semantics { stateDescription = if (expanded) "已展开" else "已收起" },
             trailing = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -332,10 +351,7 @@ internal fun <T> ChoiceRow(
                 }
             },
         )
-        ChoiceMenu(expanded && canChoose, { expanded = false }, selected, options, anchor) {
-            expanded = false
-            change(it)
-        }
+        if (hasBeenShown(expanded)) menu(expanded && enabled, { expanded = false }, anchor)
     }
 }
 
@@ -470,11 +486,11 @@ internal fun EditableRow(title: String, value: String, summary: String? = null, 
 }
 
 @Composable
-private fun dialogMaterial() =
+internal fun dialogMaterial() =
     if (CouiDialogDefaults.isMaterialSupported()) CouiDialogDefaults.material(CouiTheme.isDark) else null
 
 @Composable
-private fun primaryDialogAction(label: String, click: () -> Unit) = CouiDialogAction(
+internal fun primaryDialogAction(label: String, click: () -> Unit) = CouiDialogAction(
     text = label,
     onClick = click,
     style = CouiDialogActionStyle.Primary,

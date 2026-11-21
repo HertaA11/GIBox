@@ -1,6 +1,7 @@
 package com.gibox.tool
 
 import android.os.Build
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -29,7 +30,7 @@ import com.itos.coui.theme.CouiTheme
 private val categories = listOf("角色 MOD", "场景 MOD", "加载图片")
 
 @Composable
-internal fun ModManagementScreen(state: AppState, pickZip: () -> Unit) {
+internal fun ModManagementScreen(state: AppState, openFeature: ((Feature) -> Unit)? = null, pickZip: () -> Unit) {
     var category by rememberSaveable { mutableIntStateOf(0) }
     var searching by rememberSaveable { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
@@ -54,16 +55,28 @@ internal fun ModManagementScreen(state: AppState, pickZip: () -> Unit) {
         }
     }
     val flatMods = remember(results) { results.flatMap { it.mods } }
+    val home = openFeature != null
     Page("模组管理", toolbar = {
-        SearchToolbar("模组管理", "搜索分类、角色名或 ID", query, { query = it }, searching, {
+        SearchToolbar("模组管理", if (home) "搜索功能、分类、角色名或 ID" else "搜索分类、角色名或 ID", query, { query = it }, searching, {
             searching = it
             if (!it) query = ""
-        }, back = state::back)
+        }, back = if (home) null else state::back,
+            leadingAction = if (home) ({ ToolbarAction(Glyph.Log, "运行日志") { state.open(Screen.Log) } }) else null)
     }) { padding ->
-        LazyColumn(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).padding(bottom = 8.dp),
+        LazyColumn(Modifier.fillMaxSize().consumeWindowInsets(padding),
+            contentPadding = PaddingValues(top = padding.calculateTopPadding(), bottom = padding.calculateBottomPadding() + 8.dp),
             state = if (searching) searchList else listState,
             overscrollEffect = rememberCouiOverscrollEffect(),
         ) {
+            if (home && !searching) item(key = "activation") { ModuleActivation(state) }
+            if (searching && openFeature != null) item(key = "features") {
+                FeatureResults(state, query) { feature ->
+                    searching = false
+                    query = ""
+                    if (feature.page == Screen.Home || feature.page == Screen.Mods) listState.requestScrollToItem(0)
+                    openFeature(feature)
+                }
+            }
             if (!searching) {
                 item {
                     Group {
