@@ -135,16 +135,6 @@ internal fun AccessibilityScreen(state: AppState, target: String?) {
             Divider()
             ChoiceRow("加载图片比例", fit, Control.LOADING_FITS.zip(Control.LOADING_FIT_LABELS),
                 modifier = focusRow("加载图片比例", target), change = state::setLoadingFit)
-            if (Control.supportsQuickDailyReward(state.game)) {
-                val quickDailyReward = remember(state.game, revision) { state.quickDailyReward() }
-                Divider()
-                ToggleRow(
-                    "快速领取委托",
-                    quickDailyReward,
-                    modifier = focusRow("快速领取委托", target),
-                    change = state::setQuickDailyReward,
-                )
-            }
         }
     }
 }

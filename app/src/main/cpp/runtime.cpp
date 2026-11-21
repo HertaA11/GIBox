@@ -60,7 +60,7 @@ struct KeyPress {long long seq=0;size_t file=0;std::string section;bool back=fal
 // auto (0.7.60): the game's own per-renderer instance is written in place (its effects keep running on it); a loaded asset
 // or a material another renderer shows is copied first, and the game's instance made from that copy is followed in place.
 struct TexModControl {std::string strategy="auto",lod="full";bool capture=false;vkcap::Mode hash=vkcap::Mode::Off;long long testRequest=0;std::vector<std::string> testStrategies{"auto","direct","clone"};int observeMs=4000;};
-struct ControlState {std::string loadingFit="original";cameraFade::Mode cameraFadeMode=cameraFade::Mode::Original;TexModControl tex;Experiments exp;bool sharedChoices=false,enabled=false,lodPin=true,hideUid=false,npcModels=false,synthesisButton=false,quickDailyReward=false;int logLevel=int(Level::Info);std::vector<std::string> selected;long long exportBones=0,refreshBones=0,renderMark=0;unsigned refreshBonesCharacter=0;std::map<std::string,std::map<std::string,int>> variables;std::map<std::string,std::vector<KeyPress>> keys;};
+struct ControlState {std::string loadingFit="original";cameraFade::Mode cameraFadeMode=cameraFade::Mode::Original;TexModControl tex;Experiments exp;bool sharedChoices=false,enabled=false,lodPin=true,hideUid=false,npcModels=false,synthesisButton=false;int logLevel=int(Level::Info);std::vector<std::string> selected;long long exportBones=0,refreshBones=0,renderMark=0;unsigned refreshBonesCharacter=0;std::map<std::string,std::map<std::string,int>> variables;std::map<std::string,std::vector<KeyPress>> keys;};
 ControlState parseControl(const std::string& raw){
  Json c=JsonParser(raw).parse();require(c.type==Json::Object,"control.json 不是对象");ControlState s;
  const auto& a=c.at("selected");require(a.type==Json::Array&&a.array.size()<=128,"selected 列表无效");
@@ -71,7 +71,6 @@ ControlState parseControl(const std::string& raw){
  s.lodPin=c.at("lodPin").type!=Json::Bool||c.at("lodPin").boolean;   // default on (0.7.103)
  if(c.at("cameraFade").type==Json::String)s.cameraFadeMode=cameraFade::fromName(c.at("cameraFade").string);
  const auto& synthesis=c.at("synthesisButton");s.synthesisButton=synthesis.type==Json::Bool&&synthesis.boolean;
- const auto& quickDailyReward=c.at("quickDailyReward");s.quickDailyReward=quickDailyReward.type==Json::Bool&&quickDailyReward.boolean;
  s.hideUid=c.at("hideUid").type==Json::Bool&&c.at("hideUid").boolean;
  s.npcModels=c.at("npcModels").type==Json::Bool&&c.at("npcModels").boolean;
  const auto& fit=c.at("loadingFit");if(fit.type==Json::String&&(fit.string=="original"||fit.string=="cover"||fit.string=="stretch"))s.loadingFit=fit.string;
@@ -3225,9 +3224,6 @@ void ms::Runtime::synthesisFrame(Ptr controller,uint64_t now)noexcept{
 }
 bool ms::Runtime::synthesisClick(Ptr event)noexcept{
  return p->tickTid.load()==threadId()&&p->synthesis.click(event);
-}
-bool ms::Runtime::quickDailyRewardEnabled()const noexcept{
- return p->tickTid.load()==threadId()&&p->ctl.quickDailyReward;
 }
 
 void ms::Runtime::loadingCanvas(Ptr canvas,Ptr background)noexcept{try{if(!p->tickTid.load())p->tickTid.store(threadId());if(!p->inTick&&p->onTickThread("loading-canvas")){if(canvas&&!p->loadingClass){p->loadingClass=load<Ptr>(canvas);}p->loading.observe(canvas,background);p->pollLoading();}}catch(const std::exception& ex){p->log("loading-image-error",ex.what());}}

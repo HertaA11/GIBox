@@ -32,7 +32,6 @@ class Runtime {
  void meshBound(Ptr rendererNative)noexcept;
  void synthesisFrame(Ptr controller,uint64_t now)noexcept;
  bool synthesisClick(Ptr event)noexcept;
- bool quickDailyRewardEnabled()const noexcept;
  void loadingCanvas(Ptr canvas,Ptr background)noexcept;
  void loadingImage(Ptr image,bool shown)noexcept;
  void loadingDestroyed(Ptr canvas)noexcept;

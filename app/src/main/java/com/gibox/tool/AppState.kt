@@ -523,10 +523,6 @@ class AppState private constructor(private val context: Context) {
     }
     fun synthesisButton(): Boolean = currentControl.optBoolean("synthesisButton", false)
     fun setSynthesisButton(on: Boolean) = savePreference("保存随身合成台设置") { pkg -> Control.setSynthesisButton(pkg, on) }
-    fun quickDailyReward(): Boolean = currentControl.optBoolean("quickDailyReward", false)
-    fun setQuickDailyReward(on: Boolean) = savePreference("保存快速领取委托设置") { pkg ->
-        Control.setQuickDailyReward(pkg, on)
-    }
     fun cameraFade(): String = Control.cameraFade(currentControl)
     fun setCameraFade(value: String) = savePreference("保存角色渐隐设置") { pkg -> Control.setCameraFade(pkg, value) }
     fun loadingFit(): String = Control.loadingFit(currentControl)
