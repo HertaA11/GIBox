@@ -12,14 +12,24 @@
 #include "vk_capture.hpp"
 #include "uid_hide.hpp"
 #include "camera_fade.hpp"
+#include "quick_daily_reward.hpp"
 
 namespace {
 std::atomic<bool> started{false};std::unique_ptr<ms::Runtime> runtime;
 std::atomic<ms::Runtime*> published{nullptr};
+namespace daily = ms::quick_daily_reward;
+daily::Flow dailyReward;
+std::atomic<bool> dailyRewardReady{false};
+thread_local bool inGameThread=false;
 // Process lifetime: partial hook installation still needs its passthroughs.
 uint64_t now(){return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();}
 void onTick(void*,DobbyRegisterContext*){
- if(auto* p=published.load(std::memory_order_acquire))p->tick(now());
+ if(auto* p=published.load(std::memory_order_acquire)){
+  inGameThread=true;
+  const auto time=now();
+  p->tick(time);
+  if(dailyRewardReady.load(std::memory_order_acquire))dailyReward.tick(p->quickDailyRewardEnabled(),time);
+ }
 }
 // The game's async model hand-off (abi::receive): attach before its own callback, check after (Runtime::spawned).
 using ReceiveFn=void(*)(uintptr_t,uint64_t,bool,uint32_t,uintptr_t,uintptr_t);
@@ -61,6 +71,20 @@ using CameraFadeFn=void(*)(uintptr_t,float,uintptr_t);
 CameraFadeFn cameraFadeOriginal=nullptr;
 void onCameraFade(uintptr_t self,float value,uintptr_t method){cameraFadeOriginal(self,ms::cameraFade::adjust(self,value),method);}
 using UiLifeFn=void(*)(uintptr_t,uintptr_t);
+UiLifeFn handbookRewardOriginal=nullptr;
+void onHandbookReward(uintptr_t controller,uintptr_t method){
+ if(inGameThread&&dailyRewardReady.load(std::memory_order_acquire)){
+  if(auto* p=published.load(std::memory_order_acquire);p&&p->quickDailyRewardEnabled()&&dailyReward.handbookClicked(controller,now()))return;
+ }
+ handbookRewardOriginal(controller,method);
+}
+void onAddDialogOption(void*,DobbyRegisterContext* ctx){
+ if(inGameThread&&dailyRewardReady.load(std::memory_order_acquire))dailyReward.observePanel(ctx->general.regs.x0);
+}
+void onDailyRewardCheck(void*,DobbyRegisterContext* ctx){
+ if(inGameThread&&dailyRewardReady.load(std::memory_order_acquire))
+  dailyReward.observeReward(ctx->general.regs.x0,ctx->general.regs.x1,ctx->lr,now());
+}
 UiLifeFn synthesisClickOriginal=nullptr;
 void onSynthesisClick(uintptr_t event,uintptr_t method){
  if(auto* p=published.load(std::memory_order_acquire);p&&p->synthesisClick(event))return;
@@ -93,6 +117,43 @@ bool codeMatches(uintptr_t base,const ms::abi::CodeCheck& c){auto* p=reinterpret
   uint32_t m=codeMask(want);if((want&m)!=(got&m))return false;}
  return true;}
 struct Image{uintptr_t base=0;const ElfW(Phdr)* ph=nullptr;size_t count=0;};
+bool installDailyReward(const Image& image){
+ struct Entry{uintptr_t offset;const char* hex;};
+ const Entry entries[]={
+  {daily::handbookReward,"fe0f1df8f65701a9f44f02a9e8b903b0"},
+  {daily::addDialogOption,"fe4fbfa9c8a40390e203012ae10300aa"},
+  {daily::setPreSelectCheck,"68db01f0e20301aae10300aa08e57b39"},
+  {daily::rewardCheckCall,"10d36894d90b00b4e00319aae1031caa"},
+  {daily::dialogOptionAt,"fe0f1ff8c8a40390e203012ae10300aa"},
+  {daily::pickupText,"001c40f9a00000b4080040f901ed42f9"},
+  {daily::activeAndEnabled,"81b9b216c0035fd6ff8300d1fe4f01a9"},
+  {daily::interactable,"080043391f0500712101005408c04239"},
+  {daily::pressButton,"fe4fbfa9f30300aaee2dd49780020036"},
+  {daily::taskReturn,"fe0f1ef8f44f01a913bb03b068726939"},
+  {daily::containerButton,"fe4fbfa9e85404b0088d68391f050071"},
+ };
+ constexpr char digits[]="0123456789abcdef";
+ for(const auto& entry:entries){
+  bool executable=false;
+  for(size_t i=0;i<image.count;i++){
+   const auto& h=image.ph[i];
+   if(h.p_type==PT_LOAD&&(h.p_flags&PF_X)&&h.p_memsz>=16&&entry.offset>=h.p_vaddr&&entry.offset-h.p_vaddr<=h.p_memsz-16){
+    executable=true;
+    break;
+   }
+  }
+  if(!executable)return false;
+  const auto* code=reinterpret_cast<const unsigned char*>(image.base+entry.offset);
+  for(size_t i=0;i<16;i++)if(digits[code[i]>>4]!=entry.hex[2*i]||digits[code[i]&15]!=entry.hex[2*i+1])return false;
+ }
+ dailyReward.bind(image.base);
+ if(DobbyInstrument(reinterpret_cast<void*>(image.base+daily::addDialogOption),onAddDialogOption)!=0||
+    DobbyInstrument(reinterpret_cast<void*>(image.base+daily::setPreSelectCheck),onDailyRewardCheck)!=0||
+    DobbyHook(reinterpret_cast<void*>(image.base+daily::handbookReward),reinterpret_cast<dobby_dummy_func_t>(onHandbookReward),
+              reinterpret_cast<dobby_dummy_func_t*>(&handbookRewardOriginal))!=0||!handbookRewardOriginal)return false;
+ dailyRewardReady.store(true,std::memory_order_release);
+ return true;
+}
 int findImage(dl_phdr_info* info,size_t,void* ptr){std::string name=info->dlpi_name?info->dlpi_name:"";auto p=name.find_last_of('/');name=name.substr(p==name.npos?0:p+1);if(name!="libyuanshen.so")return 0;auto& out=*static_cast<Image*>(ptr);out={info->dlpi_addr,info->dlpi_phdr,info->dlpi_phnum};return 1;}
 std::string jstringValue(JNIEnv* env,jstring s){ms::require(s!=nullptr,"Java 字符串为空");const char* p=env->GetStringUTFChars(s,nullptr);ms::require(p!=nullptr,"无法解码 Java 字符串");std::string out=p;env->ReleaseStringUTFChars(s,p);return out;}
 ms::Texture readSynthesisIcon(JNIEnv* env,jbyteArray data){
@@ -148,6 +209,7 @@ extern "C" JNIEXPORT void JNICALL Java_com_gibox_tool_NativeBridge_start(JNIEnv*
  runtime=std::move(rt);published.store(runtime.get(),std::memory_order_release);
  int result=DobbyInstrument(reinterpret_cast<void*>(image.base+ms::abi::at(ms::abi::tick)),onTick);
  if(result!=0){published.store(nullptr,std::memory_order_release);runtime.reset();throw std::runtime_error("DobbyInstrument 失败："+std::to_string(result));}bootStatus(pkg,"ready","模型运行时已就绪");
+ if(pkg=="com.miHoYo.Yuanshen"&&actual==daily::buildId)installDailyReward(image);
  // Camera opacity remains a passthrough until selected in Settings.
  if(ms::abi::found(ms::abi::at(ms::abi::cameraFadeSet))){
   if(!codeMatches(image.base,ms::abi::cameraFadeCheck))bootLog(pkg,"camera-fade-disabled","相机入口校验未通过");
