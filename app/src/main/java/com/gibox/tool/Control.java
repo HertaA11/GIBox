@@ -79,6 +79,13 @@ public final class Control {
     public static boolean enabled(String pkg) { return load(pkg).optBoolean("enabled", false); }
     public static boolean synthesisButton(String pkg) { return load(pkg).optBoolean("synthesisButton", false); }
     public static synchronized void setSynthesisButton(String pkg, boolean on) throws Exception { JSONObject j = load(pkg); j.put("synthesisButton", on); save(pkg, j); }
+    public static boolean supportsQuickDailyReward(String pkg) { return "com.miHoYo.Yuanshen".equals(pkg); }
+    public static synchronized void setQuickDailyReward(String pkg, boolean on) throws Exception {
+        if (!supportsQuickDailyReward(pkg)) throw new IllegalArgumentException("快速领取委托仅支持国服");
+        JSONObject control = load(pkg);
+        control.put("quickDailyReward", on);
+        save(pkg, control);
+    }
     public static String cameraFade(String pkg){return cameraFade(load(pkg));}
     static String cameraFade(JSONObject control){String v=control.optString("cameraFade","original");return v.equals("disabled")||v.equals("look_up")?"disabled":"original";}
     public static synchronized void setCameraFade(String pkg,String value)throws Exception{if(!"original".equals(value)&&!"disabled".equals(value))throw new IllegalArgumentException("角色渐隐模式无效");JSONObject j=load(pkg);j.put("cameraFade",value);save(pkg,j);}
