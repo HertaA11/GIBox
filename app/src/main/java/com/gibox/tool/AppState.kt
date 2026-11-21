@@ -552,11 +552,6 @@ class AppState private constructor(private val context: Context) {
         Control.setHashMode(pkg, mode)
         AppLog.info(pkg, LOGGER, "hash-mode $mode（重启游戏后生效）")
     }
-    fun startTextureTest() = save("开始轮测") {
-        val n = Control.requestTextureTest(game, 4000)
-        AppLog.info(game, LOGGER, "texture-cycle #$n：自动 → 直接改材质 → 克隆材质，各观察 4 秒")
-        notifyUser("已开始轮测 #$n，结果见日志 texture-test")
-    }
     /** 显示替换 开/关 for a model with its own on/off switch (model.json "replaceWhen"). */
     fun setReplacing(mod: Importer.Mod, variants: Variants, on: Boolean) = savePreference("保存") { pkg ->
         val change = variants.switchTo(on, variants.current(pkg, mod.name))
@@ -745,22 +740,23 @@ class AppState private constructor(private val context: Context) {
         val activity = host.get() ?: return
         if (activity.page != pick || activity.isFinishing) return
         activity.finishConfirmedPick()
-        convertJob { log ->
+        convertJob { log, use3dm ->
             AppLog.info(game, LOGGER, "import ${pick.importedAs} → Mods/$name，角色 ${Characters.nameOf(id)}（$id）")
-            Importer.convert(Importer.commit(pending, modsRoot, name), id, modelsRoot, boneRoot, decoder, log)
+            Importer.convert(Importer.commit(pending, modsRoot, name), id, modelsRoot, boneRoot, decoder, log, use3dm)
         }
     }
     /** Re-conversion of an imported mod, for `id`. */
     fun convert(source: File, id: Int) {
-        convertJob { log ->
+        convertJob { log, use3dm ->
             AppLog.info(game, LOGGER, "convert ${source.name} → ${Characters.nameOf(id)}（$id）")
-            Importer.convert(source, id, modelsRoot, boneRoot, decoder, log)
+            Importer.convert(source, id, modelsRoot, boneRoot, decoder, log, use3dm)
         }
     }
-    private fun convertJob(job: (StringBuilder) -> Importer.Result) {
+    private fun convertJob(job: (StringBuilder, Boolean) -> Importer.Result) {
+        val use3dm = !experiment("skip3dmConversion")
         work("转换", "正在转换...", { log ->
             convertShared {
-                try { job(log).also { AppLog.debug(game, "converter", "conversion-log\n" + log.toString().trim()) } }
+                try { job(log, use3dm).also { AppLog.debug(game, "converter", "conversion-log\n" + log.toString().trim()) } }
                 catch (e: Throwable) { AppLog.debug(game, "converter", "conversion-log\n" + log.toString().trim()); throw e }
             }
         }) { (r, others) ->
@@ -786,6 +782,7 @@ class AppState private constructor(private val context: Context) {
         prompt = Prompt(
             title = "一键重新转换", text = "按各自的角色重新转换 ${list.size} 个 MOD，可能要几分钟。", confirm = "开始", dismiss = "取消",
             onConfirm = {
+                val use3dm = !experiment("skip3dmConversion")
                 AppLog.info(game, LOGGER, "reconvert-all ${list.size} 个 MOD")
                 work("重新转换", "正在转换...", { _ ->
                     val failed = ArrayList<String>()
@@ -793,7 +790,7 @@ class AppState private constructor(private val context: Context) {
                         val name = label(mod.name)
                         val log = StringBuilder()
                         try {
-                            val (_, notes) = convertShared { Importer.convert(mod.source, mod.id, modelsRoot, boneRoot, decoder, log) }
+                            val (_, notes) = convertShared { Importer.convert(mod.source, mod.id, modelsRoot, boneRoot, decoder, log, use3dm) }
                             AppLog.debug(game, "converter", "conversion-log\n" + log.toString().trim())
                             for (note in notes) if (note.contains("失败")) failed.add("$name（$note）")
                         } catch (e: Throwable) { AppLog.debug(game, "converter", "conversion-log\n" + log.toString().trim()); AppLog.warning(game, LOGGER, "reconvert-error ${mod.name}：$e"); failed.add("$name：${e.message ?: e}") }
@@ -982,16 +979,6 @@ class AppState private constructor(private val context: Context) {
             val send = grant(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_STREAM, uri))
             choose("打开运行日志", view, listOf(send))
         } catch (e: Throwable) { fail("分享日志", e, null) }
-    }
-    /** The hash comparison report the game writes in capture mode (GIBox/hash-report.txt). */
-    fun shareHashReport() {
-        val file = File(Control.shared(game), "hash-report.txt")
-        if (!file.isFile) { notifyUser("还没有报告：把 hash 模式改为“采集”，重启游戏，在图鉴里点一下角色，或在大世界靠近 NPC、怪物"); return }
-        try {
-            val uri = DocumentsContract.buildDocumentUri(DirectoryProvider.AUTHORITY, "$game:shared/${file.name}")
-            fun grant(i: Intent) = i.apply { clipData = ClipData.newRawUri("hash 对比报告", uri); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION) }
-            choose("打开 hash 对比报告", grant(Intent(Intent.ACTION_VIEW).setDataAndType(uri, "text/plain")), listOf(grant(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_STREAM, uri))))
-        } catch (e: Throwable) { fail("打开报告", e, null) }
     }
     suspend fun clearLog(file: File): Boolean = runCatching {
         withContext(Dispatchers.IO) {

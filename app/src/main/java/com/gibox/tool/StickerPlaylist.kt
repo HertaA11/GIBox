@@ -2,7 +2,7 @@ package com.gibox.tool
 
 internal class StickerPlaylist(selected: Set<StickerCharacter>, val wholeRows: Boolean) {
     private val roles = StickerCharacter.entries.filter { it in selected }
-    private val pinHuTao = StickerCharacter.Hutao in selected
+    private val pinHuTao = wholeRows && StickerCharacter.Hutao in selected
 
     init { require(roles.isNotEmpty()) }
 
@@ -18,7 +18,7 @@ internal class StickerPlaylist(selected: Set<StickerCharacter>, val wholeRows: B
         val turn = if (wholeRows) scene + rowOrdinal else slot + rowOrdinal
         if (center && pinHuTao) {
             val files = StickerCharacter.Hutao.files
-            return files[Math.floorMod(if (wholeRows) scene else slot, files.size)]
+            return files[Math.floorMod(scene, files.size)]
         }
         val files = roles[Math.floorMod(turn, roles.size)].files
         return files[Math.floorMod(Math.floorDiv(turn, roles.size), files.size)]

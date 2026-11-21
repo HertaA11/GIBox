@@ -70,8 +70,7 @@ internal fun CenterStickerPicker(settings: AboutCardSettings) {
 internal fun BackgroundCharacterPicker(settings: AboutCardSettings) {
     val selected = settings.config.characters
     val roles = StickerCharacter.entries
-    val summary = roles.filter { it in selected }.joinToString("、") { it.label }.ifEmpty { "无" }
-    MenuChoiceRow("轮播背景", summary) { expanded, dismiss, anchor ->
+    MenuChoiceRow("轮播背景", value = null) { expanded, dismiss, anchor ->
         Menu(expanded = expanded, onDismissRequest = dismiss, anchor = anchor,
             modifier = Modifier.heightIn(max = 320.dp),
             items = roles.map { CouiMenuItem(it, it.label, checked = it in selected) },

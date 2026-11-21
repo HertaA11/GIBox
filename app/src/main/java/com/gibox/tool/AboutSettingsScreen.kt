@@ -73,14 +73,9 @@ private fun AboutCardControls(settings: AboutCardSettings) {
         CardSlider("背景模糊", config.blur, 20, ::tenths) { settings.update(settings.config.copy(blur = it)) }
         Divider()
         CardSlider("贴纸透明度", config.transparency, 100, { "$it%" }) { settings.update(settings.config.copy(transparency = it)) }
-    }
-    Group {
-        ChoiceRow("贴纸大小", config.stickerSize, stickerSizes.map { it to "${it} dp" }) {
-            settings.update(settings.config.copy(stickerSize = it))
-        }
         Divider()
-        ChoiceRow("GIBox 字体大小", config.titleSize, titleSizes.map { it to "${it} sp" }) {
-            settings.update(settings.config.copy(titleSize = it))
+        CardSlider("贴纸与 GIBox 大小", config.stickerSize, cardSizes.last, { "${it} dp" }, min = cardSizes.first) {
+            settings.update(settings.config.copy(stickerSize = it))
         }
     }
 }
@@ -88,14 +83,14 @@ private fun AboutCardControls(settings: AboutCardSettings) {
 private fun tenths(value: Int) = "${value / 10}.${value % 10}"
 
 @Composable
-private fun CardSlider(title: String, value: Int, max: Int, format: (Int) -> String, change: (Int) -> Unit) {
+private fun CardSlider(title: String, value: Int, max: Int, format: (Int) -> String, min: Int = 0, change: (Int) -> Unit) {
     ActionRow(title, format(value))
     Slider(modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp).semantics { contentDescription = title },
-        value = value.toFloat(), valueRange = 0f..max.toFloat(), steps = max - 1,
-        onValueChange = { change(it.roundToInt().coerceIn(0, max)) })
+        value = value.toFloat(), valueRange = min.toFloat()..max.toFloat(), steps = max - min - 1,
+        onValueChange = { change(it.roundToInt().coerceIn(min, max)) })
     Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, bottom = 12.dp),
         horizontalArrangement = Arrangement.SpaceBetween) {
-        Text(text = format(0), kind = CouiTextKind.GroupTitle)
+        Text(text = format(min), kind = CouiTextKind.GroupTitle)
         Text(text = format(max), kind = CouiTextKind.GroupTitle)
     }
 }

@@ -25,8 +25,7 @@ internal enum class StickerArrangement(val label: String) {
     Together("整行替换"), Alternate("逐个交替"),
 }
 
-internal val stickerSizes = listOf(32, 48, 64, 80, 96, 120, 144)
-internal val titleSizes = listOf(24, 32, 40, 48, 56, 64, 80)
+internal val cardSizes = 32..144
 internal const val NO_IMAGE = "none"
 internal const val WORDMARK = "title"
 internal val cardImages = listOf(NO_IMAGE to "无", WORDMARK to "GIBox") +
@@ -45,7 +44,7 @@ internal data class AboutCardConfig(
     val speed: Int = 10,
     val blur: Int = 10,
     val stickerSize: Int = 80,
-    val titleSize: Int = 40,
+
 )
 
 internal class AboutCardSettings(private val context: Context) {
@@ -64,8 +63,7 @@ internal class AboutCardSettings(private val context: Context) {
         direction = StickerDirection.entries.find { it.name == prefs.getString("direction", null) } ?: defaults.direction,
         speed = prefs.getInt("speed", defaults.speed).coerceIn(0, 20),
         blur = prefs.getInt("blur", defaults.blur).coerceIn(0, 20),
-        stickerSize = prefs.getInt("stickerSize", defaults.stickerSize).takeIf { it in stickerSizes } ?: defaults.stickerSize,
-        titleSize = prefs.getInt("titleSize", defaults.titleSize).takeIf { it in titleSizes } ?: defaults.titleSize,
+        stickerSize = prefs.getInt("stickerSize", defaults.stickerSize).coerceIn(cardSizes),
     ))
         private set
 
@@ -76,7 +74,7 @@ internal class AboutCardSettings(private val context: Context) {
             .putStringSet("characters", next.characters.map { it.name }.toSet()).putInt("transparency", next.transparency)
             .putString("arrangement", next.arrangement.name).putBoolean("diagonal", next.diagonal)
             .putString("direction", next.direction.name).putInt("speed", next.speed).putInt("blur", next.blur)
-            .putInt("stickerSize", next.stickerSize).putInt("titleSize", next.titleSize).apply()
+            .putInt("stickerSize", next.stickerSize).remove("titleSize").apply()
     }
 
     private val lock = Mutex()

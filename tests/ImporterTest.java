@@ -71,6 +71,10 @@ public class ImporterTest {
   ok(ModLibrary.overrides(staged).get("id").equals("10000107")&&r.summary.startsWith("茜特菈莉（10000107）"),"choice remembered: "+r.summary);
   r=Importer.convert(staged,10000107,models,new File(base,"missing-library"),dec,new StringBuilder());
   ok(!r.library&&r.summary.contains("复用本 MOD 已有骨骼记录")&&Fixtures.part(pack,0).get("skeleton")!=null&&Fixtures.part(pack,0).get("target")!=null,"a missing library must not erase the previous conversion's complete skeleton");
+  StringBuilder builtinLog=new StringBuilder();
+  Importer.Result builtin=Importer.convert(staged,10000107,models,bones,dec,builtinLog,false);
+  ok(builtin.model.equals(pack.getCanonicalFile())&&ModelManifest.read(pack).id==10000107
+      &&!builtinLog.toString().contains("3dm 后端"),"the opt-out reconverts the same model without invoking the 3dm backend");
   // 6. Not in the bone library: the game's bone order, the ID, and the model name for the party / detail pages.
   r=Importer.convert(hz,10000046,models,bones,dec,new StringBuilder());File hm=new File(models,"hutao_v1");
   ModelManifest hmm=ModelManifest.read(hm);

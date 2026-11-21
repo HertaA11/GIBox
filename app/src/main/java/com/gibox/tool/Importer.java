@@ -146,6 +146,10 @@ public final class Importer {
     public static boolean animationBoneFallback(File mod) { return "retain-valid".equals(ModLibrary.overrides(mod).get("animationbones")); }
     public static void setAnimationBoneFallback(File mod, boolean enabled) throws Exception { ModLibrary.setOverride(mod, "animationbones", enabled ? "retain-valid" : null); }
     public static Result convert(File mod, int id, File modelsRoot, File boneRoot, ModelConverter.TextureDecoder decoder, StringBuilder log) throws Exception {
+        return convert(mod, id, modelsRoot, boneRoot, decoder, log, true);
+    }
+    public static Result convert(File mod, int id, File modelsRoot, File boneRoot, ModelConverter.TextureDecoder decoder,
+                                 StringBuilder log, boolean use3dm) throws Exception {
         if(Characters.isLoading(id)){Map<String,String> o=ModLibrary.overrides(mod);String name=ModLibrary.modelName(o.containsKey("name")?o.get("name"):mod.getName());ModLibrary.setOverride(mod,"id",Integer.toString(id));return LoadingImages.install(mod,new File(modelsRoot,name),decoder,log);}
         if (!Characters.isScene(id) && (id < 10000000 || id > 10001999)) throw new IllegalArgumentException("角色 ID 无效：" + id);
         if(GliderMod.ini(mod)!=null){Json.check(Characters.isScene(id),"此风之翼包请导入到场景 MOD");Map<String,String> o=ModLibrary.overrides(mod);String name=ModLibrary.modelName(o.getOrDefault("name",mod.getName()));ModLibrary.setOverride(mod,"id",Integer.toString(id));return GliderMod.install(mod,new File(modelsRoot,name),decoder,log);}
@@ -182,8 +186,10 @@ public final class Importer {
         opt.deviceRenderers(DeviceHashes.load(boneRoot.getAbsoluteFile().getParentFile()).renderers(id, outfit != null ? outfit.prefab : null));
         opt.pcTextures(DeviceHashes.pcTextures(boneRoot.getAbsoluteFile().getParentFile()));
         opt.animationBoneFallback(animationBoneFallback(mod)).textureDiag(textureDiagDir(modelsRoot)).textureMods(true);
-        opt.core(request -> { try { return NativeBridge.draws(request); } catch (UnsatisfiedLinkError e) { throw new IllegalStateException("3dm 后端不可用：" + e.getMessage()); } });
-        opt.rehearsal(request -> { try { return NativeBridge.rehearse(request); } catch (UnsatisfiedLinkError e) { throw new IllegalStateException("逻辑核心预演不可用：" + e.getMessage()); } });
+        if (use3dm) {
+            opt.core(request -> { try { return NativeBridge.draws(request); } catch (UnsatisfiedLinkError e) { throw new IllegalStateException("3dm 后端不可用：" + e.getMessage()); } });
+            opt.rehearsal(request -> { try { return NativeBridge.rehearse(request); } catch (UnsatisfiedLinkError e) { throw new IllegalStateException("逻辑核心预演不可用：" + e.getMessage()); } });
+        }
         if (o.containsKey("ini")) log.append("INI 方案：").append(o.get("ini")).append('\n');
         opt.source(mod.getAbsolutePath(), ModLibrary.signature(mod));
         if (outfit != null) { opt.outfit(outfit.prefab); log.append(outfitNote).append('\n'); }

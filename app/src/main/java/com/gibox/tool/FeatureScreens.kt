@@ -1,7 +1,6 @@
 package com.gibox.tool
 
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.border
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
@@ -11,8 +10,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
@@ -24,11 +21,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ColorFilter
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -86,13 +81,12 @@ internal fun ModuleActivation(state: AppState) {
                 }
                 state.prompt = Prompt(title, details.joinToString("\n\n"))
             }) {
-            if (active) {
-                val watermark = ink.copy(alpha = .16f)
-                Image(painterResource(R.drawable.gibox_status_check), null,
-                    Modifier.align(Alignment.BottomEnd).padding(end = 12.dp, bottom = 8.dp)
-                        .size(84.dp).border(4.dp, watermark, CircleShape).padding(17.dp),
-                    colorFilter = ColorFilter.tint(watermark))
-            }
+            CardStickerBackground(state.aboutCard, Modifier.matchParentSize())
+            Spacer(Modifier.matchParentSize().background(Brush.horizontalGradient(
+                0f to surface.copy(alpha = .88f),
+                .68f to surface.copy(alpha = .78f),
+                1f to surface.copy(alpha = .35f),
+            )))
             Column(Modifier.fillMaxWidth().padding(20.dp)) {
                 BasicText(title, style = rememberCouiTextStyle(CouiTextKind.ItemTitle)
                     .copy(color = ink, fontSize = 22.sp, fontWeight = FontWeight.SemiBold))
@@ -166,14 +160,15 @@ internal fun AccessibilityScreen(state: AppState, target: String?) {
 @Composable
 internal fun SettingsScreen(state: AppState, target: String?) {
     PreferencePage("设置", state::back) {
-        Group {
-            ActionRow("关于界面设置", showNext = true, click = { state.open(Screen.AboutSettings) })
-        }
         ClientRow(state, showIcon = false)
-        val values = remember(state.game, state.revision) {
-            listOf(state.textureMods("strategy", "auto"), state.textureMods("lod", "full"), state.hashMode(), state.experimentInt("animationMode").toString())
-        }
-        val toggles = remember(state.game, state.revision) { listOf(state.lodPin(), state.experiment("logicCore"), state.experiment("keySteps")) }
+        val revision = state.revision
+        val strategy = remember(state.game, revision) { state.textureMods("strategy", "auto") }
+        val lod = remember(state.game, revision) { state.textureMods("lod", "full") }
+        val hashMode = remember(state.game, revision) { state.hashMode() }
+        val animation = remember(state.game, revision) { state.experimentInt("animationMode").toString() }
+        val lodPin = remember(state.game, revision) { state.lodPin() }
+        val skip3dm = remember(state.game, revision) { state.experiment("skip3dmConversion") }
+        val keySteps = remember(state.game, revision) { state.experiment("keySteps") }
         Group {
             ActionRow("打开 Mods 文件夹", showNext = true,
                 modifier = focusRow("打开 Mods 文件夹", target)) { state.openFolder(state.modsRoot) }
@@ -184,35 +179,35 @@ internal fun SettingsScreen(state: AppState, target: String?) {
             ActionRow("打开骨骼库文件夹", showNext = true,
                 modifier = focusRow("打开骨骼库文件夹", target)) { state.openFolder(state.boneRoot) }
             Divider()
-            ChoiceRow("替换方式", values[0], listOf("auto" to "自动（默认）", "diagnose" to "只检查，不替换",
-                "direct" to "直接改游戏材质", "clone" to "复制材质再改"),
-                "其他方式用于对比排查，切换前会先还原", modifier = focusRow("替换方式", target)) { state.setTextureMods("strategy", it) }
-            Divider()
-            ChoiceRow("远处的简化模型", values[1], listOf("full" to "只换完整模型", "migrate" to "简化模型也换"),
-                "只替换核对一致的简化模型", modifier = focusRow("远处的简化模型", target)) { state.setTextureMods("lod", it) }
-            Divider()
-            ChoiceRow("hash 模式", values[2], listOf("off" to "关闭", "match" to "匹配", "collect" to "采集", "full" to "完整诊断"),
-                when (values[2]) {
+            ChoiceRow("hash 模式", hashMode, listOf("off" to "关闭", "match" to "匹配", "collect" to "采集", "full" to "完整诊断"),
+                when (hashMode) {
                     "match" -> "模型上传时计算 hash，匹配角色、NPC 和怪物部件；可常开"
                     "collect" -> "匹配并记录出现过的网格；采集完成后改回匹配"
                     "full" -> "计算全部 hash 并记录诊断报告，开销较大"
                     else -> "仅使用内置和本机已采集的 hash 表"
                 } + "。重启游戏后生效", modifier = focusRow("hash 模式", target), change = state::setHashMode)
+        }
+        Group {
+            ActionRow("关于界面设置", showNext = true, click = { state.open(Screen.AboutSettings) })
+        }
+        Group(title = "调试") {
+            ChoiceRow("替换方式", strategy, listOf("auto" to "自动（默认）", "diagnose" to "只检查，不替换",
+                "direct" to "直接改游戏材质", "clone" to "复制材质再改"),
+                "其他方式用于对比排查，切换前会先还原", modifier = focusRow("替换方式", target)) { state.setTextureMods("strategy", it) }
             Divider()
-            ActionRow("hash 对比报告", "安卓与 PC 逐个部件对比", modifier = focusRow("hash 对比报告", target), click = state::shareHashReport)
+            ChoiceRow("远处的简化模型", lod, listOf("full" to "只换完整模型", "migrate" to "简化模型也换"),
+                "只替换核对一致的简化模型", modifier = focusRow("远处的简化模型", target)) { state.setTextureMods("lod", it) }
             Divider()
-            ActionRow("轮流测试替换方式", "每轮观察 4 秒后还原核对", modifier = focusRow("轮流测试替换方式", target), click = state::startTextureTest)
+            ToggleRow("被替换的角色不保持完整模型", !lodPin, "允许游戏正常切换模型精度",
+                modifier = focusRow("被替换的角色不保持完整模型", target)) { state.setLodPin(!it) }
             Divider()
-            ToggleRow("被替换的角色保持完整模型", toggles[0], "保留 LOD0，关闭后恢复游戏切换",
-                modifier = focusRow("被替换的角色保持完整模型", target), change = state::setLodPin)
-            Divider()
-            ChoiceRow("动画播放方式", values[3], listOf("0" to "缓存帧网格", "1" to "动态网格", "2" to "暂停（初始帧）"),
+            ChoiceRow("动画播放方式", animation, listOf("0" to "缓存帧网格", "1" to "动态网格", "2" to "暂停（初始帧）"),
                 "切换后自动重建，只影响带动画的 MOD", modifier = focusRow("动画播放方式", target)) { state.setExperiment("animationMode", it.toInt()) }
             Divider()
-            ToggleRow("使用 3DMigoto 进行转换", toggles[1], "按 INI 规则切换动画、款式和按键；旧版 MOD 需重新转换",
-                modifier = focusRow("使用 3DMigoto 进行转换", target)) { state.setExperiment("logicCore", it) }
+            ToggleRow("不使用 3DMigoto 转换", skip3dm, "开启后使用内置转换器。应用到已有 MOD 需重新转换",
+                modifier = focusRow("不使用 3DMigoto 转换", target)) { state.setExperiment("skip3dmConversion", it) }
             Divider()
-            ToggleRow("逐个切换按钮", toggles[2], "按键切换里显示上一个、下一个",
+            ToggleRow("逐个切换按钮", keySteps, "按键切换里显示上一个、下一个",
                 modifier = focusRow("逐个切换按钮", target)) { state.setExperiment("keySteps", it) }
             Divider()
             ActionRow("一键重新转换", "所有 MOD 按各自角色重新转换",

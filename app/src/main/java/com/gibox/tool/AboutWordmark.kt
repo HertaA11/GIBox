@@ -38,27 +38,29 @@ import kotlin.math.sin
 @Composable
 internal fun AboutWordmark(settings: AboutCardSettings, height: Dp = 328.dp) {
     val config = settings.config
-    val hasStickers = config.characters.isNotEmpty() && config.transparency < 100
-    val images by produceState<Map<String, Bitmap>>(emptyMap(), settings, hasStickers) {
-        value = if (hasStickers) settings.thumbnails() else emptyMap()
-    }
     Box(Modifier.fillMaxWidth().padding(start = 16.dp, top = 12.dp, end = 16.dp)
         .clip(CouiShape(28.dp, 3f)).height(height), contentAlignment = Alignment.Center) {
-        if (hasStickers && images.isNotEmpty()) {
-            StickerRows(config, images, Modifier.matchParentSize().blur((config.blur * .4f).dp))
-        }
+        CardStickerBackground(settings, Modifier.matchParentSize())
         when (val file = config.foreground) {
             WORDMARK -> BasicText("GIBox", style = rememberCouiTextStyle(CouiTextKind.HomeTitle)
-                .copy(color = CouiTheme.colorScheme.onSurface, fontSize = config.titleSize.sp, lineHeight = config.titleSize.sp))
+                .copy(color = CouiTheme.colorScheme.onSurface, fontSize = (config.stickerSize / 2f).sp, lineHeight = (config.stickerSize / 2f).sp))
             NO_IMAGE -> Unit
             else -> key(file) {
                 val full by produceState<Bitmap?>(null, settings, file) { value = settings.foreground(file) }
-                val bitmap = full ?: images[file]
+                val bitmap = full
                 if (bitmap != null) Image(remember(bitmap) { bitmap.asImageBitmap() },
                     cardImages.first { it.first == file }.second, Modifier.size(config.stickerSize.dp), alpha = 1f - config.transparency / 100f)
             }
         }
     }
+}
+
+@Composable
+internal fun CardStickerBackground(settings: AboutCardSettings, modifier: Modifier) {
+    val config = settings.config
+    if (config.characters.isEmpty() || config.transparency == 100) return
+    val images by produceState<Map<String, Bitmap>>(emptyMap(), settings) { value = settings.thumbnails() }
+    if (images.isNotEmpty()) StickerRows(config, images, modifier.blur((config.blur * .4f).dp))
 }
 
 @Composable
