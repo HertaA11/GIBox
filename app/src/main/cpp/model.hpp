@@ -261,7 +261,10 @@ class Blob {std::ifstream f;uint64_t n=0;public:
 inline Bytes view(const Json& v,Blob& blob,uint64_t expect,const std::string& what){
  require(v.type==Json::Array&&v.array.size()==2,"数据视图无效："+what);auto off=jnum(v.array[0],0,blob.size(),what+" 偏移"),len=jnum(v.array[1],0,blob.size(),what+" 长度");
  require(off%16==0,what+"：未按 16 字节对齐");require(len==expect,what+"：长度不符");require(off+len<=blob.size(),what+"：超出 model.bin 范围");return blob.read(off,len);}
-inline void finite(const Bytes& b,const std::string& what){for(size_t i=0;i+4<=b.size();i+=4)require(std::isfinite(f32(b.data()+i)),what+"：含非有限数值");}
+inline void finite(const Bytes& b,const std::string& what){
+ for(size_t i=0;i+4<=b.size();i+=4)
+  if(!std::isfinite(f32(b.data()+i)))throw std::runtime_error(what+"：含非有限数值");
+}
 inline TexRef textureRef(const Json& t,uint64_t size,const std::string& what){
  auto w=unsigned(juint(t,"width",1,model::maxTexture)),h=unsigned(juint(t,"height",1,model::maxTexture));const auto& v=jfield(t,"data");
  require(v.type==Json::Array&&v.array.size()==2,"数据视图无效："+what);auto off=jnum(v.array[0],0,size,what+" 偏移"),len=jnum(v.array[1],0,size,what+" 长度");
@@ -306,11 +309,22 @@ inline std::shared_ptr<ModelFile> loadModelFile(const std::string& dir,bool allT
   f.spec={ps.name,ps.renderer,0,ps.bones};f.geo.n=n;f.geo.ni=ni;const auto& d=jfield(p,"data");auto at=[&](const char* k,uint64_t len){return detail::view(jfield(d,k),blob,len,ps.name+"."+k);};
   f.geo.positions=at("positions",12ull*n);f.geo.normals=at("normals",12ull*n);f.geo.uvs=at("uv",8ull*n);f.geo.indices=at("indices",4ull*ni);f.weights=at("weights",32ull*n);
   detail::finite(f.geo.positions,ps.name+".positions");detail::finite(f.geo.normals,ps.name+".normals");detail::finite(f.geo.uvs,ps.name+".uv");
-  for(unsigned i=0;i<ni;i++)require(u32(f.geo.idx()+4ull*i)<n,ps.name+".indices：顶点编号超出范围");
+  for(unsigned i=0;i<ni;i++)
+   if(u32(f.geo.idx()+4ull*i)>=n)throw std::runtime_error(ps.name+".indices：顶点编号超出范围");
   // Skin: four weights (finite, non-negative, sum 1) then four bone indices (inside the part's skeleton) per vertex.
+  std::array<bool,model::maxBones> usedBones{};
   for(unsigned i=0;i<n;i++){const uint8_t* w=f.weights.data()+32ull*i;float sum=0;
-   for(int j=0;j<4;j++){float x=f32(w+4*j);unsigned b=u32(w+16+4*j);require(std::isfinite(x)&&x>=0,ps.name+".weights：权重无效");require(b<ps.bones,ps.name+".weights：骨骼编号超出范围");sum+=x;if(x>0)f.used.insert(b);}
-   require(sum>=.999f&&sum<=1.001f,ps.name+".weights：权重之和不为 1");}
+   for(unsigned j=0;j<4;j++){
+    float weight=f32(w+4*j);
+    unsigned bone=u32(w+16+4*j);
+    if(!std::isfinite(weight)||weight<0)throw std::runtime_error(ps.name+".weights：权重无效");
+    if(bone>=ps.bones)throw std::runtime_error(ps.name+".weights：骨骼编号超出范围");
+    sum+=weight;
+    if(weight>0)usedBones[bone]=true;
+   }
+   if(sum<.999f||sum>1.001f)throw std::runtime_error(ps.name+".weights：权重之和不为 1");
+  }
+  for(unsigned bone=0;bone<ps.bones;bone++)if(usedBones[bone])f.used.insert(f.used.end(),bone);
   for(auto ch:{std::pair<const char*,unsigned>{"uv2",8},{"uv3",8},{"uv4",8},{"colors",4},{"tangents",16}}){
    if(d.at(ch.first).type==Json::Null){continue;}auto b=at(ch.first,uint64_t(ch.second)*n);if(ch.second!=4){detail::finite(b,ps.name+"."+ch.first);}f.channels.push_back({std::string(".")+ch.first,std::move(b)});}
   const auto& sk=p.at("skeleton");
