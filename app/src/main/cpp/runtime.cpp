@@ -361,12 +361,12 @@ struct Runtime::Impl {
   bool same=now.size()==texDiagWorker.size();if(same)for(auto& kv:now){auto o=texDiagWorker.find(kv.first);same=same&&o!=texDiagWorker.end()&&o->second.content==kv.second.content&&o->second.error==kv.second.error;}
   if(same&&!news){texDiagWorker=now;return;}
   texDiagWorker=now;std::lock_guard<std::mutex> l(sm);texDiagScanned=std::move(now);pcScanned=pcWorker;pcScannedNote=pcNote+(bundledNote.empty()?"":"；"+bundledNote);bundledScanned=bundledWorker;if(mapNow)mapScanned=mapNow;texDiagFresh=true;}
- // A visible model can jump ahead of its queued preload. Both jobs share one inflight key.
- void requestLoad(const ModelInfo& m,bool urgent){
+ // urgent: the character is appearing now: its job goes ahead of the queue (once; a queued copy then finds it loaded).
+ void requestLoad(const ModelInfo& m,bool urgent=false){
   auto key=m.path+"|"+m.generation;{std::lock_guard<std::mutex> l(sm);auto it=loaded.find(m.path);if(it!=loaded.end()&&it->second.generation==m.generation)return;
    if(inflight.count(key)&&(!urgent||urgentLoads.count(key))){return;}inflight.insert(key);if(urgent)urgentLoads.insert(key);}
   auto v=ctl.variables.find(m.name);std::map<std::string,int> chosen=v==ctl.variables.end()?std::map<std::string,int>{}:v->second;
-  auto job=[this,m,key,chosen]{{std::lock_guard<std::mutex> l(sm);if(!inflight.count(key))return;}
+  auto job=[this,m,key,chosen]{{std::lock_guard<std::mutex> l(sm);auto it=loaded.find(m.path);if(it!=loaded.end()&&it->second.generation==m.generation)return;}
    LoadResult r;r.generation=m.generation;
    try{auto bin=m.path+"/model.bin";auto stamp=stampOf(bin);bool known=false;{std::lock_guard<std::mutex> l(sm);auto c=verifiedBins.find(bin);known=c!=verifiedBins.end()&&c->second==stamp;}
     r.data=loadModel(m,chosen,!known);r.bytes=loadedBytes(*r.data);
@@ -1907,14 +1907,7 @@ struct Runtime::Impl {
   if(rigidRenderer(sn.renderer)){return m.id==1&&sn.fp.bones==0;}
   if(m.id!=1&&npcSource(sn.renderer).empty())return true;
   std::shared_ptr<ModelFile> data;{std::lock_guard<std::mutex> lock(sm);auto it=loaded.find(m.path);if(it!=loaded.end()&&it->second.generation==m.generation)data=it->second.data;}
-  if(!data){auto* set=findSet(m.path,m.generation);
-   if(set)data=set->data;
-   else{
-    // The owner and mesh already match. Read the NPC palette before the background preloads,
-    // then run the full bone and bindpose checks on the next pass.
-    requestLoad(m,true);
-    return false;
-   }}
+  if(!data){auto* set=findSet(m.path,m.generation);if(set)data=set->data;}
   if(!data||index>=data->parts.size()){return false;}
   const auto& part=data->parts[index];
   if(part.sourceBones.empty()||!sameBones(sn.renderer,part.sourceBones))return false;
@@ -2671,7 +2664,7 @@ struct Runtime::Impl {
      std::vector<Fingerprint> targets;if(!targetsFor(*m,targets))continue;std::vector<Seen> tpl;
      for(size_t i=0;i<targets.size();i++){for(auto& sn:found)if(matches(targets[i],sn.fp)&&modelFits(m->id,modelOutfit(*m),sn.renderer)&&npcTemplate(*m,i,sn)&&usableTemplate(sn,m->parts[i].minBones)){tpl.push_back(sn);break;}}
      if(tpl.size()!=targets.size())continue;
-     LoadResult res;if(!takeLoaded(*m,res)){requestLoad(*m,true);continue;}
+     LoadResult res;if(!takeLoaded(*m,res)){requestLoad(*m);continue;}
      if(!res.error.empty()){failed[m->path]={m->generation,res.error};log("model-error",m->name+"："+res.error);continue;}
      Set* cur=findSet(m->path,m->generation);if(cur&&!cur->built)releaseSet(cur);cur=startSet(*m,res,targets,now);
      try{while(!cur->built)buildStep(*cur,tpl[cur->parts.size()]);}catch(const std::exception& ex){log("spawn-build-error",m->name+"："+ex.what());releaseSet(cur);continue;}
@@ -3183,7 +3176,7 @@ struct Runtime::Impl {
     auto tpl=templatesFor(*m,targets);
     if(!cur){if(!tpl){auto st=staleNote.find(m->path);if(st!=staleNote.end()){waiting=m->name+"："+st->second;stale=true;}
       else{auto& why=waitReason(*m,targets,now);if(waiting.empty()){waiting=m->name+"："+(why.reason.empty()?std::string("等待该角色出现"):why.reason);stale=why.plain;}}
-      continue;}LoadResult res;if(!takeLoaded(*m,res)){requestLoad(*m,true);if(!takeLoaded(*m,res)){building.push_back(m->name);continue;}}
+      requestLoad(*m);continue;}LoadResult res;if(!takeLoaded(*m,res)){requestLoad(*m);if(!takeLoaded(*m,res)){building.push_back(m->name);continue;}}
      if(!res.error.empty()){failed[m->path]={m->generation,res.error};log("model-error",m->name+"："+res.error);errors.push_back(m->name+"："+res.error);continue;}
      cur=startSet(*m,res,targets,now);}
     if(!budget||!tpl){building.push_back(m->name);continue;}budget=false;
