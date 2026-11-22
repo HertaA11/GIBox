@@ -45,13 +45,15 @@ internal data class AboutCardConfig(
     val direction: StickerDirection = StickerDirection.Alternate,
     val speed: Int = 10,
     val blur: Int = 10,
-    val stickerSize: Int = 80,
+    val foregroundSize: Int = 80,
+    val backgroundSize: Int = 80,
     val pauseOnOtherPages: Boolean = false,
 )
 
 internal class AboutCardSettings(private val context: Context) {
     private val prefs = context.getSharedPreferences("about-card", Context.MODE_PRIVATE)
     private val defaults = AboutCardConfig()
+    private val legacySize = prefs.getInt("stickerSize", defaults.foregroundSize)
     var config by mutableStateOf(AboutCardConfig(
         foreground = prefs.getString("foreground", null)?.takeIf { it in imageKeys } ?: defaults.foreground,
         characters = prefs.getStringSet("characters", null)?.let { saved ->
@@ -65,7 +67,8 @@ internal class AboutCardSettings(private val context: Context) {
         direction = StickerDirection.entries.find { it.name == prefs.getString("direction", null) } ?: defaults.direction,
         speed = prefs.getInt("speed", defaults.speed).coerceIn(0, 20),
         blur = prefs.getInt("blur", defaults.blur).coerceIn(0, 20),
-        stickerSize = prefs.getInt("stickerSize", defaults.stickerSize).coerceIn(cardSizes),
+        foregroundSize = prefs.getInt("foregroundSize", legacySize).coerceIn(cardSizes),
+        backgroundSize = prefs.getInt("backgroundSize", legacySize).coerceIn(cardSizes),
         pauseOnOtherPages = prefs.getBoolean("pauseOnOtherPages", defaults.pauseOnOtherPages),
     ))
         private set
@@ -79,7 +82,8 @@ internal class AboutCardSettings(private val context: Context) {
             .putStringSet("characters", next.characters.map { it.name }.toSet()).putInt("transparency", next.transparency)
             .putString("arrangement", next.arrangement.name).putBoolean("diagonal", next.diagonal)
             .putString("direction", next.direction.name).putInt("speed", next.speed).putInt("blur", next.blur)
-            .putInt("stickerSize", next.stickerSize).remove("titleSize")
+            .putInt("foregroundSize", next.foregroundSize).putInt("backgroundSize", next.backgroundSize)
+            .remove("stickerSize").remove("titleSize")
             .putBoolean("pauseOnOtherPages", next.pauseOnOtherPages).apply()
     }
 

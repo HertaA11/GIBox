@@ -2,6 +2,7 @@ package com.gibox.tool
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -15,6 +16,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -35,9 +37,11 @@ internal fun AboutSettingsScreen(settings: AboutCardSettings, back: () -> Unit) 
     Page("关于界面设置", back) { padding ->
         BoxWithConstraints(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
             val previewHeight = minOf(328.dp, maxHeight * .45f)
-            Column {
+            Column(Modifier.fillMaxSize()) {
                 AboutWordmark(settings, previewHeight)
-                ColumnPage(PaddingValues(0.dp)) { AboutCardControls(settings) { showReset = true } }
+                Box(Modifier.weight(1f).clipToBounds()) {
+                    ColumnPage(PaddingValues(0.dp)) { AboutCardControls(settings) { showReset = true } }
+                }
             }
         }
     }
@@ -96,8 +100,12 @@ private fun AboutCardControls(settings: AboutCardSettings, onReset: () -> Unit) 
         Divider()
         CardSlider("贴纸透明度", config.transparency, 100, { "$it%" }) { settings.update(settings.config.copy(transparency = it)) }
         Divider()
-        CardSlider("贴纸与 GIBox 大小", config.stickerSize, cardSizes.last, { "${it} dp" }, min = cardSizes.first) {
-            settings.update(settings.config.copy(stickerSize = it))
+        CardSlider("主贴图大小", config.foregroundSize, cardSizes.last, { "${it} dp" }, min = cardSizes.first) {
+            settings.update(settings.config.copy(foregroundSize = it))
+        }
+        Divider()
+        CardSlider("背景贴图大小", config.backgroundSize, cardSizes.last, { "${it} dp" }, min = cardSizes.first) {
+            settings.update(settings.config.copy(backgroundSize = it))
         }
     }
     Group {

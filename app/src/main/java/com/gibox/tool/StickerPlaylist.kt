@@ -14,9 +14,9 @@ internal class StickerPlaylist(selected: Set<StickerCharacter>, val wholeRows: B
         rounds * roles.size * if (wholeRows) 3 else 1
     }
 
-    fun fileAt(center: Boolean, rowOrdinal: Int, slot: Int, scene: Int): String {
-        val turn = if (wholeRows) scene + rowOrdinal else slot + rowOrdinal
-        if (center && pinHuTao) {
+    fun fileAt(row: Int, slot: Int, scene: Int): String {
+        val turn = if (wholeRows) scene + row else slot + row
+        if (row == 0 && pinHuTao) {
             val files = StickerCharacter.Hutao.files
             return files[Math.floorMod(scene, files.size)]
         }

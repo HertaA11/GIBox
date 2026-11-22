@@ -45,12 +45,12 @@ internal fun AboutWordmark(settings: AboutCardSettings, height: Dp = 328.dp) {
         CardStickerBackground(settings, Modifier.matchParentSize())
         when (val file = config.foreground) {
             WORDMARK -> BasicText("GIBox", style = rememberCouiTextStyle(CouiTextKind.HomeTitle)
-                .copy(color = CouiTheme.colorScheme.onSurface, fontSize = (config.stickerSize / 2f).sp, lineHeight = (config.stickerSize / 2f).sp))
+                .copy(color = CouiTheme.colorScheme.onSurface, fontSize = (config.foregroundSize / 2f).sp, lineHeight = (config.foregroundSize / 2f).sp))
             NO_IMAGE -> Unit
             else -> {
                 val image = remember(settings, file) { settings.foreground(file).asImageBitmap() }
                 val description = cardImages.first { it.first == file }.second
-                Image(image, description, Modifier.size(config.stickerSize.dp),
+                Image(image, description, Modifier.size(config.foregroundSize.dp),
                     alpha = 1f - config.transparency / 100f)
             }
         }
@@ -90,7 +90,7 @@ private fun StickerRows(config: AboutCardConfig, atlas: Bitmap, modifier: Modifi
         }
     }
     Spacer(modifier.drawWithCache {
-        val side = config.stickerSize.dp.toPx()
+        val side = config.backgroundSize.dp.toPx()
         val halfCellWidth = side / 2
         val halfCellHeight = side / 2
         val maxAlpha = 255f * (1f - config.transparency / 100f)
@@ -121,8 +121,8 @@ private fun StickerRows(config: AboutCardConfig, atlas: Bitmap, modifier: Modifi
                 canvas.drawBitmap(atlas, source, rect, paint)
             }
             for (row in -lastRow..lastRow) {
-                val ordinal = row + lastRow
-                val odd = ordinal % 2 == 1
+                // Row zero stays at the card center as the visible range expands or contracts.
+                val odd = Math.floorMod(row, 2) == 1
                 val negative = config.direction == StickerDirection.Left || (config.direction == StickerDirection.Alternate && odd)
                 val travel = if (negative) -progress else progress
                 val whole = floor(travel).toInt()
@@ -133,8 +133,8 @@ private fun StickerRows(config: AboutCardConfig, atlas: Bitmap, modifier: Modifi
                     val x = (col + offset) * pitchX
                     val y = row * pitchY
                     val slot = col - whole
-                    drawTile(playlist.fileAt(row == 0, ordinal, slot, scene), x, y, 1f - fade)
-                    if (fade > 0f) drawTile(playlist.fileAt(row == 0, ordinal, slot, scene + 1), x, y, fade)
+                    drawTile(playlist.fileAt(row, slot, scene), x, y, 1f - fade)
+                    if (fade > 0f) drawTile(playlist.fileAt(row, slot, scene + 1), x, y, fade)
                 }
             }
             canvas.restore()
