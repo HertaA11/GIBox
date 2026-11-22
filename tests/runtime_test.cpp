@@ -999,6 +999,22 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
    write(sp+"/control.json",R"J({"enabled":true,"selected":[]})J");run(1000);
    assert(meshOf(n1)==original&&meshOf(monster)==original&&meshOf(weapon)==original);
    rt.shutdown();assert(f->handles.empty());}
+  // Enable once with Paimon already in the scene, behind several absent NPCs in the preload order.
+  for(const char* name:{"AbsentA","AbsentB","AbsentC"})writeModel(sp+"/models/"+name,sceneSpec("npc_absent"));
+  writeModel(sp+"/models/Paimon",sceneSpec("npc_kanban_paimon"));
+  Ptr paimonRoot=f->object("transform","NPC_Kanban_Paimon(Clone)");
+  Ptr paimon=f->renderer(original,"BoneA","Body",paimonRoot);
+  Ptr wrongPalette=f->renderer(badMesh,"BoneA","Body",paimonRoot);
+  f->scene={player,paimon,wrongPalette,wrong};
+  auto config=[&](bool enabled){write(sp+"/control.json",std::string("{\"enabled\":")+(enabled?"true":"false")+
+    ",\"selected\":[\"AbsentA\",\"AbsentB\",\"AbsentC\",\"Paimon\"]}");};
+  config(false);
+  {Runtime rt(e,pkg,root+"/privatePaimon",mediaI,false);rt.tick(8830000);
+   config(true);rt.tick(8830600);rt.tick(8830700);
+   assert(meshOf(paimon)!=original&&meshOf(wrongPalette)==badMesh&&meshOf(wrong)==original);
+   auto verified=text(root+"/privatePaimon/verified-models.txt");
+   assert(verified.find("/Paimon/model.bin")!=std::string::npos&&verified.find("/AbsentC/model.bin")==std::string::npos);
+   rt.shutdown();assert(meshOf(paimon)==original&&f->handles.empty());}
   f->world(0);f->scene={};}
 
  // Static weapons use MeshFilter exclusively: no bone getter, skin allocation or skinned renderer setter.
