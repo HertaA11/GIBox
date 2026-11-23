@@ -1499,6 +1499,36 @@ int main(int argc,char** argv){Fake fake;f=&fake;abi::allocVerified=true;   // t
   write(sharedQ+"/control.json","{\"enabled\":true,\"selected\":[],\"textureMods\":{\"strategy\":\"direct\"}}");run(1000);
   assert(f->diffuse[mat]==gameTex&&f->diffuse[tmat]==gameTex&&f->diffuse[hmat]==gameTex&&f->diffuse[ainst]==gameTex&&f->diffuse[minst]==gameTex);
   q.shutdown();f->world(0);f->scene={};}
+ // Anemolumine is enabled with the original Lumine preview already open while the world controls another character.
+ {std::string media=root+"/mediaAnemo",shared=media+"/"+pkg+"/GIBox",mod=shared+"/models/Anemo";
+  std::filesystem::create_directories(mod+"/textures");
+  Bytes rgba(16,0xff);write(mod+"/textures/0.rgba",rgba.data(),rgba.size());write(mod+"/textures/1.rgba",rgba.data(),rgba.size());
+  write(mod+"/texture.json",R"J({"format":"gibox-texture-mod","version":1,"name":"Anemo","generation":"t1","character":{"id":10000007},
+   "variants":{"vars":[],"default":{}},
+   "textures":[{"resource":"head","file":"textures/0.rgba","width":2,"height":2},{"resource":"body","file":"textures/1.rgba","width":2,"height":2}],
+   "diag":{"format":"gibox-texture-diag","version":1,"rules":[
+    {"section":"Head","hash":"dfb54407","first":0,"kind":"segment","hint":"head","textures":[{"slot":"ps-t0","resource":"head","role":"diffuse"}]},
+    {"section":"Body","hash":"dfb54407","first":6915,"kind":"segment","hint":"modbody","textures":[{"slot":"ps-t0","resource":"body","role":"diffuse"}]},
+    {"section":"Dress","hash":"dfb54407","first":40413,"kind":"segment","hint":"moddress","textures":[{"slot":"ps-t0","resource":"body","role":"diffuse"}]}]}})J");
+  write(shared+"/device-hashes.json",R"J({"format":"gibox-hash-map","version":1,"meshes":[{"ib":"dfb54407","mesh":"Body",
+   "renderer":"body","avatar":"avatar_girl_sword_playergirl","vertices":12022,"bones":1,"submeshes":[[0,6915],[6915,33498],[40413,3498]]}]})J");
+  write(shared+"/skeleton-policy.json",R"J({"models":{"playergirl":10000007}})J");
+  Ptr mesh=f->mesh("Body",12022);texRanges[mesh]={{0,6915},{6915,33498},{40413,3498}};
+  Ptr avatar=f->object("transform","Avatar_Girl_Sword_PlayerGirl"),outfit=f->object("transform","Avatar_Girl_Sword_PlayerGirlCostumeCWXR");
+  Ptr preview=f->renderer(mesh,"BoneA","Body",avatar),wrong=f->renderer(mesh,"BoneA","Body",outfit);
+  Ptr player=f->renderer(f->mesh("OtherBody")),original=f->object("texture","GameDiffuse");
+  auto materials=[&](Ptr r){std::array<Ptr,3> mats;const char* parts[]={"Hair","Body","Dress"};
+   for(size_t i=0;i<mats.size();i++){mats[i]=f->object("material",std::string("Avatar_Girl_Sword_PlayerGirl_Mat_")+parts[i]);
+    f->diffuse[mats[i]]=original;store<uint32_t>(load<Ptr>(mats[i]+0x10)+8,uint32_t(-30-int(i)));}
+   f->obj[r].materials=f->array(8,3,mats.data());return mats;};
+  auto mats=materials(preview),wrongMats=materials(wrong);f->world(player);f->scene={player,preview,wrong};
+  auto control=[&](bool on){write(shared+"/control.json",std::string("{\"enabled\":true,\"selected\":[")+(on?"\"Anemo\"":"")+"],\"textureMods\":{\"strategy\":\"direct\"}}");};
+  control(false);auto handles=f->handles.size();Runtime rt(e,pkg,root+"/privateAnemo",media,false);uint64_t t=6900000;
+  auto run=[&]{for(uint64_t end=t+3000;t<end;t+=250)rt.tick(t);};run();control(true);run();
+  assert(f->diffuse[mats[0]]!=original&&f->diffuse[mats[1]]!=original&&f->diffuse[mats[1]]==f->diffuse[mats[2]]&&f->diffuse[mats[0]]!=f->diffuse[mats[1]]);
+  for(Ptr mat:wrongMats)assert(f->diffuse[mat]==original);
+  f->scene={player,wrong};run();for(Ptr mat:mats)assert(f->diffuse[mat]==original);
+  rt.shutdown();assert(f->handles.size()==handles);f->world(0);f->scene={};}
  // 42b. Two texture-only mods (1.0.2, device report): another character's mod (ATexOther, earlier in the map) checks
  //      this character's Body against its own mapping and fails on the avatar; that must not make this character's mod
  //      skip the Body, and a detail-page hand-off must not drop the world model's slots when that model goes away.

@@ -545,6 +545,7 @@ struct Runtime::Impl {
  std::map<std::string,std::unique_ptr<TexStore>> texStores;std::vector<std::unique_ptr<TexStore>> texStoresKept;
  struct TexDone {texdiag::Write write;Ptr before=0,ours=0;};
  struct TexSlot {std::string rule,evidence,label,mesh,plan;std::vector<size_t> rules;Ptr renderer=0,native=0,material=0,materialNative=0,clone=0;int slot=-1;bool lod=false;std::vector<TexDone> writes;unsigned again=0;bool gaveUp=false;uint64_t writtenAt=0;
+  Ptr previewMesh=0;std::string previewAvatar;
   bool adopted=false;Ptr copy=0,source=0;};   // adopted: material is the game's instance made from ours (copy / source: our copy it came from, the material that copy replaced)
  struct TexLive:Owned {std::string path,mod,strategy,test;std::vector<TexSlot> slots;std::set<std::string> said;};
  std::map<std::string,std::unique_ptr<TexLive>> texLive;std::vector<std::unique_ptr<TexLive>> texStranded;
@@ -691,7 +692,8 @@ struct Runtime::Impl {
   Ptr arr=e.get(abi::getMaterials,r);if(arr)for(Ptr m:pointers(arr,64)){texdiag::Material mat;mat.material=m;if(alive(m))mat.name=name(m);info.materials.push_back(mat);}
   return info;}
  // One slot to write: every rule on it (a segment and texture hashes; texdiag::writesFor merges them).
- struct TexTarget {Ptr renderer=0,native=0;int slot=-1;std::vector<size_t> rules;std::string evidence,label,mesh;bool lod=false;};
+ struct TexTarget {Ptr renderer=0,native=0;int slot=-1;std::vector<size_t> rules;std::string evidence,label,mesh;bool lod=false;
+  Ptr previewMesh=0;std::string previewAvatar={};};
  // A renderer against the records: the full mesh by all its features, a lower LOD (migrate only) by renderer, mesh base
  // name, avatar, submesh count and the slot materials' part names. why: what keeps it from being written, when nothing does.
  std::vector<TexTarget> texRecordTargets(const std::string& path,const texdiag::TextureMod& m,Ptr r,std::string& why){std::vector<TexTarget> out;
@@ -809,6 +811,55 @@ struct Runtime::Impl {
    const pcdb::Mesh* ent=dm?dm->find(pcdb::lower(r.hash)):nullptr;
    if(ent)want.push_back({k,ent});else if(missing.find(r.hash)==std::string::npos)missing+=(missing.empty()?"":"、")+r.hash;}
   return want;}
+ // The scene scan can find a character preview even when the world still controls another avatar.
+ // Bootstrap its first mapping only from explicit IB segments with an exact avatar and full mesh fingerprint.
+ std::vector<TexTarget> texPreviewTargets(const texdiag::TextureMod& m){
+  std::vector<TexTarget> out;
+  const auto* table=deviceMap();
+  if(!table||!bonePolicy)return out;
+  using Key=std::pair<std::string,unsigned>;
+  std::map<Key,SceneWant> wanted;
+  for(size_t i=0;i<m.doc.rules.size();i++){
+   const auto& rule=m.doc.rules[i];
+   if(rule.kind!="segment")continue;
+   const auto* mesh=table->find(pcdb::lower(rule.hash));
+   if(!mesh||mesh->avatar.empty()||mesh->renderer.empty()||lowerLod(mesh->mesh)||previewId(mesh->avatar)!=m.character)continue;
+   wanted[{mesh->mesh,mesh->vertices}].push_back({i,mesh});
+  }
+  if(wanted.empty())return out;
+  for(const auto& sn:seen){
+   auto candidate=wanted.find({sn.fp.mesh,sn.fp.vertices});
+   if(candidate==wanted.end()||!seenLive(sn)||!alive(sn.mesh))continue;
+   Ptr r=sn.renderer;
+   try{
+    if(!texUsable(nullptr,r,"")||!npcSource(r).empty()||meshGet(r)!=sn.mesh)continue;
+    auto info=texLightRead(r);
+    if(!info.known()||info.layout.subs.size()!=info.materials.size()||info.lod)continue;
+    std::set<size_t> verified;
+    for(const auto& w:candidate->second){
+     const auto& mesh=*w.second;
+     if(info.avatar!=mesh.avatar||normalize(info.name)!=normalize(mesh.renderer)||
+        (mesh.bones&&info.bones!=mesh.bones)||info.layout.subs.size()!=mesh.subs.size())continue;
+     bool same=true;
+     for(size_t i=0;same&&i<mesh.subs.size();i++)
+      same=info.layout.subs[i].start==mesh.subs[i].first&&info.layout.subs[i].count==mesh.subs[i].second;
+     if(same)verified.insert(w.first);
+    }
+    if(verified.empty())continue;
+    std::vector<texdiag::Renderer> renderers{std::move(info)};
+    const auto& preview=renderers.front();
+    std::map<int,size_t> slots;
+    for(const auto& match:texdiag::match(m.doc,renderers,table)){
+     if(match.verdict!=texdiag::Verdict::Confirmed||match.renderer!=0||match.slot<0||!verified.count(match.rule))continue;
+     auto slot=slots.emplace(match.slot,out.size());
+     if(slot.second)out.push_back({r,preview.native,match.slot,{},"角色预览："+preview.avatar+"，设备 IB 哈希、完整网格和子网格布局一致",
+      texdiag::label(preview),preview.meshName,false,preview.mesh,preview.avatar});
+     out[slot.first->second].rules.push_back(match.rule);
+    }
+   }catch(const std::exception& ex){texDiagLog("texture-error","preview|"+m.doc.path+"|"+hex(r),m.name+"：读取角色预览："+ex.what());}
+  }
+  return out;
+ }
  // One renderer against them: its slots to write go to out (taken: slots already counted). learn: read its mesh even when
  // no rule names it (an upload of a missing hash may be tied to it).
  void sceneTargetsFor(const texdiag::TextureMod& m,TexLive* L,Ptr r,const SceneWant& want,bool learn,std::vector<TexTarget>& out,std::set<std::pair<Ptr,int>>& taken,unsigned& shown){
@@ -847,6 +898,7 @@ struct Runtime::Impl {
  bool texApply(TexLive& L,const texdiag::TextureMod& m,const std::map<std::string,Texture>& px,const TexTarget& t,TexSlot& s){
   std::vector<std::string> skipped;auto plan=texdiag::writesFor(m.doc,t.rules,texVars(m),skipped);
   s=TexSlot{};s.rule=texdiag::sections(m.doc,t.rules);s.rules=t.rules;s.evidence=t.evidence;s.label=t.label;s.mesh=t.mesh;s.renderer=t.renderer;s.native=t.native;s.slot=t.slot;s.lod=t.lod;for(auto& w:plan)s.plan+=w.property+"="+w.resource+";";
+  s.previewMesh=t.previewMesh;s.previewAvatar=t.previewAvatar;
   std::string line=texTag(L)+"：规则 "+s.rule+" → "+(m.character==texdiag::kScene?std::string(gliderMod(m)?"风之翼":"NPC / 怪物"):"角色 "+std::to_string(ch.config))+"，"+t.label+"，网格 "+t.mesh+"，精度 "+(t.lod?"低精度":"完整")+"，槽 "+std::to_string(t.slot)+"，依据 "+t.evidence;
   Ptr arr=e.get(abi::getMaterials,t.renderer);require(arr!=0,"没有材质数组");auto current=pointers(arr,64);require(size_t(t.slot)<current.size(),"槽 "+std::to_string(t.slot)+" 超出材质数 "+std::to_string(current.size()));
   Ptr mat=current[size_t(t.slot)];require(alive(mat),"槽位材质已销毁");line+="，材质 "+texMaterial(mat);
@@ -930,6 +982,7 @@ struct Runtime::Impl {
    else for(auto& w:s.writes){if(!alive(w.ours)){event="GIBox 用于 "+w.write.property+" 的贴图被游戏销毁（场景切换时卸载未用资源，不是 GIBox 销毁的）";break;}
     Ptr now=e.call<Ptr>(abi::getTexture,s.material,propertyId(w.write.property.c_str()),Ptr(0));if(now!=w.ours){event=w.write.property+" 被游戏改写，当前为 "+texDescribe(now);break;}}
    if(event.empty()){continue;}uint64_t noticed=texClock(),since=s.writtenAt?noticed-s.writtenAt:0;
+   if(s.previewMesh&&(meshGet(r)!=s.previewMesh||avatarIdentity(r)!=s.previewAvatar))continue;
    if(++s.again>16){s.gaveUp=true;log("texture-event",head+event+"；已重新写入 16 次，停止");continue;}
    unsigned again=s.again;std::string when="；发现途径 "+via+"，距 GIBox 写入 "+std::to_string(since)+" ms";
    // A material the game made from ours (its per-renderer instance of our copy or of the material we wrote, as the
@@ -941,7 +994,7 @@ struct Runtime::Impl {
       if(!alive(w.ours)){std::string note;w.ours=texOurs(L,px,w.write,note);line+="；"+w.write.property+note;}
       putTexture(s.material,w.write.property.c_str(),w.ours);Ptr back=e.call<Ptr>(abi::getTexture,s.material,id,Ptr(0));line+="；"+w.write.property+"："+texDescribe(now)+" → "+texDescribe(w.ours)+"，回读"+(back==w.ours?"一致":"不一致，当前为 "+texDescribe(back));}
     s.writtenAt=texClock();log("texture-event",head+event+"；已在游戏由 GIBox 材质复制出的实例中重新写入（不复制）"+line+when+"，第 "+std::to_string(again)+" 次");continue;}
-   TexTarget t{s.renderer,s.native,s.slot,s.rules,s.evidence,s.label,s.mesh,s.lod};
+   TexTarget t{s.renderer,s.native,s.slot,s.rules,s.evidence,s.label,s.mesh,s.lod,s.previewMesh,s.previewAvatar};
    bool restored=texRestore(L,s,"游戏修改后重新写入");if(!restored){s.gaveUp=true;continue;}
    try{texApply(L,m,px,t,s);s.again=again;}catch(const std::exception& ex){log("texture-error",texTag(L)+"："+ex.what());s.gaveUp=true;continue;}
    log("texture-event",head+event+when+"，"+std::to_string(texClock()-noticed)+" ms 内重新写入，第 "+std::to_string(again)+" 次");}}
@@ -1076,16 +1129,22 @@ struct Runtime::Impl {
   for(auto& kv:texDiagDocs){auto& f=kv.second;if(!f.mod||!texModOn(f.mod->name))continue;const auto& m=*f.mod;std::string who=m.name+"：";
    const bool scene=m.character==texdiag::kScene;
    bool onCharacter=ch.entity&&m.character==ch.config;
-   if(!scene&&!onCharacter&&!ctl.npcModels){status+=(status.empty()?"":"；")+who+"等待角色 "+std::to_string(m.character);continue;}
    if(strategy=="diagnose"){status+=(status.empty()?"":"；")+who+"只诊断，不写入（调试页里可换替换方式）";continue;}
+   auto preview=scene||onCharacter?std::vector<TexTarget>{}:texPreviewTargets(m);
+   bool hasPreviewSlots=false;auto previous=texLive.find(kv.first);
+   if(previous!=texLive.end()&&previous->second)for(const auto& slot:previous->second->slots)hasPreviewSlots=hasPreviewSlots||slot.previewMesh;
+   if(!scene&&!onCharacter&&!ctl.npcModels&&preview.empty()&&!hasPreviewSlots){status+=(status.empty()?"":"；")+who+"等待角色 "+std::to_string(m.character);continue;}
    TexLive* L=nullptr;std::shared_ptr<std::map<std::string,Texture>> px;std::string why;
    if(!texLiveFor(kv.first,f,strategy,test,L,px,why)){status+=(status.empty()?"":"；")+who+"贴图读取中";if(why!="正在读取贴图"&&why!="正在先还原上一种替换方式")log("texture-error",m.name+"："+why);continue;}
    if(!texStoreReady(kv.first,why)){status+=(status.empty()?"":"；")+who+"贴图准备中（"+why+"）";continue;}
    auto targets=scene?texSceneTargets(m,L):texTargets(kv.first,m,L);
-   if(!scene&&!onCharacter)targets.erase(std::remove_if(targets.begin(),targets.end(),[&](const TexTarget& t){return npcSource(t.renderer).empty();}),targets.end());
+   if(!scene&&!onCharacter){
+    targets.erase(std::remove_if(targets.begin(),targets.end(),[&](const TexTarget& t){return npcSource(t.renderer).empty();}),targets.end());
+    for(auto& target:preview)targets.push_back(std::move(target));
+   }
    // Slots no longer targeted (renderer gone, mapping lost) go back; a changed variant is written again.
    std::set<Ptr> deferred=texDeferred;
-   bool failed=false;for(auto it=L->slots.begin();it!=L->slots.end();){if(!scene&&!onCharacter&&npcSource(it->renderer).empty()){++it;continue;}bool still=false;for(auto& t:targets)still=still||(t.renderer==it->renderer&&t.slot==it->slot);
+   bool failed=false;for(auto it=L->slots.begin();it!=L->slots.end();){if(!scene&&!onCharacter&&!it->previewMesh&&npcSource(it->renderer).empty()){++it;continue;}bool still=false;for(auto& t:targets)still=still||(t.renderer==it->renderer&&t.slot==it->slot);
     // A renderer whose check was only put off (texWaitUntil) keeps its slots while it lives: not a "no longer targeted".
     if(!still&&deferred.count(it->renderer)&&alive(it->renderer)&&load<Ptr>(it->renderer+0x10)==it->native){++it;continue;}
     std::string plan;if(still){for(auto& t:targets)if(t.renderer==it->renderer&&t.slot==it->slot){std::vector<std::string> sk;for(auto& w:texdiag::writesFor(m.doc,t.rules,texVars(m),sk))plan+=w.property+"="+w.resource+";";}}
