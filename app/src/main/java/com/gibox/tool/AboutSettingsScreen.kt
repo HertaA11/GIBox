@@ -1,5 +1,6 @@
 package com.gibox.tool
 
+import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Box
@@ -13,15 +14,17 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.hideFromAccessibility
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import com.itos.coui.dialog.CouiDialogAction
-import com.itos.coui.dialog.Dialog
+import com.itos.coui.backdrop.couiBackdrop
+import com.itos.coui.backdrop.rememberCouiBackdrop
 import com.itos.coui.layout.Divider
 import com.itos.coui.layout.Group
 import com.itos.coui.menu.CouiMenuItem
@@ -34,26 +37,30 @@ import kotlin.math.roundToInt
 @Composable
 internal fun AboutSettingsScreen(settings: AboutCardSettings, back: () -> Unit) {
     var showReset by rememberSaveable { mutableStateOf(false) }
-    Page("关于界面设置", back) { padding ->
-        BoxWithConstraints(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
-            val previewHeight = minOf(328.dp, maxHeight * .45f)
-            Column(Modifier.fillMaxSize()) {
-                AboutWordmark(settings, previewHeight)
-                Box(Modifier.weight(1f).clipToBounds()) {
-                    ColumnPage(PaddingValues(0.dp)) { AboutCardControls(settings) { showReset = true } }
+    val visibility = remember { MutableTransitionState(false) }.apply { targetState = showReset }
+    val backdrop = rememberCouiBackdrop()
+    val covered = showReset || visibility.currentState || !visibility.isIdle
+    val source = if (covered) Modifier.couiBackdrop(backdrop).semantics { hideFromAccessibility() }
+        else Modifier
+    Box(Modifier.fillMaxSize()) {
+        // The backdrop contains the page only. The confirmation is a sibling in the same window.
+        Box(Modifier.fillMaxSize().then(source)) {
+            Page("关于界面设置", back) { padding ->
+                BoxWithConstraints(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
+                    val previewHeight = minOf(328.dp, maxHeight * .45f)
+                    Column(Modifier.fillMaxSize()) {
+                        AboutWordmark(settings, previewHeight)
+                        Box(Modifier.weight(1f).clipToBounds()) {
+                            ColumnPage(PaddingValues(0.dp)) { AboutCardControls(settings) { showReset = true } }
+                        }
+                    }
                 }
             }
         }
-    }
-    if (hasBeenShown(showReset)) {
-        val dismiss = { showReset = false }
-        Dialog(visible = showReset, material = dialogMaterial(), title = "是否重置当前设置",
-            message = "demo默认", onDismissRequest = dismiss,
-            dismissAction = CouiDialogAction("取消", dismiss),
-            confirmAction = primaryDialogAction("确定") {
-                settings.reset()
-                dismiss()
-            })
+        AboutResetConfirmation(visibility, backdrop, onDismiss = { showReset = false }) {
+            settings.reset()
+            showReset = false
+        }
     }
 }
 
